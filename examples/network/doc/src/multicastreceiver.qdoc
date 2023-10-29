@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example multicastreceiver
+    \title Multicast Receiver
+    \examplecategory {Networking}
+    \meta tags {network,multicast,ipv6,ipv4,udp}
+    \ingroup examples-network
+    \brief Demonstrates how to receive information sent to a multicast group.
+
+    This example demonstrates how to receive messages sent to a multicast group.
+    \image multicastreceiver-example.webp
+*/

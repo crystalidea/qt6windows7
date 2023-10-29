@@ -1,0 +1,53 @@
+// This is mainly used to allow Android Studio to easily read this folder as an android project.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.0.2'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+android {
+    compileSdkVersion 31
+    buildToolsVersion "31.0.3"
+
+    defaultConfig {
+        minSdkVersion 23
+        targetSdkVersion 31
+    }
+
+    sourceSets {
+        main {
+            java.srcDir 'src/'
+            resources.srcDir 'libs/'
+            manifest.srcFile 'AndroidManifest.xml'
+            res.srcDirs = ['res/']
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    android {
+        lintOptions {
+            abortOnError true
+        }
+    }
+}

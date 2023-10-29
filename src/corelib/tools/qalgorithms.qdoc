@@ -1,0 +1,242 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \headerfile <QtAlgorithms>
+    \inmodule QtCore
+    \title Generic Algorithms
+    \ingroup funclists
+    \keyword generic algorithms
+
+    \brief The <QtAlgorithms> header includes the generic, template-based algorithms.
+
+    Qt provides a number of global template functions in \c
+    <QtAlgorithms> that work on containers and perform small tasks to
+    make life easier, such as qDeleteAll(), which invokes \c{operator delete}
+    on all items in a given container or in a given range.
+    You can use these algorithms with any \l {container
+    class} that provides STL-style iterators, including Qt's QList,
+    QMap, and QHash classes.
+
+    Most algorithms take \l {STL-style iterators} as parameters. The
+    algorithms are generic in the sense that they aren't bound to a
+    specific iterator class; you can use them with any iterators that
+    meet a certain set of requirements.
+
+    Different algorithms can have different requirements for the
+    iterators they accept. The iterator types required are specified
+    for each algorithm. If an iterator of the wrong type is passed (for
+    example, if QList::ConstIterator is passed as an
+    \l {Output Iterators}{output iterator}), you will always get a
+    compiler error, although not necessarily a very informative one.
+
+    Some algorithms have special requirements on the value type stored
+    in the containers. For example, qDeleteAll() requires that the
+    value type is a non-const pointer type (for example, QWidget
+    *). The value type requirements are specified for each algorithm,
+    and the compiler will produce an error if a requirement isn't met.
+
+    The generic algorithms can be used on other container classes
+    than those provided by Qt and STL. The syntax of STL-style
+    iterators is modeled after C++ pointers, so it's possible to use
+    plain arrays as containers and plain pointers as iterators.
+
+    \section1 Types of Iterators
+
+    The algorithms have certain requirements on the iterator types
+    they accept, and these are specified individually for each
+    function. The compiler will produce an error if a requirement
+    isn't met.
+
+    \section2 Input Iterators
+
+    An \e{input iterator} is an iterator that can be used for reading
+    data sequentially from a container. It must provide the following
+    operators: \c{==} and \c{!=} for comparing two iterators, unary
+    \c{*} for retrieving the value stored in the item, and prefix
+    \c{++} for advancing to the next item.
+
+    The Qt containers' iterator types (const and non-const) are all
+    input iterators.
+
+    \section2 Output Iterators
+
+    An output iterator is an iterator that can be used for
+    writing data sequentially to a container or to some output
+    stream. It must provide the following operators: unary \c{*} for
+    writing a value (i.e., \c{*it = val}) and prefix \c{++} for
+    advancing to the next item.
+
+    The Qt containers' non-const iterator types are all output
+    iterators.
+
+    \section2 Forward Iterators
+
+    A \e{forward iterator} is an iterator that meets the requirements
+    of both input iterators and output iterators.
+
+    The Qt containers' non-const iterator types are all forward
+    iterators.
+
+    \section2 Bidirectional Iterators
+
+    A \e{bidirectional iterator} is an iterator that meets the
+    requirements of forward iterators but that in addition supports
+    prefix \c{--} for iterating backward.
+
+    The Qt containers' non-const iterator types are all bidirectional
+    iterators.
+
+    \section2 Random Access Iterators
+
+    The last category, \e{random access iterators}, is the most
+    powerful type of iterator. It supports all the requirements of a
+    bidirectional iterator, and supports the following operations:
+
+    \table
+    \row \li \c{i += n} \li advances iterator \c i by \c n positions
+    \row \li \c{i -= n} \li moves iterator \c i back by \c n positions
+    \row \li \c{i + n} or \c{n + i} \li returns the iterator for the item \c
+       n positions ahead of iterator \c i
+    \row \li \c{i - n} \li returns the iterator for the item \c n positions behind of iterator \c i
+    \row \li \c{i - j} \li returns the number of items between iterators \c i and \c j
+    \row \li \c{i[n]} \li same as \c{*(i + n)}
+    \row \li \c{i < j} \li returns \c true if iterator \c j comes after iterator \c i
+    \endtable
+
+    QList's non-const iterator type is random access iterator.
+
+    \sa {container classes}, <QtGlobal>
+*/
+
+/*!
+    \fn template <typename ForwardIterator> void qDeleteAll(ForwardIterator begin, ForwardIterator end)
+    \relates <QtAlgorithms>
+
+    Deletes all the items in the range [\a begin, \a end) using the
+    C++ \c delete operator. The item type must be a pointer type (for
+    example, \c{QWidget *}).
+
+    Example:
+    \snippet code/doc_src_qalgorithms.cpp 1
+
+    Notice that qDeleteAll() doesn't remove the items from the
+    container; it merely calls \c delete on them. In the example
+    above, we call clear() on the container to remove the items.
+
+    This function can also be used to delete items stored in
+    associative containers, such as QMap and QHash. Only the objects
+    stored in each container will be deleted by this function; objects
+    used as keys will not be deleted.
+
+    \sa {forward iterators}
+*/
+
+/*!
+    \fn template <typename Container> void qDeleteAll(const Container &c)
+    \relates <QtAlgorithms>
+
+    \overload
+
+    This is the same as qDeleteAll(\a{c}.begin(), \a{c}.end()).
+*/
+
+/*!
+    \fn uint qPopulationCount(quint8 v)
+    \relates <QtAlgorithms>
+    \since 5.2
+
+    Returns the number of bits set in \a v. This number is also called
+    the Hamming Weight of \a v.
+ */
+
+/*!
+    \fn uint qPopulationCount(quint16 v)
+    \relates <QtAlgorithms>
+    \since 5.2
+    \overload
+ */
+
+/*!
+    \fn uint qPopulationCount(quint32 v)
+    \relates <QtAlgorithms>
+    \since 5.2
+    \overload
+ */
+
+/*!
+    \fn uint qPopulationCount(quint64 v)
+    \relates <QtAlgorithms>
+    \since 5.2
+    \overload
+ */
+
+/*!
+    \fn uint qCountTrailingZeroBits(quint8 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+
+    Returns the number of consecutive zero bits in \a v, when searching from the LSB.
+    For example, qCountTrailingZeroBits(1) returns 0 and qCountTrailingZeroBits(8) returns 3.
+ */
+
+/*!
+    \fn uint qCountTrailingZeroBits(quint16 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+    \overload
+ */
+
+/*!
+    \fn uint qCountTrailingZeroBits(quint32 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+    \overload
+ */
+
+/*!
+    \fn uint qCountTrailingZeroBits(quint64 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+    \overload
+ */
+
+/*!
+    \fn uint qCountLeadingZeroBits(quint8 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+
+    Returns the number of consecutive zero bits in \a v, when searching from the MSB.
+    For example, qCountLeadingZeroBits(quint8(1)) returns 7 and
+    qCountLeadingZeroBits(quint8(8)) returns 4.
+ */
+
+/*!
+    \fn uint qCountLeadingZeroBits(quint16 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+
+    Returns the number of consecutive zero bits in \a v, when searching from the MSB.
+    For example, qCountLeadingZeroBits(quint16(1)) returns 15 and
+    qCountLeadingZeroBits(quint16(8)) returns 12.
+ */
+
+/*!
+    \fn uint qCountLeadingZeroBits(quint32 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+
+    Returns the number of consecutive zero bits in \a v, when searching from the MSB.
+    For example, qCountLeadingZeroBits(quint32(1)) returns 31 and
+    qCountLeadingZeroBits(quint32(8)) returns 28.
+ */
+
+/*!
+    \fn uint qCountLeadingZeroBits(quint64 v)
+    \relates <QtAlgorithms>
+    \since 5.6
+
+    Returns the number of consecutive zero bits in \a v, when searching from the MSB.
+    For example, qCountLeadingZeroBits(quint64(1)) returns 63 and
+    qCountLeadingZeroBits(quint64(8)) returns 60.
+ */

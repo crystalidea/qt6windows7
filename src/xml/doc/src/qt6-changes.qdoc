@@ -1,0 +1,104 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page xml-changes-qt6.html
+    \title Changes to Qt XML
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt XML to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt XML, and provide
+    guidance to handle them.
+
+    \section1 Simple API for XML (SAX) parser
+    All \b SAX classes have been removed from Qt XML. Use
+    QXmlStreamReader for reading XML files. Here are some simple steps to
+    port your current code to QXmlStreamReader:
+
+    For example, if you have code like
+
+    \code
+        QFile *file = new QFile(...);
+        QXmlInputSource *source = new QXmlInputSource(file);
+
+        Handler *handler = new Handler;
+
+        QXmlSimpleReader xmlReader;
+        xmlReader.setErrorHandler(handler);
+        xmlReader.setContentHandler(handler);
+
+        if (xmlReader.parse(source)) {
+            ... // do processing
+        } else {
+            ... // do error handling
+        }
+    \endcode
+
+    you can rewrite it as
+
+    \code
+        QFile file = ...;
+        QXmlStreamReader reader(&file);
+
+        while (!reader.atEnd()) {
+            reader.readNext();
+            ... // do processing
+        }
+        if (reader.hasError()) {
+            ... // do error handling
+        }
+    \endcode
+
+    \section2 QDom and QDomDocument
+
+    As \b SAX classes have been removed from Qt XML, QDomDocument
+    has been re-implemented using QXmlStreamReader.
+    This causes a few behavioral changes:
+
+    \list
+        \li Attribute values will be normalized. For example,
+        \c{<tag attr=" a \n b " />} is equivalent to \c{<tag attr="a b"/>}.
+        \li Identical qualified attribute names are no longer allowed. This
+        means attributes of an element must have unique names.
+        \li Undeclared namespace prefixes are no longer allowed.
+    \endlist
+
+    If you use QDomDocument and rely on any of these, you must update
+    your code and XML documents accordingly.
+
+    \section3 Spacing-only text nodes
+
+    By default, text nodes containing only spacing characters are stripped
+    and won't appear in the QDomDocument. The Qt 5 way of changing this behavior
+    was using the QDomDocument::setContent() overload that allowed a \c QXmlReader
+    to be supplied. That overload was removed in Qt 6.0, but since Qt 6.5,
+    you can pass QDomDocument::ParseOption::PreserveSpacingOnlyNodes as a parse
+    option, to specify that spacing-only text nodes must be preserved.
+
+    \section2 Qt Core5 compatibility library
+
+    If your application or library cannot be ported right now, the \l
+    QXmlSimpleReader and related classes still exist in Qt5Compat to keep
+    old code-bases working. If you want to use those SAX classes further, you
+    need to link against the new Qt5Compat module and add this line to your \l
+    qmake \c .pro file:
+
+    \code
+        QT += core5compat
+    \endcode
+
+    In case you already ported your application or library to the
+    \l {Build with CMake}{cmake} build system, add the following to your
+    \c CMakeList.txt:
+    \code
+        PUBLIC_LIBRARIES
+            Qt::Core5Compat
+    \endcode
+*/

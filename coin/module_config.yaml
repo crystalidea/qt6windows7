@@ -1,0 +1,19 @@
+version: 2
+accept_configuration:
+  condition: property
+  property: features
+  not_contains_value: Disable
+
+machine_type:
+  Build:
+    cores: 4
+  Test:
+    cores: 4
+
+instructions:
+  Build:
+    - !include "{{qt/qtbase}}/coin_qtbase_build_template_v2.yaml"
+
+  Test:
+    - !include "{{qt/qtbase}}/coin_module_test_template_v3.yaml"
+    - !include "{{qt/qtbase}}/coin_qtbase_test_docs.yaml"

@@ -1,0 +1,57 @@
+Unicode is used to generate the unicode data in src/corelib/text/.
+
+To update:
+* Run `./update_ucd.sh $Version`. This automates the following steps:
+  * Find the data (UAX #44, UCD; not the XML version) at
+    https://www.unicode.org/Public/zipped/$Version/
+  * Unpack the zip file; for each file in data/, replace with the new
+    version; find the *BreakProperty.txt in auxiliary/ and emoji-data.txt
+    in emoji/.
+  * In tst_QTextBoundaryFinder's data/ sub-directory, update its files
+    from the auxiliary/ sub-directory of the UCD data.
+  * Download https://www.unicode.org/Public/idna/$Version/IdnaMappingTable.txt
+    and put it into data/.
+  * Download https://www.unicode.org/Public/idna/$Version/IdnaTestV2.txt
+    and put it into tests/auto/corelib/io/qurluts46/testdata.
+* If needed, add an entry to enum QChar::UnicodeVersion for the new
+  Unicode version
+* In that case, also update main.cpp's initAgeMap and DATA_VERSION_S*
+  to match
+* Build this project. Its binary, unicode, ignores command-line
+  options and assumes it is being run from this directory. When run,
+  it produces lots of output. If it gets as far as updating
+  qunicodetables.cpp the output hopefully doesn't matter.
+* It'll end prematurely with a qFatal() message if it needs updates,
+  either in main.cpp or in QChar:
+  * "unassigned or unhandled age value:" initAgeMap() and
+    QChar::UnicodeVersion;
+  * "Unhandled script property value:" initScriptMap(), QChar::Script,
+    qharfbuzzng.cpp's _qtscript_to_hbscript[] array and
+    qfontconfigdatabase.cpp's specialLanguages.
+  * "unassigned word break class:" enum WordBreakClass,
+    word_break_class_string and initWordBreak();
+* Assertions or other qFatal()s may trigger: if so, study code and
+  understand what's more complicated about this update; talk to folk
+  named in the git logs, maybe push a WIP to gerrit to solicit
+  advice. Some bit-field may need to be expanded, for example. In some
+  cases QChar may need additions to some of its enums.
+* Build with the modified code, fix any compilation issues, make check
+  in suitable directories, including tst_QTextBoundaryFinder.
+* That may have updated qtbase/src/corelib/text/qunicodetables.cpp; if
+  so the update matters; be sure to commit the changes to data/ at the
+  same time and update text/qt_attribution.json to match; use the UCD
+  Revision number, rather than the Unicode standard number, as the
+  Version, for all that qunicodetables.cpp uses the latter (see the
+  'UAX #44, UCD' page linked from https://www.unicode.org/ucd/ for the
+  table with this).
+* If there are enum additions in qchar.h (public API), be sure to also
+  update the documentation in qchar.cpp for each affected enum,
+  respecting the existing ordering.
+* If you don't normally build in the source tree, remember to delete
+  qtbase/.qmake.stash while you're cleaning up.
+
+The script writingSystems.sh generates a list of writing systems,
+ostensibly as a the basis for updating QFontDatabase::WritingSystem
+enum; however, the Release 20 output of it contains many more writing
+systems than are present in that enum, suggesting it has not been run
+in a very long time. Further research needed.

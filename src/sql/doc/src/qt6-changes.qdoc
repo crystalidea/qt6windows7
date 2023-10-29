@@ -1,0 +1,44 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page qtsql-changes-qt6.html
+    \title Changes to Qt SQL
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt SQL to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt SQL, and provide guidance
+    to handle them.
+
+    \section1 The QSqlQuery class
+
+    \section2 boundValues() Signature
+
+    The return type for boundValues() has been changed from QMap<QString, QVariant>
+    to a QVariantList. The order can be relied upon so it will be in the order of the
+    binding in the prepared query. Change code like the following:
+
+    \code
+    QMap<QString, QVariant> values = boundValues();
+    int id = values[":id"].value().toInt();
+    \endcode
+
+    \code
+    QList<QVariant> values = boundValues().values();
+    int id = values.at(0).toInt();
+    \endcode
+
+    to:
+
+    \code
+    QList<QVariant> values = boundValues().values();
+    int id = values.at(0).toInt();
+    \endcode
+*/

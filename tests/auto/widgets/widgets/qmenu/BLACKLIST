@@ -1,0 +1,30 @@
+[task258920_mouseBorder]
+macos
+# Fails when enabling synchronous expose events QTBUG-62092
+[tearOff]
+macos
+[submenuTearOffDontClose]
+macos # Can't move cursor (QTBUG-76312)
+# QTBUG-87424
+[focus]
+android
+[activeSubMenuPosition]
+android
+[activeSubMenuPositionExec]
+android
+[task250673_activeMultiColumnSubMenuPosition]
+android
+[pushButtonPopulateOnAboutToShow]
+android
+[QTBUG8122_widgetActionCrashOnClose]
+android
+[click_while_dismissing_submenu]
+android
+[menuSize_Scrolling]
+android
+[QTBUG_89082_actionTipsHide]
+macos ci # Can't move cursor (QTBUG-76312)
+windows-10 ci
+# QTBUG-87424
+[transientParent]
+android

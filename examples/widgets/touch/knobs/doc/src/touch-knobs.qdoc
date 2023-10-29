@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example touch/knobs
+    \title Touch Knobs Example
+    \ingroup touchinputexamples
+    \brief Shows how to create custom controls that accept touch input.
+
+    The Touch Knobs example shows how to create custom controls that
+    accept touch input.
+
+    \image touch-knobs-example.png
+*/

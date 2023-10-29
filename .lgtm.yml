@@ -1,0 +1,33 @@
+extraction:
+  cpp:
+    prepare:
+      packages:
+        - libgl-dev
+        - libglu-dev
+        - libpcre2-dev
+        - libz-dev
+        - libfreetype6-dev
+        - libpng-dev
+        - libjpeg-dev
+        - libsqlite3-dev
+    after_prepare:
+      - mkdir $HOME/cmake-3.17 \
+          \ && wget -qO- "https://cmake.org/files/v3.17/cmake-3.17.3-Linux-x86_64.tar.gz" \
+            \ | tar -xzf - --strip-components=1 -C $HOME/cmake-3.17
+      - export PATH=$HOME/cmake-3.17/bin:$PATH
+
+    # Pre-analysis step.
+    configure:
+      command:
+        - "./configure -cmake -opensource -confirm-license -debug -no-pch \
+          \ -nomake tests -nomake examples -no-harfbuzz \
+          \ -system-pcre -system-zlib -system-freetype -system-libpng \
+          \ -system-libjpeg -system-sqlite"
+        # We skip analyzing the bootstrap library, since the same code is
+        # built with non-standard flags and false-positives are flagged.
+        - ninja bootstrap_tools
+
+    # Actual analysis.
+    index:
+      build_command:
+        - ninja

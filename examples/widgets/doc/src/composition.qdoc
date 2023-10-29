@@ -1,0 +1,22 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example painting/composition
+    \title Composition Modes
+    \ingroup examples-painting
+    \brief Demonstrates how Composition Modes work in QPainter.
+
+    \brief This demo shows some of the more advanced composition modes supported by Qt.
+
+    \image composition-demo.png
+
+    The two most common forms of composition are \b{Source} and \b{SourceOver}.
+    \b{Source} is used to draw opaque objects onto a paint device. In this mode,
+    each pixel in the source replaces the corresponding pixel in the destination.
+    In \b{SourceOver} composition mode, the source object is transparent and is
+    drawn on top of the destination.
+
+    In addition to these standard modes, Qt defines the complete set of composition modes
+    as defined by X. Porter and Y. Duff. See the QPainter documentation for details.
+*/

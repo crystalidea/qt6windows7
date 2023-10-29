@@ -1,0 +1,1298 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \class QLocale
+    \inmodule QtCore
+    \brief The QLocale class converts between numbers and their
+    string representations in various languages.
+
+    \reentrant
+    \ingroup i18n
+    \ingroup string-processing
+    \ingroup shared
+
+    QLocale is constructed for a specified language, optional script and
+    territory. It offers various facilities for formatting data as text,
+    localized appropriately, and for reading data out of localized text.
+
+    Example:
+
+    \snippet code/src_corelib_text_qlocale.cpp 0
+
+    QLocale supports the concept of a default locale, which is
+    determined from the system's locale settings at application
+    startup. The default locale can be changed by calling the
+    static member setDefault(). Setting the default locale has the
+    following effects:
+
+    \list
+    \li If a QLocale object is constructed with the default constructor,
+       it will use the default locale's settings.
+    \li QString::arg() uses the default locale to format a number when
+       its position specifier in the format string contains an 'L',
+       e.g. "%L1".
+    \endlist
+
+    The following example illustrates how to use QLocale directly:
+
+    \snippet code/src_corelib_text_qlocale.cpp 1
+
+    An alternative method for constructing a QLocale object is by
+    specifying the locale name.
+
+    \snippet code/src_corelib_text_qlocale.cpp 2
+
+    This constructor reads the language, script and/or territory from the given
+    name, accepting either uderscore or dash as separator (and ignoring any
+    trailing \c{.codeset} or \c{@variant} suffix).
+
+    \note For the current keyboard input locale take a look at
+    QInputMethod::locale().
+
+    QLocale's data is based on Common Locale Data Repository v42.
+
+    \section1 Matching combinations of language, script and territory
+
+    QLocale has data, derived from CLDR, for many combinations of language,
+    script and territory, but not all.  If it is constructed with all three of
+    these key values specified (treating \c AnyLanguage, \c AnyScript or \c
+    AnyTerritory as unspecified) and QLocale has data for the given combination,
+    this data is used. Otherwise, QLocale does its best to find a sensible
+    combination of language, script and territory, for which it does have data,
+    that matches those that were specified.
+
+    The CLDR provides tables of likely combinations, which are used to fill in
+    any unspecified key or keys; if QLocale has data for the result of such a
+    likely combination, that is used. If no language is specified, and none can
+    be determined from script and territory, or if QLocale has no data for the
+    language, the "C" locale (when reading the keys from a string) or default
+    locale (otherwise) is used.
+
+    When QLocale has no data for the keys specified, with likely keys filled in
+    where unspecified, but does have data for the resulting language, a
+    fall-back is sought, based on ignoring either territory, script or both (in
+    that order). This results in a QLocale which may not match what was asked
+    for, but provides localization that's as suitable as the available data
+    permits, for the keys specified.
+
+    Use language(), script() and territory() to determine the actual keys used.
+
+    \sa QString::arg(), QInputMethod::locale()
+*/
+
+/*!
+    \enum QLocale::Language
+
+    This enumerated type is used to specify a language.
+
+    \value AnyLanguage
+    \value C A simplified English locale; see QLocale::c()
+
+    \value Abkhazian
+    \value Afan Obsolete, please use Oromo
+    \value Afar
+    \value Afrikaans
+    \value Aghem
+    \value Akan
+    \value [since 5.1] Akkadian
+    \value [since 5.3] Akoose
+    \value Albanian
+    \value [since 5.7] AmericanSignLanguage
+    \value Amharic
+    \value [since 5.1] AncientEgyptian
+    \value [since 5.1] AncientGreek
+    \value Arabic
+    \value [since 5.1] Aragonese
+    \value [since 5.1] Aramaic
+    \value Armenian
+    \value Assamese
+    \value Asturian
+    \value Asu
+    \value Atsam
+    \value Avaric
+    \value Avestan
+    \value Aymara
+    \value Azerbaijani
+    \value Bafia
+    \value [since 5.1] Balinese
+    \value Bambara
+    \value [since 5.1] Bamun
+    \value [since 6.0] Bangla
+    \value Basaa
+    \value Bashkir
+    \value Basque
+    \value [since 5.1] BatakToba
+    \value Belarusian
+    \value Bemba
+    \value Bena
+    \value Bengali Obsolete, please use Bangla
+    \value [since 5.7] Bhojpuri
+    \value Bhutani Obsolete, please use Dzongkha
+    \value Bislama
+    \value Blin
+    \value Bodo
+    \value Bosnian
+    \value Breton
+    \value [since 5.1] Buginese
+    \value Bulgarian
+    \value Burmese
+    \value Byelorussian Obsolete, please use Belarusian
+    \value Cambodian Obsolete, please use Khmer
+    \value [since 5.7] Cantonese
+    \value Catalan
+    \value [since 5.14] Cebuano
+    \value [since 6.0] CentralAtlasTamazight
+    \value [since 5.5] CentralKurdish
+    \value CentralMoroccoTamazight Obsolete, please use CentralAtlasTamazight
+    \value [since 5.1] Chakma
+    \value Chamorro
+    \value Chechen
+    \value Cherokee
+    \value Chewa Obsolete, please use Nyanja
+    \value [since 5.14] Chickasaw
+    \value Chiga
+    \value Chinese (Mandarin)
+    \value Church
+    \value Chuvash
+    \value Colognian
+    \value [since 5.1] Coptic
+    \value Cornish
+    \value Corsican
+    \value Cree
+    \value Croatian
+    \value Czech
+    \value Danish
+    \value Divehi
+    \value [since 5.1] Dogri
+    \value Duala
+    \value Dutch
+    \value Dzongkha
+    \value Embu
+    \value English
+    \value [since 5.14] Erzya
+    \value Esperanto
+    \value Estonian
+    \value Ewe
+    \value Ewondo
+    \value Faroese
+    \value Fijian
+    \value Filipino
+    \value Finnish
+    \value French
+    \value Frisian same as WesternFrisian
+    \value Friulian
+    \value Fulah
+    \value Ga
+    \value Gaelic
+    \value Galician
+    \value Ganda
+    \value Geez
+    \value Georgian
+    \value German
+    \value [since 5.1] Gothic
+    \value Greek
+    \value Greenlandic Obsolete, please use Kalaallisut
+    \value Guarani
+    \value Gujarati
+    \value Gusii
+    \value Haitian
+    \value [since 6.5] Haryanvi
+    \value Hausa
+    \value Hawaiian
+    \value Hebrew
+    \value Herero
+    \value Hindi
+    \value HiriMotu
+    \value Hungarian
+    \value Icelandic
+    \value [since 5.12] Ido
+    \value Igbo
+    \value [since 5.5] InariSami
+    \value Indonesian
+    \value [since 5.1] Ingush
+    \value Interlingua
+    \value Interlingue
+    \value Inuktitut
+    \value Inupiak Obsolete, please use Inupiaq
+    \value [since 6.0] Inupiaq
+    \value Irish
+    \value Italian
+    \value Japanese
+    \value Javanese
+    \value Jju
+    \value JolaFonyi
+    \value Kabuverdianu
+    \value Kabyle
+    \value [since 6.3] Kaingang
+    \value Kako
+    \value [since 6.0] Kalaallisut
+    \value Kalenjin
+    \value Kamba
+    \value Kannada
+    \value Kanuri
+    \value Kashmiri
+    \value Kazakh
+    \value [since 5.5] Kenyang
+    \value Khmer
+    \value [since 5.5] Kiche
+    \value Kikuyu
+    \value Kinyarwanda
+    \value Kirghiz Obsolete, please use Kyrgyz
+    \value Komi
+    \value Kongo
+    \value Konkani
+    \value Korean
+    \value Koro
+    \value KoyraboroSenni
+    \value KoyraChiini
+    \value Kpelle
+    \value [since 6.0] Kuanyama
+    \value Kurdish
+    \value Kurundi Obsolete, please use Rundi
+    \value Kwanyama Obsolete, please use Kuanyama
+    \value Kwasio
+    \value [since 6.0] Kyrgyz
+    \value [since 5.3] Lakota
+    \value Langi
+    \value Lao
+    \value Latin
+    \value Latvian
+    \value [since 5.5] Lezghian
+    \value Limburgish
+    \value Lingala
+    \value [since 5.7] LiteraryChinese
+    \value Lithuanian
+    \value [since 5.12] Lojban
+    \value [since 5.5] LowerSorbian
+    \value LowGerman
+    \value LubaKatanga
+    \value [since 5.5] LuleSami
+    \value Luo
+    \value Luxembourgish
+    \value Luyia
+    \value Macedonian
+    \value Machame
+    \value [since 5.5] Maithili
+    \value MakhuwaMeetto
+    \value Makonde
+    \value Malagasy
+    \value Malay
+    \value Malayalam
+    \value Maltese
+    \value [since 5.1] Mandingo
+    \value [since 5.1] Manipuri
+    \value Manx
+    \value Maori
+    \value [since 5.5] Mapuche
+    \value Marathi
+    \value Marshallese
+    \value Masai
+    \value [since 5.7] Mazanderani
+    \value [since 5.5] Mende
+    \value Meru
+    \value Meta
+    \value [since 5.5] Mohawk
+    \value [since 6.5] Moksha
+    \value Mongolian
+    \value Morisyen
+    \value Mundang
+    \value [since 5.14] Muscogee
+    \value Nama
+    \value NauruLanguage
+    \value Navaho Obsolete, please use Navajo
+    \value [since 6.0] Navajo
+    \value Ndonga
+    \value Nepali
+    \value [since 5.7] Newari
+    \value Ngiemboon
+    \value [since 6.3] Nheengatu
+    \value [since 6.0] NigerianPidgin
+    \value Ngomba
+    \value [since 5.5] Nko
+    \value [since 6.5] NorthernFrisian
+    \value [since 5.7] NorthernLuri
+    \value NorthernSami
+    \value NorthernSotho
+    \value NorthNdebele
+    \value NorwegianBokmal
+    \value NorwegianNynorsk
+    \value Nuer
+    \value Nyanja
+    \value Nyankole
+    \value [since 6.5] Obolo
+    \value Occitan
+    \value [since 6.0] Odia
+    \value Ojibwa
+    \value [since 5.1] OldIrish
+    \value [since 5.1] OldNorse
+    \value [since 5.1] OldPersian
+    \value Oriya Obsolete, please use Odia
+    \value Oromo
+    \value [since 5.7] Osage
+    \value Ossetic
+    \value [since 5.1] Pahlavi
+    \value [since 5.7] Palauan
+    \value Pali
+    \value [since 5.7] Papiamento
+    \value Pashto
+    \value Persian
+    \value [since 5.1] Phoenician
+    \value [since 6.5] Pijin
+    \value Polish
+    \value Portuguese
+    \value [since 5.5] Prussian
+    \value Punjabi
+    \value Quechua
+    \value [since 6.5] Rajasthani
+    \value RhaetoRomance Obsolete, please use Romansh
+    \value Romanian
+    \value Romansh
+    \value Rombo
+    \value Rundi
+    \value Russian
+    \value Rwa
+    \value Saho
+    \value Sakha
+    \value Samburu
+    \value Samoan
+    \value Sango
+    \value Sangu
+    \value Sanskrit
+    \value [since 5.1] Santali
+    \value Sardinian
+    \value [since 5.1] Saurashtra
+    \value Sena
+    \value Serbian
+    \value Shambala
+    \value Shona
+    \value SichuanYi
+    \value [since 5.12] Sicilian
+    \value Sidamo
+    \value [since 5.14] Silesian
+    \value Sindhi
+    \value Sinhala
+    \value [since 5.5] SkoltSami
+    \value Slovak
+    \value Slovenian
+    \value Soga
+    \value Somali
+    \value [since 5.12] SouthernKurdish
+    \value [since 5.5] SouthernSami
+    \value SouthernSotho
+    \value SouthNdebele
+    \value Spanish
+    \value [since 5.3] StandardMoroccanTamazight
+    \value Sundanese
+    \value Swahili
+    \value Swati
+    \value Swedish
+    \value SwissGerman
+    \value Syriac
+    \value Tachelhit
+    \value Tahitian
+    \value [since 5.1] TaiDam
+    \value Taita
+    \value Tajik
+    \value Tamil
+    \value Taroko
+    \value Tasawaq
+    \value Tatar
+    \value Telugu
+    \value Teso
+    \value Thai
+    \value Tibetan
+    \value Tigre
+    \value Tigrinya
+    \value [since 5.7] TokelauLanguage
+    \value [since 6.5] TokiPona
+    \value [since 5.7] TokPisin
+    \value Tongan
+    \value Tsonga
+    \value Tswana
+    \value Turkish
+    \value Turkmen
+    \value [since 5.7] TuvaluLanguage
+    \value Tyap
+    \value [since 5.1] Ugaritic
+    \value Uighur Obsolete, please use Uyghur
+    \value Uigur Obsolete, please use Uyghur
+    \value Ukrainian
+    \value [since 5.5] UpperSorbian
+    \value Urdu
+    \value [since 6.0] Uyghur
+    \value Uzbek
+    \value Vai
+    \value Venda
+    \value Vietnamese
+    \value Volapuk
+    \value Vunjo
+    \value Walamo Obsolete, please use Wolaytta
+    \value Walloon
+    \value Walser
+    \value [since 5.5] Warlpiri
+    \value Welsh
+    \value [since 5.12] WesternBalochi
+    \value WesternFrisian same as Frisian
+    \value [since 6.0] Wolaytta
+    \value Wolof
+    \value Xhosa
+    \value Yangben
+    \value Yiddish
+    \value Yoruba
+    \value Zarma
+    \value Zhuang
+    \value Zulu
+
+    \omitvalue LastLanguage
+
+    \sa language(), languageToString()
+*/
+
+/*!
+    \typealias QLocale::Territory
+
+    This enumeration type is an alias for \l Country,
+    which shall be renamed to Territory at a future release.
+
+    \sa territory(), territoryToString()
+*/
+
+/*!
+    \enum QLocale::Country
+
+    This enumerated type is used to identify a territory.
+
+    An individual territory may be a province of a country, a country (by far the
+    most common case) or a larger geographic entity, to which some localization
+    details are specific.
+
+    \value AnyCountry Osbolete alias for \c AnyTerritory
+    \value [since 6.2] AnyTerritory
+
+    \value Afghanistan
+    \value AlandIslands
+    \value Albania
+    \value Algeria
+    \value AmericanSamoa
+    \value Andorra
+    \value Angola
+    \value Anguilla
+    \value Antarctica
+    \value AntiguaAndBarbuda
+    \value Argentina
+    \value Armenia
+    \value Aruba
+    \value AscensionIsland
+    \value Australia
+    \value Austria
+    \value Azerbaijan
+    \value Bahamas
+    \value Bahrain
+    \value Bangladesh
+    \value Barbados
+    \value Belarus
+    \value Belgium
+    \value Belize
+    \value Benin
+    \value Bermuda
+    \value Bhutan
+    \value Bolivia
+    \value Bonaire
+    \value BosniaAndHerzegowina Obsolete, use \c BosniaAndHerzegovina instead
+    \value [since 6.0] BosniaAndHerzegovina
+    \value Botswana
+    \value BouvetIsland
+    \value Brazil
+    \value BritishIndianOceanTerritory
+    \value BritishVirginIslands
+    \value Brunei
+    \value Bulgaria
+    \value BurkinaFaso
+    \value Burundi
+    \value Cambodia
+    \value Cameroon
+    \value Canada
+    \value CanaryIslands
+    \value CaribbeanNetherlands
+    \value CapeVerde
+    \value CaymanIslands
+    \value CentralAfricanRepublic
+    \value CeutaAndMelilla
+    \value Chad
+    \value Chile
+    \value China
+    \value ChristmasIsland
+    \value ClippertonIsland
+    \value CocosIslands
+    \value Colombia
+    \value Comoros
+    \value CongoBrazzaville
+    \value CongoKinshasa
+    \value CookIslands
+    \value CostaRica
+    \value Croatia
+    \value Cuba
+    \value [since 6.0] Curacao
+    \value CuraSao Obsolete, use \c Curacao instead
+    \value Cyprus
+    \value [since 6.0] Czechia
+    \value CzechRepublic Obsolete, use \c Czechia instead
+    \value DemocraticRepublicOfCongo Obsolete, use \c CongoKinshasa instead
+    \value DemocraticRepublicOfKorea Obsolete, use \c NorthKorea instead
+    \value Denmark
+    \value DiegoGarcia
+    \value Djibouti
+    \value Dominica
+    \value DominicanRepublic
+    \value EastTimor
+    \value Ecuador
+    \value Egypt
+    \value ElSalvador
+    \value EquatorialGuinea
+    \value Eritrea
+    \value Estonia
+    \value Eswatini
+    \value Ethiopia
+    \value [since 5.7] EuropeanUnion
+    \value [since 5.12] Europe
+    \value FalklandIslands
+    \value FaroeIslands
+    \value Fiji
+    \value Finland
+    \value France
+    \value FrenchGuiana
+    \value FrenchPolynesia
+    \value FrenchSouthernTerritories
+    \value Gabon
+    \value Gambia
+    \value Georgia
+    \value Germany
+    \value Ghana
+    \value Gibraltar
+    \value Greece
+    \value Greenland
+    \value Grenada
+    \value Guadeloupe
+    \value Guam
+    \value Guatemala
+    \value Guernsey
+    \value Guinea
+    \value GuineaBissau
+    \value Guyana
+    \value Haiti
+    \value HeardAndMcDonaldIslands
+    \value Honduras
+    \value HongKong
+    \value Hungary
+    \value Iceland
+    \value India
+    \value Indonesia
+    \value Iran
+    \value Iraq
+    \value Ireland
+    \value IsleOfMan
+    \value Israel
+    \value Italy
+    \value IvoryCoast
+    \value Jamaica
+    \value Japan
+    \value Jersey
+    \value Jordan
+    \value Kazakhstan
+    \value Kenya
+    \value Kiribati
+    \value [since 5.2] Kosovo
+    \value Kuwait
+    \value Kyrgyzstan
+    \value Laos
+    \value LatinAmerica
+    \value LatinAmericaAndTheCaribbean Obsolete, use \c LatinAmerica instead
+    \value Latvia
+    \value Lebanon
+    \value Lesotho
+    \value Liberia
+    \value Libya
+    \value Liechtenstein
+    \value Lithuania
+    \value Luxembourg
+    \value Macao
+    \value Macau
+    \value Macedonia
+    \value Madagascar
+    \value Malawi
+    \value Malaysia
+    \value Maldives
+    \value Mali
+    \value Malta
+    \value MarshallIslands
+    \value Martinique
+    \value Mauritania
+    \value Mauritius
+    \value Mayotte
+    \value Mexico
+    \value Micronesia
+    \value Moldova
+    \value Monaco
+    \value Mongolia
+    \value Montenegro
+    \value Montserrat
+    \value Morocco
+    \value Mozambique
+    \value Myanmar
+    \value Namibia
+    \value NauruCountry Osbolete alias for \c NauruTerritory
+    \value [since 6.2] NauruTerritory
+    \value Nepal
+    \value Netherlands
+    \value NewCaledonia
+    \value NewZealand
+    \value Nicaragua
+    \value Niger
+    \value Nigeria
+    \value Niue
+    \value NorfolkIsland
+    \value NorthernMarianaIslands
+    \value NorthKorea
+    \value Norway
+    \value Oman
+    \value [since 5.7] OutlyingOceania
+    \value Pakistan
+    \value Palau
+    \value PalestinianTerritories
+    \value Panama
+    \value PapuaNewGuinea
+    \value Paraguay
+    \value PeoplesRepublicOfCongo Obsolete, use \c CongoBrazzaville instead
+    \value Peru
+    \value Philippines
+    \value Pitcairn
+    \value Poland
+    \value Portugal
+    \value PuertoRico
+    \value Qatar
+    \value RepublicOfKorea Obsolete, use \c SouthKorea instead
+    \value Reunion
+    \value Romania
+    \value RussianFederation
+    \value Russia
+    \value Rwanda
+    \value SaintBarthelemy
+    \value SaintHelena
+    \value SaintKittsAndNevis
+    \value SaintLucia
+    \value SaintMartin
+    \value SaintPierreAndMiquelon
+    \value SaintVincentAndGrenadines
+    \value SaintVincentAndTheGrenadines
+    \value Samoa
+    \value SanMarino
+    \value SaoTomeAndPrincipe
+    \value SaudiArabia
+    \value Senegal
+    \value Serbia
+    \value Seychelles
+    \value SierraLeone
+    \value Singapore
+    \value SintMaarten
+    \value Slovakia
+    \value Slovenia
+    \value SolomonIslands
+    \value Somalia
+    \value SouthAfrica
+    \value SouthGeorgiaAndSouthSandwichIslands
+    \value SouthGeorgiaAndTheSouthSandwichIslands
+    \value SouthKorea
+    \value SouthSudan
+    \value Spain
+    \value SriLanka
+    \value Sudan
+    \value Suriname
+    \value SvalbardAndJanMayen
+    \value SvalbardAndJanMayenIslands
+    \value Swaziland
+    \value Sweden
+    \value Switzerland
+    \value Syria
+    \value SyrianArabRepublic Obsolete, use \c Syria instead
+    \value Taiwan
+    \value Tajikistan
+    \value Tanzania
+    \value Thailand
+    \value TimorLeste
+    \value Togo
+    \value TokelauCountry Osbolete alias for \c TokelauTerritory
+    \value [since 6.2] TokelauTerritory
+    \value Tonga
+    \value TrinidadAndTobago
+    \value TristanDaCunha
+    \value Tunisia
+    \value Turkey
+    \value Turkmenistan
+    \value TurksAndCaicosIslands
+    \value TuvaluCountry Osbolete alias for \c TuvaluTerritory
+    \value [since 6.2] TuvaluTerritory
+    \value Uganda
+    \value Ukraine
+    \value UnitedArabEmirates
+    \value UnitedKingdom
+    \value UnitedStates
+    \value UnitedStatesOutlyingIslands
+    \value UnitedStatesMinorOutlyingIslands
+    \value UnitedStatesVirginIslands
+    \value Uruguay
+    \value Uzbekistan
+    \value Vanuatu
+    \value VaticanCity
+    \value VaticanCityState
+    \value Venezuela
+    \value Vietnam
+    \value WallisAndFutuna
+    \value WallisAndFutunaIslands
+    \value WesternSahara
+    \value [since 5.12] World
+    \value Yemen
+    \value Zambia
+    \value Zimbabwe
+
+    \omitvalue LastCountry Osbolete alias for \c LastTerritory
+    \omitvalue LastTerritory
+
+    \note Use the Territory alias for this enumeration where possible.
+    The Country enum shall be renamed to Territory at a later release.
+
+    \sa territory(), territoryToString(), codeToTerritory(), territoryToCode()
+*/
+
+/*!
+    \enum QLocale::Script
+
+    This enumerated type is used to specify a script.
+
+    \value AnyScript
+
+    \value [since 5.7] AdlamScript
+    \value [since 5.7] AhomScript
+    \value [since 5.7] AnatolianHieroglyphsScript
+    \value ArabicScript
+    \value ArmenianScript
+    \value [since 5.1] AvestanScript
+    \value [since 5.1] BalineseScript
+    \value [since 5.1] BamumScript
+    \value [since 6.0] BanglaScript
+    \value [since 5.5] BassaVahScript
+    \value [since 5.1] BatakScript
+    \value BengaliScript Obsolete, please use BanglaScript
+    \value [since 5.7] BhaiksukiScript
+    \value [since 5.1] BopomofoScript
+    \value [since 5.1] BrahmiScript
+    \value [since 5.1] BrailleScript
+    \value [since 5.1] BugineseScript
+    \value [since 5.1] BuhidScript
+    \value [since 5.1] CanadianAboriginalScript
+    \value [since 5.1] CarianScript
+    \value [since 5.5] CaucasianAlbanianScript
+    \value [since 5.1] ChakmaScript
+    \value [since 5.1] ChamScript
+    \value CherokeeScript
+    \value [since 5.1] CopticScript
+    \value [since 5.1] CuneiformScript
+    \value [since 5.1] CypriotScript
+    \value CyrillicScript
+    \value [since 5.1] DeseretScript
+    \value DevanagariScript
+    \value [since 5.5] DuployanScript
+    \value [since 5.1] EgyptianHieroglyphsScript
+    \value [since 5.5] ElbasanScript
+    \value EthiopicScript
+    \value [since 5.1] FraserScript
+    \value GeorgianScript
+    \value [since 5.1] GlagoliticScript
+    \value [since 5.1] GothicScript
+    \value [since 5.5] GranthaScript
+    \value GreekScript
+    \value GujaratiScript
+    \value GurmukhiScript
+    \value [since 5.1] HangulScript
+    \value [since 5.1] HanScript
+    \value [since 5.1] HanunooScript
+    \value [since 5.7] HanWithBopomofoScript
+    \value [since 5.7] HatranScript
+    \value HebrewScript
+    \value [since 5.1] HiraganaScript
+    \value [since 5.1] ImperialAramaicScript
+    \value [since 5.1] InscriptionalPahlaviScript
+    \value [since 5.1] InscriptionalParthianScript
+    \value [since 5.7] JamoScript
+    \value JapaneseScript
+    \value [since 5.1] JavaneseScript
+    \value [since 5.1] KaithiScript
+    \value KannadaScript
+    \value [since 5.1] KatakanaScript
+    \value [since 5.1] KayahLiScript
+    \value [since 5.1] KharoshthiScript
+    \value [since 5.1] KhmerScript
+    \value [since 5.5] KhojkiScript
+    \value [since 5.5] KhudawadiScript
+    \value KoreanScript
+    \value [since 5.1] LannaScript
+    \value LaoScript
+    \value LatinScript
+    \value [since 5.1] LepchaScript
+    \value [since 5.1] LimbuScript
+    \value [since 5.5] LinearAScript
+    \value [since 5.1] LinearBScript
+    \value [since 5.1] LycianScript
+    \value [since 5.1] LydianScript
+    \value [since 5.5] MahajaniScript
+    \value MalayalamScript
+    \value [since 5.1] MandaeanScript
+    \value [since 5.5] ManichaeanScript
+    \value [since 5.7] MarchenScript
+    \value [since 5.1] MeiteiMayekScript
+    \value [since 6.0] MendeScript
+    \value MendeKikakuiScript Obsolete, please use MendeScript
+    \value [since 5.1] MeroiticCursiveScript
+    \value [since 5.1] MeroiticScript
+    \value [since 5.5] ModiScript
+    \value MongolianScript
+    \value [since 5.5] MroScript
+    \value [since 5.7] MultaniScript
+    \value MyanmarScript
+    \value [since 5.5] NabataeanScript
+    \value [since 5.7] NewaScript
+    \value [since 5.1] NewTaiLueScript
+    \value [since 5.1] NkoScript
+    \value [since 5.1] OghamScript
+    \value [since 5.1] OlChikiScript
+    \value [since 5.7] OldHungarianScript
+    \value [since 5.1] OldItalicScript
+    \value [since 5.5] OldNorthArabianScript
+    \value [since 5.5] OldPermicScript
+    \value [since 5.1] OldPersianScript
+    \value [since 5.1] OldSouthArabianScript
+    \value [since 6.0] OdiaScript
+    \value OriyaScript Obsolete, please use OdiaScript
+    \value [since 5.1] OrkhonScript
+    \value [since 5.7] OsageScript
+    \value [since 5.1] OsmanyaScript
+    \value [since 5.5] PahawhHmongScript
+    \value [since 5.5] PalmyreneScript
+    \value [since 5.5] PauCinHauScript
+    \value [since 5.1] PhagsPaScript
+    \value [since 5.1] PhoenicianScript
+    \value [since 5.1] PollardPhoneticScript
+    \value [since 5.5] PsalterPahlaviScript
+    \value [since 5.1] RejangScript
+    \value [since 5.1] RunicScript
+    \value [since 5.1] SamaritanScript
+    \value [since 5.1] SaurashtraScript
+    \value [since 5.1] SharadaScript
+    \value [since 5.1] ShavianScript
+    \value [since 5.5] SiddhamScript
+    \value [since 5.7] SignWritingScript
+    \value SimplifiedChineseScript same as SimplifiedHanScript
+    \value SimplifiedHanScript same as SimplifiedChineseScript
+    \value SinhalaScript
+    \value [since 5.1] SoraSompengScript
+    \value [since 5.1] SundaneseScript
+    \value [since 5.1] SylotiNagriScript
+    \value SyriacScript
+    \value [since 5.1] TagalogScript
+    \value [since 5.1] TagbanwaScript
+    \value [since 5.1] TaiLeScript
+    \value [since 5.1] TaiVietScript
+    \value [since 5.1] TakriScript
+    \value TamilScript
+    \value [since 5.7] TangutScript
+    \value TeluguScript
+    \value ThaanaScript
+    \value ThaiScript
+    \value TibetanScript
+    \value TifinaghScript
+    \value [since 5.5] TirhutaScript
+    \value TraditionalChineseScript same as TraditionalHanScript
+    \value TraditionalHanScript same as TraditionalChineseScript
+    \value [since 5.1] UgariticScript
+    \value VaiScript
+    \value [since 5.5] VarangKshitiScript
+    \value YiScript
+
+    \omitvalue LastScript
+
+    \sa script(), scriptToString(), languageToString()
+*/
+
+/*!
+    \enum QLocale::FormatType
+
+    This enum describes the different formats that can be used when
+    converting QDate, QTime, and QDateTime objects, as well
+    as months and days, to strings specific to the locale.
+
+    \value LongFormat Longer format.
+
+    \value ShortFormat Shorter format.
+
+    \value NarrowFormat A special version for use when space is very limited.
+
+    \note \c NarrowFormat might contain the same text for
+    different months and days. It can even be an empty string if the
+    locale doesn't support narrow names, so you should avoid using it
+    for date formatting. Also, for the system locale this format is
+    the same as \c ShortFormat.
+
+    \sa dateFormat(), timeFormat(), dateTimeFormat()
+    \sa monthName(), standaloneMonthName(), dayName(), standaloneDayName()
+    \sa toDate(), toTime(), toDateTime()
+*/
+
+/*!
+    \enum QLocale::NumberOption
+
+    This enum defines a set of options for number-to-string and string-to-number
+    conversions. They can be retrieved with numberOptions() and set with
+    setNumberOptions().
+
+    \value DefaultNumberOptions This option represents the default behavior, with
+            group separators, with one leading zero in single digit exponents, and
+            without trailing zeroes after the decimal dot.
+    \value OmitGroupSeparator If this option is set, the number-to-string functions
+            will not insert group separators in their return values. The default
+            is to insert group separators.
+    \value RejectGroupSeparator If this option is set, the string-to-number functions
+            will fail if they encounter group separators in their input. The default
+            is to accept numbers containing correctly placed group separators.
+    \value OmitLeadingZeroInExponent If this option is set, the number-to-string
+            functions will not pad exponents with zeroes when printing floating point
+            numbers in scientific notation. The default is to add one leading zero to
+            single digit exponents.
+    \value RejectLeadingZeroInExponent If this option is set, the string-to-number
+            functions will fail if they encounter an exponent padded with zeroes when
+            parsing a floating point number in scientific notation. The default is to
+            accept such padding.
+    \value IncludeTrailingZeroesAfterDot If this option is set, the number-to-string
+            functions will pad numbers with zeroes to the requested precision in "g"
+            or "most concise" mode, even if the number of significant digits is lower
+            than the requested precision. The default is to omit trailing zeroes.
+    \value RejectTrailingZeroesAfterDot If this option is set, the string-to-number
+            functions will fail if they encounter trailing zeroes after the decimal
+            dot when parsing a number in scientific or decimal representation. The
+            default is to accept trailing zeroes.
+
+    \sa setNumberOptions(), numberOptions(), FloatingPointPrecisionOption
+*/
+
+/*!
+    \enum QLocale::FloatingPointPrecisionOption
+
+    This enum defines a constant that can be given as precision to QString::number(),
+    QByteArray::number(), and QLocale::toString() when converting floats or doubles,
+    in order to express a variable number of digits as precision.
+
+    \value FloatingPointShortest The conversion algorithm will try to find the
+           shortest accurate representation for the given number. "Accurate" means
+           that you get the exact same number back from an inverse conversion on
+           the generated string representation. In particular, trailing zeros are
+           omitted (from the mantissa, in exponent formats).
+
+    \sa toString(), QString::number(), QByteArray::number()
+    \since 5.7
+*/
+
+/*!
+    \enum QLocale::MeasurementSystem
+
+    This enum defines which units are used for measurement.
+
+    \value MetricSystem This value indicates metric units, such as meters,
+            centimeters and millimeters.
+    \value ImperialUSSystem This value indicates imperial units, such as inches and
+            miles as they are used in the United States.
+    \value ImperialUKSystem This value indicates imperial units, such as inches and
+            miles as they are used in the United Kingdom.
+    \value ImperialSystem Provided for compatibility. Same as ImperialUSSystem
+
+    \since 4.4
+*/
+
+/*!
+    \enum QLocale::LanguageCodeType
+
+    This enum defines language code types that can be used to restrict set
+    of language codes considered by \c codeToLanguage and \c languageToCode.
+
+    \value ISO639Part1 ISO 639 Part 1 Alpha 2 code.
+    \value ISO639Part2B ISO 639 Part 2 bibliographic Alpha 3 code.
+    \value ISO639Part2T ISO 639 Part 2 terminological Alpha 3 code.
+    \value ISO639Part3 ISO 639 Part 3 Alpha 3 code.
+    \value LegacyLanguageCode Codes that are not part of the above set, but that
+            were supported by Qt in the past. This value can only be used by
+            codeToLanguage(). It is ignored when passed to languageToCode().
+    \value ISO639Part2 Any ISO 639 Part 2 code.
+    \value ISO639Alpha2 Any ISO-639 2-letter code.
+    \value ISO639Alpha3 Any ISO-639 3-letter code.
+    \value ISO639 Any ISO 639 code.
+    \value AnyLanguageCode Specifies that any code can be used.
+*/
+
+/*!
+    \fn bool QLocale::operator==(const QLocale &lhs, const QLocale &rhs)
+
+    Returns \c true if the two QLocale objects, \a lhs and \a rhs, are the same;
+    otherwise returns \c false.
+
+    \note The system locale is not equal to the QLocale object constructed from
+    its language(), script() and territory(), even if the two agree in all data
+    fields. Nor are two locales with different number options equal.
+
+    \sa operator!=(), setNumberOptions()
+*/
+
+/*!
+    \fn bool QLocale::operator!=(const QLocale &lhs, const QLocale &rhs)
+
+    Returns \c true if the two QLocale objects, \a lhs and \a rhs, differ;
+    otherwise returns \c false.
+
+    \note The system locale is not equal to the QLocale object constructed from
+    its language(), script() and territory(), even if the two agree in all data
+    fields. Nor are two locales with different number options equal.
+
+    \sa operator==(), setNumberOptions()
+*/
+
+/*!
+    \enum QLocale::QuotationStyle
+
+    This enum defines a set of possible styles for locale specific quotation.
+
+    \value StandardQuotation If this option is set, the standard quotation marks
+            will be used to quote strings.
+    \value AlternateQuotation If this option is set, the alternate quotation marks
+            will be used to quote strings.
+
+    \since 4.8
+
+    \sa quoteString()
+*/
+
+/*!
+    \internal
+    \class QSystemLocale
+    \inmodule QtCore
+    \brief The QSystemLocale class can be used to finetune the system locale
+    of the user.
+    \since 4.2
+
+    \ingroup i18n
+
+    \warning This class is only useful in very rare cases. Usually QLocale offers
+    all the functionality required for application development.
+
+    QSystemLocale allows to override the values provided by the system
+    locale (QLocale::system()).
+
+    \sa QLocale
+*/
+
+/*!
+  \enum QSystemLocale::QueryType
+
+  Specifies the type of information queried by query(). For each value
+  the type of information to return from the query() method is listed.
+
+  \value LanguageId a uint specifying the language.
+  \value ScriptId a uint specifying the script.
+  \value TerritoryId a uint specifying the territory.
+  \value DecimalPoint a QString specifying the decimal point.
+  \value GroupSeparator a QString specifying the group separator.
+  \value ZeroDigit a QString specifying the zero digit.
+  \value NegativeSign a QString specifying the minus sign.
+  \value PositiveSign a QString specifying the plus sign.
+  \value DateFormatLong a QString specifying the long date format
+  \value DateFormatShort a QString specifying the short date format
+  \value TimeFormatLong a QString specifying the long time format
+  \value TimeFormatShort a QString specifying the short time format
+  \value DayNameLong a QString specifying the name of a weekday. the in variant contains an integer between 1 and 7 (Monday - Sunday)
+  \value DayNameShort a QString specifying the short name of a weekday. the in variant contains an integer between 1 and 7 (Monday - Sunday)
+  \value MonthNameLong a QString specifying the name of a month. the in variant contains an integer between 1 and 12
+  \value MonthNameShort a QString specifying the short name of a month. the in variant contains an integer between 1 and 12
+  \value DateToStringLong converts the QDate stored in the in variant to a QString using the long date format
+  \value DateToStringShort converts the QDate stored in the in variant to a QString using the short date format
+  \value TimeToStringLong converts the QTime stored in the in variant to a QString using the long time format
+  \value TimeToStringShort converts the QTime stored in the in variant to a QString using the short time format
+  \value DateTimeFormatLong a QString specifying the long date time format
+  \value DateTimeFormatShort a QString specifying the short date time format
+  \value DateTimeToStringLong converts the QDateTime in the in variant to a QString using the long datetime format
+  \value DateTimeToStringShort converts the QDateTime in the in variant to a QString using the short datetime format
+  \value MeasurementSystem a QLocale::MeasurementSystem enum specifying the measurement system
+  \value AMText a string that represents the system AM designator associated with a 12-hour clock.
+  \value PMText a string that represents the system PM designator associated with a 12-hour clock.
+  \value FirstDayOfWeek a Qt::DayOfWeek enum specifying the first day of the week
+  \value CurrencySymbol a string that represents a currency in a format QLocale::CurrencyFormat.
+  \value CurrencyToString a localized string representation of a number with a currency symbol. Converts a QSystemLocale::CurrencyToStringArgument stored in the in variant to a QString.
+  \value UILanguages a list of strings representing locale names that could be used for UI translation.
+  \value StringToStandardQuotation a QString containing a quoted version of the string ref stored in the in variant using standard quotes.
+  \value StringToAlternateQuotation a QString containing a quoted version of the string ref stored in the in variant using alternate quotes.
+  \value Weekdays a QList<Qt::DayOfWeek> specifying the regular weekdays
+  \value LocaleChanged this type is queried whenever the system locale is changed.
+  \value ListToSeparatedString a string that represents a join of a given QStringList with a locale-defined separator.
+  \value NativeLanguageName a string that represents the name of the native language.
+  \value NativeTerritoryName a string that represents the name of the native territory.
+
+  \sa FormatType
+*/
+
+/*!
+    \fn QVariant QSystemLocale::query(QueryType type, QVariant in = QVariant()) const
+
+    Generic query method for locale data. Provides indirection.
+    Denotes the \a type of the query
+    with \a in as input data depending on the query.
+
+    \sa QSystemLocale::QueryType
+*/
+
+/*!
+    \fn QLocale QSystemLocale::fallbackLocale() const
+
+    \since 4.6
+
+    Returns the locale used if the system locale is not able to answer a query.
+
+    Must be a QLocale instance based on the built-in CLDR data, and should
+    match what the system locale is using as closely as that data supports.
+*/
+
+/*!
+    \class QSystemLocale::CurrencyToStringArgument
+    \inmodule QtCore
+
+    A helper class that provides arguments for the QSystemLocale::query()
+    function with query type QSystemLocale::CurrencyToString.
+
+    \sa QSystemLocale::QueryType
+    \since 4.8
+*/
+
+/*!
+    \fn QSystemLocale::CurrencyToStringArgument::CurrencyToStringArgument()
+    \internal
+*/
+/*!
+    \variable QSystemLocale::CurrencyToStringArgument::value
+
+    An input value that should be converted to its string representation.
+    Contains one of QMetaType::LongLong, QMetaType::ULongLong or QMetaType::Double
+    types.
+*/
+/*!
+    \variable QSystemLocale::CurrencyToStringArgument::symbol
+
+    An optional argument containing a currency symbol to be used in the
+    currency string.
+*/
+
+/*!
+\fn QString QLocale::toString(long i) const
+
+\overload
+
+\sa toLong()
+*/
+
+/*!
+\fn QString QLocale::toString(ulong i) const
+
+\overload
+
+\sa toULong()
+*/
+
+/*!
+\fn QString QLocale::toString(ushort i) const
+
+\overload
+
+\sa toUShort()
+*/
+
+
+/*!
+\fn QString QLocale::toString(short i) const
+
+\overload
+
+\sa toShort()
+*/
+
+/*!
+\fn QString QLocale::toString(int i) const
+
+\overload
+
+\sa toInt()
+*/
+
+/*!
+\fn QString QLocale::toString(uint i) const
+
+\overload
+
+\sa toUInt()
+*/
+
+/*
+\fn QString QLocale::toString(long i) const
+
+\overload
+
+\sa  toLong()
+*/
+
+/*
+\fn QString QLocale::toString(ulong i) const
+
+\overload
+
+\sa toULong()
+*/
+
+/*!
+\fn QString QLocale::toString(float f, char format = 'g', int precision = 6) const
+\overload
+
+Returns a string representing the floating-point number \a f.
+
+The \a format and \a precision have the same meanings as described in \l
+{toString(double, char, int)}.
+
+\sa toFloat(), toDouble(), numberOptions(), exponential(), decimalPoint(), zeroDigit(),
+    positiveSign(), percent(), toCurrencyString(), formattedDataSize(),
+    QLocale::FloatingPointPrecisionOption
+*/
+
+/*!
+    \fn QString QLocale::toCurrencyString(short value, const QString &symbol) const
+    \since 4.8
+    \overload
+*/
+
+/*!
+    \fn QString QLocale::toCurrencyString(ushort value, const QString &symbol) const
+    \since 4.8
+    \overload
+*/
+
+/*!
+    \fn QString QLocale::toCurrencyString(int value, const QString &symbol) const
+    \since 4.8
+    \overload
+*/
+
+/*!
+    \fn QString QLocale::toCurrencyString(uint value, const QString &symbol) const
+    \since 4.8
+    \overload
+*/

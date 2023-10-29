@@ -1,0 +1,13 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example itemviews/basicsortfiltermodel
+    \title Basic Sort/Filter Model Example
+    \ingroup examples-itemviews
+    \brief The Basic Sort/Filter Model example illustrates how to use
+    QSortFilterProxyModel to perform basic sorting and filtering.
+
+    \image basicsortfiltermodel-example.png Screenshot of the Basic Sort/Filter Model Example
+
+*/

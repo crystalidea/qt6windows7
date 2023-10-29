@@ -1,0 +1,34 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+\page qt-allow-non-utf8-sources.html
+\ingroup cmake-commands-qtcore
+
+\title qt_allow_non_utf8_sources
+\keyword qt6_allow_non_utf8_sources
+
+\summary {Prevents forcing source files to be treated as UTF-8 for Windows.}
+
+\include cmake-find-package-core.qdocinc
+
+\cmakecommandsince 6.0
+
+\section1 Synopsis
+
+\badcode
+qt_allow_non_utf8_sources(target)
+\endcode
+
+\versionlessCMakeCommandsNote qt6_allow_non_utf8_sources()
+
+\section1 Description
+
+When building with some compilers for Windows, targets that link to a Qt library
+will use flags that force the compiler to treat its source files as UTF-8. This
+is currently implemented for Visual Studio and Intel compilers. You can disable
+this behavior on a per-target basis by calling \c{qt_allow_non_utf8_sources()}
+and passing the target as the argument.
+
+\sa {qt6_disable_unicode_defines}{qt_disable_unicode_defines()}
+*/

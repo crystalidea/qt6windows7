@@ -1,0 +1,16 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example animation/easing
+    \title Easing Curves Example
+
+    \brief The Easing Curves example shows how to use easing curves to
+    control the speed of an animation.
+
+    \image easing-example.png
+
+    See \l QEasingCurve for a detailed description on how to use the class's
+    functionalities.
+
+*/

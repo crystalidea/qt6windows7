@@ -1,0 +1,39 @@
+type: Group
+instructions:
+  - type: Group
+    instructions:
+      - type: EnvironmentVariable
+        variableName: TESTS_ENV_PREFIX
+        variableValue: "{{.Env.TARGET_ENV_PREFIX}}"
+      - type: EnvironmentVariable
+        variableName: INSTALL_DIR_FOR_CMAKE_TESTS
+        variableValue: "{{.InstallDir}}\\target"
+        enable_if:
+          condition: property
+          property: host.os
+          equals_value: Windows
+      - type: EnvironmentVariable
+        variableName: INSTALL_DIR_FOR_CMAKE_TESTS
+        variableValue: "{{.InstallDir}}/target"
+        disable_if:
+          condition: or
+          conditions:
+            - condition: property
+              property: host.os
+              equals_value: Windows
+            - condition: and
+              conditions:
+                - condition: property
+                  property: target.osVersion
+                  equals_value: Android_ANY
+                - condition: property
+                  property: target.arch
+                  equals_value: Multi
+      - type: EnvironmentVariable
+        variableName: COIN_CMAKE_ARGS
+        variableValue: "{{.Env.COMMON_TARGET_TEST_CMAKE_ARGS}}"
+      - !include "{{qt/qtbase}}/cmake_build_and_upload_test_artifacts.yaml"
+    disable_if:
+      condition: property
+      property: features
+      contains_value: DisableTests

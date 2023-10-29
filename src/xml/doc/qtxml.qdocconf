@@ -1,0 +1,43 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtXml
+description             = Qt XML Reference Documentation
+version                 = $QT_VERSION
+
+examplesinstallpath     = xml
+
+qhp.projects            = QtXml
+
+qhp.QtXml.file            = qtxml.qhp
+qhp.QtXml.namespace           = org.qt-project.qtxml.$QT_VERSION_TAG
+qhp.QtXml.virtualFolder       = qtxml
+qhp.QtXml.indexTitle          = Qt XML
+qhp.QtXml.indexRoot           =
+
+qhp.QtXml.subprojects         = classes
+qhp.QtXml.subprojects.classes.title = C++ Classes
+qhp.QtXml.subprojects.classes.indexTitle = Qt XML C++ Classes
+qhp.QtXml.subprojects.classes.selectors = class fake:headerfile
+qhp.QtXml.subprojects.classes.sortPages = true
+
+tagfile                 = ../../../doc/qtxml/qtxml.tags
+
+depends                 += qtcore qtnetwork qtdoc qtwidgets qmake qtcmake qtcore5compat
+
+headerdirs  += ..
+
+sourcedirs  += ..
+
+exampledirs += ../../../examples/xml \
+               . \
+               snippets
+
+navigation.landingpage = "Qt XML"
+navigation.cppclassespage = "Qt XML C++ Classes"
+
+# Add a thumbnail for examples that do not have images
+manifestmeta.thumbnail.names = "QtXml/XML Stream Lint Example"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

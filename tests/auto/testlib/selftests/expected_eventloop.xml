@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCase name="tst_EventLoop">
+  <Environment>
+    <QtVersion>@INSERT_QT_VERSION_HERE@</QtVersion>
+    <QtBuild/>
+    <QTestVersion>@INSERT_QT_VERSION_HERE@</QTestVersion>
+  </Environment>
+  <TestFunction name="initTestCase">
+    <Incident type="pass" file="" line="0" />
+    <Duration msecs="0"/>
+  </TestFunction>
+  <TestFunction name="fail">
+    <Incident type="fail" file="qtbase/tests/auto/testlib/selftests/eventloop/tst_eventloop.cpp" line="0">
+      <Description><![CDATA[Failing test should still clean up]]></Description>
+    </Incident>
+    <Duration msecs="0"/>
+  </TestFunction>
+  <TestFunction name="skip">
+    <Incident type="skip" file="qtbase/tests/auto/testlib/selftests/eventloop/tst_eventloop.cpp" line="0">
+      <Description><![CDATA[Skipping test should still clean up]]></Description>
+    </Incident>
+    <Duration msecs="0"/>
+  </TestFunction>
+  <TestFunction name="pass">
+    <Incident type="pass" file="" line="0" />
+    <Duration msecs="0"/>
+  </TestFunction>
+  <TestFunction name="cleanupTestCase">
+    <Incident type="pass" file="" line="0" />
+    <Duration msecs="0"/>
+  </TestFunction>
+  <Duration msecs="0"/>
+</TestCase>

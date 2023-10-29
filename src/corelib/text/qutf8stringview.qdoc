@@ -1,0 +1,697 @@
+// Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Marc Mutz <marc.mutz@kdab.com>
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \class QUtf8StringView
+    \inmodule QtCore
+    \since 6.0
+    \brief The QUtf8StringView class provides a unified view on UTF-8 strings
+           with a read-only subset of the QString API.
+    \reentrant
+    \ingroup tools
+    \ingroup string-processing
+
+    A QUtf8StringView references a contiguous portion of a UTF-8
+    string it does not own. It acts as an interface type to all kinds
+    of UTF-8 string, without the need to construct a QString or
+    QByteArray first.
+
+    The UTF-8 string may be represented as an array (or an
+    array-compatible data-structure such as std::basic_string, etc.)
+    of \c char8_t, \c char, \c{signed char} or \c{unsigned char}.
+
+    QUtf8StringView is designed as an interface type; its main
+    use-case is as a function parameter type. When QUtf8StringViews
+    are used as automatic variables or data members, care must be
+    taken to ensure that the referenced string data (for example,
+    owned by a std::u8string) outlives the QUtf8StringView on all code
+    paths, lest the string view ends up referencing deleted data.
+
+    When used as an interface type, QUtf8StringView allows a single
+    function to accept a wide variety of UTF-8 string data
+    sources. One function accepting QUtf8StringView thus replaces
+    several function overloads (taking e.g. QByteArray), while at the
+    same time enabling even more string data sources to be passed to
+    the function, such as \c{u8"Hello World"}, a \c char8_t (C++20) or
+    \c char (C++17) string literal. The \c char8_t incompatibility
+    between C++17 and C++20 goes away when using QUtf8StringView.
+
+    Like all views, QUtf8StringViews should be passed by value, not by
+    reference-to-const:
+    \snippet code/src_corelib_text_qutf8stringview.cpp 0
+
+    If you want to give your users maximum freedom in what strings
+    they can pass to your function, consider using QAnyStringView
+    instead.
+
+    QUtf8StringView can also be used as the return value of a
+    function. If you call a function returning QUtf8StringView, take
+    extra care to not keep the QUtf8StringView around longer than the
+    function promises to keep the referenced string data alive.  If in
+    doubt, obtain a strong reference to the data by calling toString()
+    to convert the QUtf8StringView into a QString.
+
+    QUtf8StringView is a \e{Literal Type}.
+
+    \section2 Compatible Character Types
+
+    QUtf8StringView accepts strings over a variety of character types:
+
+    \list
+    \li \c char (both signed and unsigned)
+    \li \c char8_t (C++20 only)
+    \endlist
+
+    \section2 Sizes and Sub-Strings
+
+    All sizes and positions in QUtf8StringView functions are in
+    UTF-8 code points (that is, UTF-8 multibyte sequences count as
+    two, three or four, depending on their length). QUtf8StringView
+    does not an attempt to detect or prevent slicing right through
+    UTF-8 multibyte sequences. This is similar to the situation with
+    QStringView and surrogate pairs.
+
+    \section2 C++20, char8_t, and QUtf8StringView
+
+    In C++20, \c{u8""} string literals changed their type from
+    \c{const char[]} to \c{const char8_t[]}. If Qt 6 could have depended
+    on C++20, QUtf8StringView would store \c char8_t natively, and the
+    following functions and aliases would use (pointers to) \c char8_t:
+
+    \list
+    \li storage_type, value_type, etc
+    \li begin(), end(), data(), etc
+    \li front(), back(), at(), operator[]()
+    \endlist
+
+    This is what QUtf8StringView is expected to look like in Qt 7, but for
+    Qt 6, this was not possible. Instead of locking users into a C++17-era
+    interface for the next decade, Qt provides two QUtf8StringView classes,
+    in different (inline) namespaces. The first, in namespace \c{q_no_char8_t},
+    has a value_type of \c{const char} and is universally available.
+    The second, in namespace \c{q_has_char8_t}, has a value_type of
+    \c{const char8_t} and is only available when compiling in C++20 mode.
+
+    \c{q_no_char8_t} is an inline namespace regardless of C++ edition, to avoid
+    accidental binary incompatibilities. To use the \c{char8_t} version, you
+    need to name it explicitly with \c{q_has_char8_t::QUtf8StringView}.
+
+    Internally, both are instantiations of the same template class,
+    QBasicUtf8StringView. Please do not use the template class's name in your
+    source code.
+
+    \sa QAnyStringView, QUtf8StringView, QString
+*/
+
+/*!
+    \typedef QUtf8StringView::storage_type
+
+    Alias for \c{char}.
+*/
+
+/*!
+    \typedef QUtf8StringView::value_type
+
+    Alias for \c{const char}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QUtf8StringView::difference_type
+
+    Alias for \c{std::ptrdiff_t}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QUtf8StringView::size_type
+
+    Alias for qsizetype. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QUtf8StringView::reference
+
+    Alias for \c{value_type &}. Provided for compatibility with the STL.
+
+    QUtf8StringView does not support mutable references, so this is the same
+    as const_reference.
+*/
+
+/*!
+    \typedef QUtf8StringView::const_reference
+
+    Alias for \c{value_type &}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QUtf8StringView::pointer
+
+    Alias for \c{value_type *}. Provided for compatibility with the STL.
+
+    QUtf8StringView does not support mutable pointers, so this is the same
+    as const_pointer.
+*/
+
+/*!
+    \typedef QUtf8StringView::const_pointer
+
+    Alias for \c{value_type *}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QUtf8StringView::iterator
+
+    This typedef provides an STL-style const iterator for QUtf8StringView.
+
+    QUtf8StringView does not support mutable iterators, so this is the same
+    as const_iterator.
+
+    \sa const_iterator, reverse_iterator
+*/
+
+/*!
+    \typedef QUtf8StringView::const_iterator
+
+    This typedef provides an STL-style const iterator for QUtf8StringView.
+
+    \sa iterator, const_reverse_iterator
+*/
+
+/*!
+    \typedef QUtf8StringView::reverse_iterator
+
+    This typedef provides an STL-style const reverse iterator for QUtf8StringView.
+
+    QUtf8StringView does not support mutable reverse iterators, so this is the
+    same as const_reverse_iterator.
+
+    \sa const_reverse_iterator, iterator
+*/
+
+/*!
+    \typedef QUtf8StringView::const_reverse_iterator
+
+    This typedef provides an STL-style const reverse iterator for QUtf8StringView.
+
+    \sa reverse_iterator, const_iterator
+*/
+
+/*!
+    \fn QUtf8StringView::QUtf8StringView()
+
+    Constructs a null string view.
+
+    \sa isNull()
+*/
+
+/*!
+    \fn QUtf8StringView::QUtf8StringView(const storage_type *d, qsizetype n)
+    \internal
+*/
+
+/*!
+    \fn QUtf8StringView::QUtf8StringView(std::nullptr_t)
+
+    Constructs a null string view.
+
+    \sa isNull()
+*/
+
+/*!
+    \fn template <typename Char> QUtf8StringView::QUtf8StringView(const Char *str, qsizetype len)
+
+    Constructs a string view on \a str with length \a len.
+
+    The range \c{[str,len)} must remain valid for the lifetime of this string view object.
+
+    Passing \nullptr as \a str is safe if \a len is 0, too, and results in a null string view.
+
+    The behavior is undefined if \a len is negative or, when positive, if \a str is \nullptr.
+
+    This constructor only participates in overload resolution if \c Char is a compatible
+    character type. The compatible character types are: \c char8_t, \c char, \c{signed char} and
+    \c{unsigned char}.
+*/
+
+/*!
+    \fn template <typename Char> QUtf8StringView::QUtf8StringView(const Char *first, const Char *last)
+
+    Constructs a string view on \a first with length (\a last - \a first).
+
+    The range \c{[first,last)} must remain valid for the lifetime of
+    this string view object.
+
+    Passing \c \nullptr as \a first is safe if \a last is \nullptr, too,
+    and results in a null string view.
+
+    The behavior is undefined if \a last precedes \a first, or \a first
+    is \nullptr and \a last is not.
+
+    This constructor only participates in overload resolution if \c Char is a compatible
+    character type. The compatible character types are: \c char8_t, \c char, \c{signed char} and
+    \c{unsigned char}.
+*/
+
+/*!
+    \fn template <typename Char> QUtf8StringView::QUtf8StringView(const Char *str)
+
+    Constructs a string view on \a str. The length is determined
+    by scanning for the first \c{Char(0)}.
+
+    \a str must remain valid for the lifetime of this string view object.
+
+    Passing \nullptr as \a str is safe and results in a null string view.
+
+    This constructor only participates in overload resolution if \a str
+    is not an array and if \c Char is a compatible character type. The
+    compatible character types are: \c char8_t, \c char, \c{signed char} and
+    \c{unsigned char}.
+*/
+
+/*!
+    \fn template <typename Char, size_t N> QUtf8StringView::QUtf8StringView(const Char (&string)[N])
+
+    Constructs a string view on the character string literal \a string.
+    The view covers the array until the first \c{Char(0)} is encountered,
+    or \c N, whichever comes first.
+    If you need the full array, use fromArray() instead.
+
+    \a string must remain valid for the lifetime of this string view
+    object.
+
+    This constructor only participates in overload resolution if \a string
+    is an actual array and if \c Char is a compatible character type. The
+    compatible character types are: \c char8_t, \c char, \c{signed char} and
+    \c{unsigned char}.
+
+    \sa fromArray()
+*/
+
+/*!
+    \fn template <typename Container, if_compatible_container<Container>> QUtf8StringView::QUtf8StringView(const Container &str)
+
+    Constructs a string view on \a str. The length is taken from \c{str.size()}.
+
+    \c{str.data()} must remain valid for the lifetime of this string view object.
+
+    This constructor only participates in overload resolution if \c Container is an
+    instantiation of \c std::basic_string with a compatible character type. The
+    compatible character types are: \c char8_t, \c char, \c{signed char} and
+    \c{unsigned char}.
+
+    The string view will be empty if and only if \c{str.empty()}. It is unspecified
+    whether this constructor can result in a null string view (\c{str.data()} would
+    have to return \nullptr for this).
+
+    \sa isNull(), isEmpty()
+*/
+
+/*!
+    \fn template <typename Char, size_t Size, if_compatible_char<Char>> QUtf8StringView::fromArray(const Char (&string)[Size])
+
+    Constructs a string view on the full character string literal \a string,
+    including any trailing \c{Char(0)}. If you don't want the
+    null-terminator included in the view then you can chop() it off
+    when you are certain it is at the end. Alternatively you can use
+    the constructor overload taking an array literal which will create
+    a view up to, but not including, the first null-terminator in the data.
+
+    \a string must remain valid for the lifetime of this string view
+    object.
+
+    This function will work with any array literal if \c Char is a
+    compatible character type. The compatible character types
+    are: \c char8_t, \c char, \c{signed char} and \c{unsigned char}.
+*/
+
+/*!
+    \fn QString QUtf8StringView::toString() const
+
+    Returns a deep copy of this string view's data as a QString.
+
+    The return value will be a null QString if and only if this string view is null.
+*/
+
+/*!
+    \fn QUtf8StringView::data() const
+
+    Returns a const pointer to the first code point in the string view.
+
+    \note The character array represented by the return value is \e not null-terminated.
+
+    \sa begin(), end(), utf8()
+*/
+
+/*!
+    \fn QUtf8StringView::utf8() const
+
+    Returns a const pointer to the first code point in the string view.
+
+    The result is returned as a \c{const char8_t*}, so this function is only available when
+    compiling in C++20 mode.
+
+    \note The character array represented by the return value is \e not null-terminated.
+
+    \sa begin(), end(), data()
+*/
+
+/*!
+    \fn QUtf8StringView::const_iterator QUtf8StringView::begin() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first code point in
+    the string view.
+
+    This function is provided for STL compatibility.
+
+    \sa end(), cbegin(), rbegin(), data()
+*/
+
+/*!
+    \fn QUtf8StringView::const_iterator QUtf8StringView::cbegin() const
+
+    Same as begin().
+
+    This function is provided for STL compatibility.
+
+    \sa cend(), begin(), crbegin(), data()
+*/
+
+/*!
+    \fn QUtf8StringView::const_iterator QUtf8StringView::end() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
+    code point after the last code point in the list.
+
+    This function is provided for STL compatibility.
+
+    \sa begin(), cend(), rend()
+*/
+
+/*! \fn QUtf8StringView::const_iterator QUtf8StringView::cend() const
+
+    Same as end().
+
+    This function is provided for STL compatibility.
+
+    \sa cbegin(), end(), crend()
+*/
+
+/*!
+    \fn QUtf8StringView::const_reverse_iterator QUtf8StringView::rbegin() const
+
+    Returns a const \l{STL-style iterators}{STL-style} reverse iterator pointing to the first
+    code point in the string view, in reverse order.
+
+    This function is provided for STL compatibility.
+
+    \sa rend(), crbegin(), begin()
+*/
+
+/*!
+    \fn QUtf8StringView::const_reverse_iterator QUtf8StringView::crbegin() const
+
+    Same as rbegin().
+
+    This function is provided for STL compatibility.
+
+    \sa crend(), rbegin(), cbegin()
+*/
+
+/*!
+    \fn QUtf8StringView::const_reverse_iterator QUtf8StringView::rend() const
+
+    Returns a \l{STL-style iterators}{STL-style} reverse iterator pointing to one past
+    the last code point in the string view, in reverse order.
+
+    This function is provided for STL compatibility.
+
+    \sa rbegin(), crend(), end()
+*/
+
+/*!
+    \fn QUtf8StringView::const_reverse_iterator QUtf8StringView::crend() const
+
+    Same as rend().
+
+    This function is provided for STL compatibility.
+
+    \sa crbegin(), rend(), cend()
+*/
+
+/*!
+    \fn bool QUtf8StringView::empty() const
+
+    Returns whether this string view is empty - that is, whether \c{size() == 0}.
+
+    This function is provided for STL compatibility.
+
+    \sa isEmpty(), isNull(), size(), length()
+*/
+
+/*!
+    \fn bool QUtf8StringView::isEmpty() const
+
+    Returns whether this string view is empty - that is, whether \c{size() == 0}.
+
+    This function is provided for compatibility with other Qt containers.
+
+    \sa empty(), isNull(), size(), length()
+*/
+
+/*!
+    \fn bool QUtf8StringView::isNull() const
+
+    Returns whether this string view is null - that is, whether \c{data() == nullptr}.
+
+    This functions is provided for compatibility with other Qt containers.
+
+    \sa empty(), isEmpty(), size(), length()
+*/
+
+/*!
+    \fn qsizetype QUtf8StringView::size() const
+
+    Returns the size of this string view, in UTF-8 code points (that is,
+    multi-byte sequences count as more than one for the purposes of this function, the same
+    as surrogate pairs in QString and QStringView).
+
+    \sa empty(), isEmpty(), isNull(), length()
+*/
+
+/*!
+    \fn QUtf8StringView::length() const
+
+    Same as size().
+
+    This function is provided for compatibility with other Qt containers.
+
+    \sa empty(), isEmpty(), isNull(), size()
+*/
+
+/*!
+    \fn QUtf8StringView::operator[](qsizetype n) const
+
+    Returns the code point at position \a n in this string view.
+
+    The behavior is undefined if \a n is negative or not less than size().
+
+    \sa at(), front(), back()
+*/
+
+/*!
+    \fn QUtf8StringView::at(qsizetype n) const
+
+    Returns the code point at position \a n in this string view.
+
+    The behavior is undefined if \a n is negative or not less than size().
+
+    \sa operator[](), front(), back()
+*/
+
+/*!
+    \fn QUtf8StringView::front() const
+
+    Returns the first code point in the string view. Same as first().
+
+    This function is provided for STL compatibility.
+
+    \warning Calling this function on an empty string view constitutes
+    undefined behavior.
+
+    \sa back()
+*/
+
+/*!
+    \fn QUtf8StringView::back() const
+
+    Returns the last code point in the string view. Same as last().
+
+    This function is provided for STL compatibility.
+
+    \warning Calling this function on an empty string view constitutes
+    undefined behavior.
+
+    \sa front()
+*/
+
+/*!
+    \fn QUtf8StringView::mid(qsizetype pos, qsizetype n) const
+
+    Returns the substring of length \a n starting at position
+    \a pos in this object.
+
+    \deprecated Use sliced() instead in new code.
+
+    Returns an empty string view if \a n exceeds the
+    length of the string view. If there are less than \a n code points
+    available in the string view starting at \a pos, or if
+    \a n is negative (default), the function returns all code points that
+    are available from \a pos.
+
+    \sa first(), last(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::left(qsizetype n) const
+
+    \deprecated Use first() instead in new code.
+
+    Returns the substring of length \a n starting at position
+    0 in this object.
+
+    The entire string view is returned if \a n is greater than or equal
+    to size(), or less than zero.
+
+    \sa first(), last(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::right(qsizetype n) const
+
+    \deprecated Use last() instead in new code.
+
+    Returns the substring of length \a n starting at position
+    size() - \a n in this object.
+
+    The entire string view is returned if \a n is greater than or equal
+    to size(), or less than zero.
+
+    \sa first(), last(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::first(qsizetype n) const
+
+    Returns a string view that contains the first \a n code points
+    of this string view.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa last(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::last(qsizetype n) const
+
+    Returns a string view that contains the last \a n code points of this string view.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa first(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::sliced(qsizetype pos, qsizetype n) const
+
+    Returns a string view containing \a n code points of this string view,
+    starting at position \a pos.
+
+    \note The behavior is undefined when \a pos < 0, \a n < 0,
+    or \a pos + \a n > size().
+
+    \sa first(), last(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::sliced(qsizetype pos) const
+
+    Returns a string view starting at position \a pos in this object,
+    and extending to its end.
+
+    \note The behavior is undefined when \a pos < 0 or \a pos > size().
+
+    \sa first(), last(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::chopped(qsizetype n) const
+
+    Returns the substring of length size() - \a n starting at the
+    beginning of this object.
+
+    Same as \c{first(size() - n)}.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa sliced(), first(), last(), chop(), truncate()
+*/
+
+/*!
+    \fn QUtf8StringView::truncate(qsizetype n)
+
+    Truncates this string view to \a n code points.
+
+    Same as \c{*this = first(n)}.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa sliced(), first(), last(), chopped(), chop()
+*/
+
+/*!
+    \fn QUtf8StringView::chop(qsizetype n)
+
+    Truncates this string view by \a n code points.
+
+    Same as \c{*this = first(size() - n)}.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa sliced(), first(), last(), chopped(), truncate()
+*/
+
+/*!
+    \fn int QUtf8StringView::compare(QLatin1StringView str, Qt::CaseSensitivity cs) const
+    \fn int QUtf8StringView::compare(QUtf8StringView str, Qt::CaseSensitivity cs) const
+    \fn int QUtf8StringView::compare(QStringView str, Qt::CaseSensitivity cs) const
+    \since 6.5
+
+    Returns an integer that compares to zero as this string view compares to the
+    string view \a str.
+
+    \include qstring.qdocinc {search-comparison-case-sensitivity} {comparison}
+*/
+
+
+/*!
+    \fn QUtf8StringView::isValidUtf8() const
+
+    Returns \c true if this string contains valid UTF-8 encoded data,
+    or \c false otherwise.
+
+    \since 6.3
+*/
+
+/*!
+    \fn template <typename QStringLike> qToUtf8StringViewIgnoringNull(const QStringLike &s);
+    \relates QUtf8StringView
+    \internal
+
+    Convert \a s to a QUtf8StringView ignoring \c{s.isNull()}.
+
+    Returns a string view that references \a{s}'s data, but is never null.
+
+    This is a faster way to convert a QByteArray to a QUtf8StringView,
+    if null QByteArrays can legitimately be treated as empty ones.
+
+    \sa QByteArray::isNull(), QUtf8StringView
+*/

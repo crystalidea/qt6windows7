@@ -1,0 +1,76 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtGui
+description             = Qt GUI Reference Documentation
+version                 = $QT_VERSION
+
+includepaths           += ./includes
+moduleheader            = QtGuiDoc
+
+examplesinstallpath     = gui
+
+qhp.projects            = QtGui
+
+qhp.QtGui.file         = qtgui.qhp
+qhp.QtGui.namespace           = org.qt-project.qtgui.$QT_VERSION_TAG
+qhp.QtGui.virtualFolder       = qtgui
+qhp.QtGui.indexTitle          = Qt GUI
+qhp.QtGui.indexRoot           =
+
+qhp.QtGui.subprojects         = classes
+qhp.QtGui.subprojects.classes.title = C++ Classes
+qhp.QtGui.subprojects.classes.indexTitle = Qt GUI C++ Classes
+qhp.QtGui.subprojects.classes.selectors = class fake:headerfile
+qhp.QtGui.subprojects.classes.sortPages = true
+
+tagfile                 = ../../../doc/qtgui/qtgui.tags
+
+depends += \
+    qtcore \
+    qtimageformats \
+    qtnetwork \
+    qtopengl \
+    qtprintsupport \
+    qtsvg \
+    qtqml \
+    qtquick \
+    qtwidgets \
+    qtdoc \
+    qmake \
+    qtcmake \
+    qttestlib \
+    qtplatformintegration \
+    qthelp
+
+headerdirs  += ..
+
+sourcedirs  += .. \
+               ../../../examples/gui/doc/src \
+               src/includes
+
+exampledirs += ../../../examples/gui \
+               ../../../examples/vulkan \
+               ../../widgets/doc/snippets \
+               snippets
+
+imagedirs   += images \
+               ../../../examples/gui/doc/images \
+               ../../../doc/src/images
+
+# Included in qttestlib.qdocconf instead
+excludefiles += ../kernel/qtestsupport_gui.cpp \
+                ../painting/qdrawhelper_ssse3.cpp
+
+navigation.landingpage = "Qt GUI"
+navigation.cppclassespage = "Qt GUI C++ Classes"
+
+# Ignore warnings about undocumented enum values for the QGradient presets
+spurious += "Undocumented enum item '.*' in QGradient::Preset"
+
+# \svgcolor {#ffdead}
+macro.svgcolor.HTML = "<div style=\"padding:10px;color:#fff;background:\1;\"></div>"
+macro.svgcolor.DocBook = "<db:phrase role=\"color:\1\">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</db:phrase>"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

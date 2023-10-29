@@ -1,0 +1,634 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page qtcore-changes-qt6.html
+    \title Changes to Qt Core
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt Core to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt Core, and provide guidance
+    to handle them.
+
+    \section1 Container Classes
+
+    \section2 QHash, QMultiHash, QSet
+
+    \section3 qHash() Signature
+
+    For custom types, QHash and QMultiHash rely on you providing
+    a \l{qHash}{custom qHash() function}
+    in the same namespace. In Qt 4 and Qt 5, the return
+    value and optional second argument of a \c qHash function
+    was of type \c uint. In Qt 6, it is \c size_t.
+
+    That is, you need to change
+
+    \code
+    uint qHash(MyType x, uint seed);
+    \endcode
+
+    to
+
+    \code
+    size_t qHash(MyType x, size_t seed);
+    \endcode
+
+    This allows QHash, QMultiHash and QSet to hold more than 2^32 items on
+    64 bit platforms.
+
+    \section3 Stability of References
+
+    The implementation of QHash, QMultiHash and QSet in Qt 6 got changed from
+    a node based approach to a two stage lookup table. This design allows
+    to keep the memory overhead of a hash instance very small, while
+    at the same time giving good performance.
+
+    One behavioral change to note is that the new implementation
+    will not provide stable references to elements in the hash when the
+    table needs to grow, or when entries are removed. Applications that
+    rely on such stability might now run into undefined behavior.
+
+    \section3 Removal of QHash::insertMulti
+
+    In Qt 5, QHash could be used to create multi-valued hashes by using
+    QHash::insertMulti, and QMultiHash was deriving vom QHash.
+
+    In Qt 6, both types and use cases are distinct, and QHash::insertMulti
+    got removed.
+
+    \section2 QVector, QList
+
+    Prior to Qt 6, QVector and QList were separate classes. In Qt 6, they are
+    unified: Qt 5 QList implementation is gone and both classes use updated
+    QVector implementation instead. QList is the class with the actual
+    implementation and QVector is an alias (typedef) to QList.
+
+    QList's fromVector() and toVector(), and QVector's fromList() and toList(),
+    no longer involve data copying in Qt 6. They now return the object that they
+    were called for.
+
+    \section3 API Changes
+
+    QList's (and hence QVector's) size type is changed from \c int to \c
+    qsizetype. Together with the size type, all relevant methods' signatures are
+    updated to use \c qsizetype. This allows QList to hold more than 2^31 items
+    on 64 bit platforms.
+
+    When upgrading the code base to Qt 6, this API change would most likely
+    result in compiler warnings about narrowing type conversions. Having the
+    following example code:
+
+    \code
+    void myFunction(QList<MyType> &data) {
+        int size = data.size();
+        // ...
+        const int pos = getInsertPosition(size);
+        data.insert(pos, MyType());
+        // ...
+    }
+    \endcode
+
+    you would need to update it to use either \c qsizetype or an auto keyword:
+
+    \code
+    void myFunction(QList<MyType> &data) {
+        auto size = data.size();
+        // ...
+        const auto pos = getInsertPosition(size);
+        data.insert(pos, MyType());
+        // ...
+    }
+    \endcode
+
+    Alternatively, you may use type casting and cast everything to \c int or to
+    \c qsizetype.
+
+    \note If you want to build against both Qt 5 and Qt 6, the auto keyword is a
+    good solution to cover signature differences between the versions.
+
+    \section3 Memory Layout
+
+    QList received multiple changes related to the memory layout in Qt 6.
+
+    In Qt 5, \c{sizeof(QList<T>)} was equal to a size of a pointer. Now, the
+    extra pointer indirection is removed and QList data members are directly
+    stored in the object. By default, expect \c{sizeof(QList<T>)} to be equal to
+    the size of 3 pointers.
+
+    At the same time, memory layout of the elements is also updated. QList now
+    always stores its elements directly in the allocated memory region as
+    opposed to Qt 5, where certain objects were separately allocated on the heap
+    and pointers to the objects were placed into the QList instead.
+
+    Note that the latter, in particular, affects large objects. To have Qt 5
+    behavior, you could wrap your objects into smart pointers and store these
+    smart pointers in QList directly. In this case, the type of your QList would
+    be \c{QList<MySmartPointer<MyLargeObject>>} as opposed to
+    \c{QList<MyLargeObject>} in Qt 5.
+
+    \section3 Stability of References
+
+    There are several changes made to the QVector/QList implementation. The
+    QVector related one is: insertion at the beginning is optimized (similarly
+    to QList in Qt 5). The QList related one is: memory layout for the elements
+    is simplified.
+
+    \important These changes impact the stability of references. In Qt 6, you
+    should consider any size or capacity modifying method to invalidate all
+    references, even when QList is not \l{Implicit Sharing}{implicitly shared}.
+    Exceptions to this rule are documented explicitly.
+
+    Applications that rely on certain reference stability might run into
+    undefined behavior when upgraded to use Qt 6. You should pay extra attention
+    to cases where QVector or QList with a non C-compatible array layout were
+    used originally.
+
+    \section1 View classes in Qt6
+
+    \section2 General Overview
+
+    There are several new \c View classes coming with Qt6. There is the already
+    existing \l QStringView, now accompanied by \l QByteArrayView and followed
+    by a specialized \l QUtf8StringView and a more universal \l QAnyStringView.
+
+    \section2 Introduction to view classes on the example of QStringView
+
+    The QStringView class provides a unified view on UTF-16 strings with a
+    read-only subset of the QString API. Unlike QString, which keeps its own
+    copy of the string (possibly ref-counted), QStringView provides a view of
+    a string that is stored elsewhere.
+
+    \code
+        char hello[]{ "Hello." };   // narrow multi-byte string literal
+        QString str{hello};         // needs to make a copy of the string literal
+        QString strToStr(str);      // atomic increment involved to not create a copy of hello again
+
+        // The above code can be re-written to avoid copying and atomic increment.
+
+        QStringView view{ u"Hello." };  // view to UTF-16 encoded string literal
+        QStringView viewToView{ view }; // view of the same UTF-16 encoded string literal
+    \endcode
+
+    The string \c "Hello." is stored in the binary and is not allocated at
+    run-time. \c view is only a view onto the string \c "Hello.", therefore
+    no copy has to be created. When we copy a QStringView, the \c viewToView
+    observes the same string as the copied-from \c view is observing. This
+    means that \c viewToView does not need to create a copy or an atomic
+    increment. They are views onto the existing string \c "Hello.".
+
+    \section2 Views as function argument
+
+    Views should be passed by value, not by reference-to-const.
+
+    \code
+        void myfun1(QStringView sv);        // preferred
+        void myfun2(const QStringView &sv); // compiles and works, but slower
+    \endcode
+
+    \section2 View manipulation functions
+
+    QStringView supports functions that let us manipulate the view of the
+    string. This allows us to change the view without creating a partial copy
+    of the viewed string.
+
+    \code
+        QString pineapple = "Pineapple";
+        QString pine = pineapple.left(4);
+
+        // The above code can be re-written to avoid creating a partial copy.
+
+        QStringView pineappleView{ pineapple };
+        QStringView pineView = pineappleView.left(4);
+    \endcode
+
+    \section2 Non null-terminated strings and strings containing \c {'\0'}
+
+    QStringView supports both null-terminated and non null-terminated strings.
+    The difference comes from the way you initialize the QStringView:
+
+    \code
+        QChar aToE[]{ 'a', 'b', 'c', 'd', 'e' };
+
+        QStringView nonNull{ aToE, std::size(aToE) }; // with length given
+        QStringView nonNull{ aToE }; // automatically determines the length
+
+        QChar fToJ[]{ 'f', 'g', 'h', '\0', 'j' };
+
+        // uses given length, doesn't search for '\0', so '\0' at position 3
+        // is considered to be a part of the string similarly to 'h' and 'j
+        QStringView nonNull{ fToJ, std::size(fToJ) };
+        QStringView part{ fToJ }; //stops on the first encounter of '\0'
+    \endcode
+
+    \section2 Ownership model of views
+
+    As \c views do not own the memory they reference, care must be taken to
+    ensure that the referenced data (for example, owned by a \l QString)
+    outlives the \c view on all code paths.
+
+    \badcode
+        QStringView sayHello()
+        {
+            QString hello("Hello.");
+            return QStringView{ hello }; // hello gets out of scope and destroyed
+        }
+
+        void main()
+        {
+            QStringView hello{ sayHello() };
+            qDebug() << hello; // undefined behavior
+        }
+    \endcode
+
+    \section2 Converting an QStringView to QString
+
+    QStringView will not implicitly or explicitly convert to a QString, but can
+    create a deep copy of its data:
+
+    \code
+        void print(const QString &s) { qDebug() << s; }
+
+        void main()
+        {
+            QStringView string{ u"string"};
+
+            // print(string); // invalid, no implicit conversion
+            // QString str{ string }; // invalid, no explicit conversion
+
+            print(string.toString());
+            QString str = string.toString(); // create QString from view
+        }
+    \endcode
+
+    \section2 Important notes
+
+    By leveraging the new view classes, one can achieve a lot of performance
+    boost in many use cases. However, it is important to know that there might
+    be some caveats. Therefore it is important to remember:
+
+    \list
+        \li Views should be passed by value, not by reference-to-const.
+        \li Constructing a view with a negative length is undefined behavior.
+        \li Care must be taken to ensure that the referenced data (for example,
+            owned by a \l QString) outlives the view on all code paths.
+    \endlist
+
+    \section1 String related classes
+
+    \section2 The QStringView class
+
+    Starting with Qt6 it is generally recommended to use \l QStringView over
+    \c QStringRef. \l QStringView references a contiguous portion of a UTF-16
+    string it does not own. It acts as an interface type to all kinds of UTF-16
+    strings, without the need to construct a \l QString first. The \l QStringView
+    class exposes almost all read-only methods of \l QString and the previously
+    existing \c QStringRef class.
+
+    \note Care must be taken to ensure that the referenced string data (for
+    example, owned by a \l QString) outlives the \l QStringView on all code paths.
+
+    \note If a \l QStringView wraps a \l QString, care needs to be taken since
+    unlike \c QStringRef \l QStringView will not update the internal data pointer
+    once the \l QString data relocates.
+
+    \code
+        QString string = ...;
+        QStringView view{string};
+
+        // Appending something very long might cause a relocation and will
+        // ultimately result in a garbled QStringView.
+        string += ...;
+    \endcode
+
+    \section2 The QStringRef class
+
+    In Qt6 \l QStringRef got removed from Qt Core. To ease porting of existing
+    applications without touching the whole code-base, the \c QStringRef class
+    did not vanish completely and instead it got moved into the Qt5Compat module.
+    If you want to use \c QStringRef further, see \l {Using the Qt5Compat module}.
+
+    Unfortunately, some methods exposed by \l QString returning a \c QStringRef,
+    could not be moved to Qt5Compat. Therefore some manual porting may be
+    needed. If your code uses one or more of the following functions you need to
+    port them to use \l QStringView or \l QStringTokenizer. It is also
+    recommended to use \l {QStringView::tokenize} over \l {QStringView::split}
+    for performance critical code.
+
+    Change code using \c QStringRef:
+    \code
+        QString string = ...;
+        QStringRef left = string.leftRef(n);
+        QStringRef mid = string.midRef(n);
+        QStringRef right = string.rightRef(n);
+
+        QString value = ...;
+        const QVector<QStringRef> refs = string.splitRef(' ');
+        if (refs.contains(value))
+            return true;
+    \endcode
+
+    to:
+
+    \code
+        QString string = ...;
+        QStringView left = QStringView{string}.left(n);
+        QStringView mid = QStringView{string}.mid(n);
+        QStringView right = QStringView{string}.right(n);
+
+        QString value = ...;
+        const QList<QStringView> refs = QStringView{string}.split(u' ');
+        if (refs.contains(QStringView{value}))
+            return true;
+        // or
+        const auto refs = QStringView{string}.tokenize(u' ');
+        for (auto ref : refs) {
+            if (ref == value)
+                return true;
+        }
+    \endcode
+
+    \section1 QMutex and Related Classes
+
+    In Qt 6, QRecursiveMutex does not inherit from QMutex anymore. This change was
+    done to improve the performance of both QMutex and QRecursiveMutex.
+
+    Due to those changes, the QMutex::RecursionMode enum has been removed, and
+    QMutexLocker is now a templated class that can operate on both QMutex and
+    QRecursiveMutex.
+
+    \section1 QFuture and Related Classes
+
+    \section2 The QFuture class
+
+    To avoid unintended usage of QFuture, there were some changes to
+    QFuture API in Qt 6, which may introduce source compatibility breaks.
+
+    \section3 Implicit conversions between QFuture and other types
+
+    Conversion of \c QFuture<T> to \c T has been disabled. The casting
+    operator was calling QFuture::result(), which may lead to undefined
+    behavior if the user has moved the results from QFuture via
+    QFuture::takeResult() before trying to do the conversion. Use
+    QFuture::result() or QFuture::takeResult() methods explicitly,
+    where you need to convert \c QFuture<T> to \c T.
+
+    The implicit conversion from \c QFuture<T> to \c QFuture<void> has
+    been also disabled. If you really intend to do the conversion, use the
+    explicit \c {QFuture<void>(const QFuture<T> &)} constructor:
+
+    \code
+    QFuture<int> future = ...
+    QFuture<void> voidFuture = QFuture<void>(future);
+    \endcode
+
+    \section3 Equality operators
+
+    The equality operators of QFuture have been removed. They were comparing
+    the underlying d-pointers instead of comparing the results, which is not
+    what users might expect. If you need to compare QFuture objects, use
+    \c QFuture::result() or \c QFuture::takeResult() methods. For example:
+
+    \code
+    QFuture<int> future1 = ...;
+    QFuture<int> future2 = ...;
+    if (future1.result() == future2.result())
+        // ...
+    \endcode
+
+    \section2 Behavioral Changes to QFuture and QFutureWatcher
+
+    In Qt 6, there were some improvements to QFuture and QFutureWatcher which
+    caused the following behavioral changes:
+
+    \list
+
+    \li After pausing QFuture or QFutureWatcher (by calling \c pause() or
+    \c setPaused(true)), QFutureWatcher will not immediately stop delivering
+    progress and result ready signals. At the moment of pausing there may be
+    still computations that are in progress and cannot be stopped. Signals
+    for such computations may be still delivered after pause, instead of being
+    postponed and reported only after next resume. To get notified when pause
+    actually took effect, QFutureWatcher::suspended() signal can be used. In
+    addition, there are new \c isSuspending() and \c isSuspended() methods,
+    to check if the QFuture is in the process of suspending or it's already in
+    the suspended state. Note that for consistency reasons, for both QFuture
+    and QFutureWatcher the pause-related APIs were deprecated and replaced by
+    similar methods having "suspend" in the name instead.
+
+    \li QFuture::waitForFinished() will now wait until QFuture is actually in
+    the finished state, instead of exiting as soon as it is not in the running
+    state. This prevents \c waitForFinished() from exiting immediately, if at
+    the moment of calling it the future is not started yet. The same applies to
+    QFutureWatcher::waitForFinished(). This change won't affect the behavior of
+    code that was using QFuture with QtConcurrent. Only the code that was using
+    it with the undocumented \c QFutureInterface may be affected.
+
+    \li QFutureWatcher::isFinished() now reflects the finished-state of the
+    QFuture rather than returning false until QFutureWatcher::finished() has
+    been emitted.
+
+    \endlist
+
+    \section2 The QPromise class
+
+    In Qt 6, the new QPromise class should be used instead of unofficial
+    QFutureInterface as a "setter" counterpart of QFuture.
+
+    \section1 IO Classes
+
+    \section2 The QProcess class
+
+    In Qt 6, the QProcess::start() overload that interprets a single command string
+    by splitting it into program name and arguments is renamed to QProcess::startCommand().
+    However, a QProcess::start() overload that takes a single string, as well as a QStringList
+    for arguments exists. Since the QStringList parameter defaults to the empty list, existing
+    code only passing a string will still compile, but will fail to execute the process if it
+    is a complete command string that includes arguments.
+
+    Qt 5.15 introduced deprecation warnings for the respective overload to make it easy to
+    discover and update existing code:
+
+    \code
+        QProcess process;
+
+        // compiles with warnings in 5.15, compiles but fails with Qt 6
+        process.start("dir \"My Documents\"");
+
+        // works with both Qt 5 and Qt 6; also see QProcess::splitCommand()
+        process.start("dir", QStringList({"My Documents"});
+
+        // works with Qt 6
+        process.startCommand("dir \"My Documents\"");
+    \endcode
+
+    QProcess::pid() and the Q_PID type have been removed; use QProcess::processId() instead to
+    get the native process identifier. Code using native Win32 APIs to access the data in the
+    Q_PID as a Win32 \c{PROCESS_INFORMATION} struct is no longer supported.
+
+    \section1 Meta-Type system
+
+    \section2 The QVariant class
+
+    \c QVariant has been rewritten to use \c QMetaType for all of its operations. This implies
+    behavior changes in a few methods:
+
+    \list
+
+    \li \c QVariant::isNull() now only returns \c true if the \c QVariant is empty or contains a
+    \c nullptr. In Qt 5, it also returned true for classes in qtbase which had an \c isNull method
+    themselves if that one returned true. Code relying on the old behavior needs to check whether
+    the contained value returns isNull – however such code is unlikely to occur in practice, as
+    \c isNull() is rarely the property one is interested in (compare \c QString::isEmpty() / \c isNull()
+    and \c QTime::isValid / \c isNull).
+
+    \li \c QVariant::operator== uses \c QMetaType::equals in Qt 6. Therefore, some graphical
+    types like \c QPixmap, \c QImage and \c QIcon will never compare equal. Moreover, floating
+    point numbers stored in \c QVariant are no longer compared with \c qFuzzyCompare, but instead
+    use exact comparisons.
+
+    \endlist
+
+    Furthermore, QVariant::operator<, QVariant::operator<=, QVariant::operator> and
+    QVariant::operator>= were removed, because different variants are not always orderable. This
+    also means that QVariant cannot be used anymore as a key in a QMap.
+
+    \section2 The QMetaType class
+
+    In Qt 6, registration of comparators, and QDebug and QDataStream streaming operators is
+    done automatically. Consequently, \c QMetaType::registerEqualsComparator(),
+    \c QMetaType::registerComparators(), \c qRegisterMetaTypeStreamOperators() and
+    \c QMetaType::registerDebugStreamOperator() do no longer exist. Calls to those methods
+    have to be removed when porting to Qt 6.
+
+    \section2 Type registration
+
+    Types used in \c Q_PROPERTY have their meta-type stored in the class'  \c QMetaObject. This
+    requires the types to be complete when moc sees them, which can lead to compilation errors
+    in code that worked in Qt 5. There are three ways to fix this issue:
+
+    \list
+
+    \li Include the header which defines the type.
+    \li Instead of using an include, use the \c Q_MOC_INCLUDE macro. This helps if including the header
+        would cause a cyclic dependency, or when it would slow down compilation.
+    \li If the header is present in the cpp file which implements the class, it is also possible to include
+        the moc generated file there.
+
+    \endlist
+
+    \section1 Regular expression classes
+
+    \section2 The QRegularExpression class
+
+    In Qt 6, the \c QRegExp type has been retired to the Qt5Compat module
+    and all Qt APIs using it have been removed from other modules.
+    Client code which used it can be ported to use \l QRegularExpression
+    in its place. As \l QRegularExpression is present already in Qt 5,
+    this can be done and tested before migration to Qt 6.
+
+    \include corelib/port-from-qregexp.qdocinc porting-to-qregularexpression
+
+    \section2 The QRegExp class
+
+    In Qt6 \l QRegExp got removed from Qt Core. If your application cannot be
+    ported right now, \c QRegExp still exists in Qt5Compat to keep these
+    code-bases working. If you want to use \c QRegExp further, see
+    \l {Using the Qt5Compat module}.
+
+    \section1 QEvent and subclasses
+
+    The QEvent class defined a copy constructor and an assignment operator,
+    in spite of being a polymorphic class. Copying classes with virtual methods
+    can result in slicing when assigning objects from different classes to each
+    other. Since copying and assigning often happens implicilty, this could
+    lead to hard-to-debug problems.
+
+    In Qt 6, the copy constructor and assignment operator for QEvent subclasses
+    have been made protected to prevent implicit copying. If you need to copy
+    events, use the \l{QEvent::}{clone} method, which will return a heap-allocated
+    copy of the QEvent object. Make sure you delete the clone, perhaps using
+    std::unique_ptr, unless you post it (in which case Qt will delete it once it
+    has been delivered).
+
+    In your QEvent subclasses, override clone(), and declare the protected and
+    default-implemented copy constructor and assignment operator like this:
+
+    \code
+    class MyEvent : public QEvent
+    {
+    public:
+        // ...
+
+        MyEvent *clone() const override { return new MyEvent(*this); }
+
+    protected:
+        MyEvent(const MyEvent &other) = default;
+        MyEvent &operator=(const MyEvent &other) = default;
+        MyEvent(MyEvent &&) = delete;
+        MyEvent &operator=(MyEvent &&) = delete;
+        // member data
+    };
+    \endcode
+
+    Note that if your MyEvent class allocates memory (e.g. through a
+    pointer-to-implementation pattern), then you will have to implement
+    custom copy semantics.
+
+    \section1 Serialization classes
+
+    In Qt 6, QJsonDocument methods for converting it to/from Qt's legacy
+    JSON binary format were removed in favor of the standardized CBOR format.
+    Qt JSON types can be converted to Qt CBOR types, which can in turn be
+    serialized into the CBOR binary format and vice versa. See, for example,
+    \l QCborValue::fromJsonValue() and \l QCborValue::toJsonValue().
+
+    If you still need to use the binary JSON format, you can use the
+    replacements provided in the Qt5Compat module. They can be found in the
+    \l QBinaryJson namespace. See \l {Using the Qt5Compat module} to find out
+    how to use the module in your application.
+
+    \section1 Other classes
+
+    In Qt 5, QCoreApplication::quit() was equivalent to calling
+    \l{QCoreApplication::exit()}. This just exited the main event loop.
+
+    In Qt 6, the method will instead try to close all top-level windows by posting
+    a close event. The windows are free to cancel the shutdown process by
+    ignoring the event.
+
+    Call QCoreApplication::exit() to keep the non-conditional behavior.
+
+    QLibraryInfo::location() and QLibraryInfo::Location were deprecated due to inconsistent
+    naming. Use the new API QLibraryInfo::path() and QLibraryInfo::LibraryPath instead.
+
+    \section1 Qt State Machine Framework
+
+    \l {Qt State Machine} was moved into the Qt SCXML module (soon to be renamed to Qt
+    State Machines) and therefore it is no longer part of Qt Core. There were very few
+    cross dependencies inside Qt Core which ultimately led to this decision.
+
+    \section1 Using the Qt5Compat module
+
+    To use the \l {Qt 5 Core Compatibility APIs}{Qt5Compat} module, you need
+    to build with its headers in your include path and link against its library.
+    If you are using \l qmake, add the following to your \c .pro file:
+
+    \code
+        QT += core5compat
+    \endcode
+
+    If you build your application or library using \l {Build with CMake}{cmake},
+    add the following to your \c CMakeList.txt:
+    \code
+        PUBLIC_LIBRARIES
+            Qt::Core5Compat
+    \endcode
+*/

@@ -1,0 +1,23 @@
+# Copyright (C) 2022 The Qt Company Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+if(NOT INTEGRITY)
+    add_subdirectory(qcompare)
+endif()
+add_subdirectory(qflags)
+add_subdirectory(q_func_info)
+add_subdirectory(qgetputenv)
+add_subdirectory(qglobal)
+add_subdirectory(qnumeric)
+add_subdirectory(qfloat16)
+add_subdirectory(qkeycombination)
+if(NOT INTEGRITY)
+    add_subdirectory(qnativeinterface)
+endif()
+add_subdirectory(qrandomgenerator)
+add_subdirectory(qlogging)
+add_subdirectory(qtendian)
+add_subdirectory(qglobalstatic)
+add_subdirectory(qhooks)
+add_subdirectory(qoperatingsystemversion)
+add_subdirectory(qxp)

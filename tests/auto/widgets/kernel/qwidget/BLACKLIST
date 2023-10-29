@@ -1,0 +1,47 @@
+[raise]
+opensuse-leap
+[renderInvisible]
+macos
+[optimizedResizeMove]
+osx
+[optimizedResize_topLevel]
+osx
+[render_windowOpacity]
+macos arm
+[render_systemClip]
+osx
+[multipleToplevelFocusCheck]
+centos
+opensuse-leap
+ubuntu
+sles-15
+# QTBUG-87668
+[showMinimizedKeepsFocus]
+android
+macos-13 ci
+[normalGeometry]
+android
+[saveRestoreGeometry]
+android
+[optimizedResizeMove]
+android
+[update]
+android
+[scroll]
+android
+[moveChild]
+android
+[multipleToplevelFocusCheck]
+android
+[renderInvisible]
+android
+[updateWhileMinimized]
+android
+[doubleRepaint]
+android
+[setMaskInResizeEvent]
+android
+[activateWindow]
+android
+[optimizedResize_topLevel]
+android

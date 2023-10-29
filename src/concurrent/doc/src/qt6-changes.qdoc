@@ -1,0 +1,57 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page concurrent-changes-qt6.html
+    \title Changes to Qt Concurrent
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt Concurrent to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt Concurrent, and provide
+    guidance to handle them.
+
+    \section1 QtConcurrent::run()
+
+    QtConcurrent::run() has been improved to work with a variable number
+    of arguments, so the signatures are changed to:
+
+    \code
+    // run
+    template <typename T>
+    QFuture<T> run(Function &&f, Args &&...args)
+
+    // run with a QThreadPool argument
+    template <typename T>
+    QFuture<T> run(QThreadPool *pool, Function &&f, Args &&...args)
+    \endcode
+
+    As a side effect, if \c f is a pointer to a member function, the first
+    argument of \c args should be the object for which that member is defined
+    (or a reference, or a pointer to it). So instead of writing:
+
+    \code
+    QImage image = ...;
+    QFuture<void> future = QtConcurrent::run(&image, &QImage::invertPixels, QImage::InvertRgba);
+    \endcode
+
+    You have to write:
+
+    \code
+    QFuture<void> future = QtConcurrent::run(&QImage::invertPixels, &image, QImage::InvertRgba);
+    \endcode
+
+    Another side effect is that \c QtConcurrent::run() will not work with
+    overloaded functions anymore. For example, the code below won't compile:
+
+    \include qtconcurrentrun.cpp run-with-overload-calls
+
+    Other methods of QtConcurrent have no behavioral changes and do not introduce
+    source compatibility breaks.
+*/

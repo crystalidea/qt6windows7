@@ -1,0 +1,35 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \group standard-dialogs
+    \ingroup qt-gui-concepts
+    \title Standard Dialogs
+    \brief A list of Qt classes for implementing standard dialogs.
+*/
+
+/*!
+    \page dialogs.html
+    \title Dialog Windows
+    \ingroup qt-gui-concepts
+    \brief An overview over dialog windows.
+
+    \previouspage Application Main Window
+    \nextpage Desktop Integration
+
+    Dialogs can be \e{modal}, in which case the user is required to provide
+    necessary information before work in the main window
+    can continue, or \e{modeless}. Modeless dialogs do not prevent the user from
+    interacting with any of the other windows in the application.
+
+    Qt provides a set of ready-made dialogs for file, font, color-selection
+    and more.
+
+    \annotatedlist standard-dialogs
+
+    Custom dialogs can be easily created by composing regular widgets into
+    a QDialog. These classes are specifically designed for building custom
+    dialogs:
+
+    \annotatedlist dialog-classes
+*/

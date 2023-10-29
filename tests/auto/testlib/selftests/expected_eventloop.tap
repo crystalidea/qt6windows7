@@ -1,0 +1,17 @@
+TAP version 13
+# tst_EventLoop
+ok 1 - initTestCase()
+not ok 2 - fail()
+  ---
+  # Failing test should still clean up
+  at: tst_EventLoop::fail() (qtbase/tests/auto/testlib/selftests/eventloop/tst_eventloop.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/eventloop/tst_eventloop.cpp
+  line: 0
+  ...
+ok 3 - skip() # SKIP Skipping test should still clean up
+ok 4 - pass()
+ok 5 - cleanupTestCase()
+1..5
+# tests 5
+# pass 3
+# fail 1

@@ -1,0 +1,44 @@
+[
+{
+    "Id": "unicode-character-database",
+    "Name": "Unicode Character Database (UCD)",
+    "QDocModule": "qtcore",
+    "QtUsage": "Qt Core uses data obtained from UCD files for working with characters and strings.",
+    "Comment": { "Files": "For update, see qtbase/util/unicode/README" },
+    "Files": [ "qunicodetables_p.h", "qunicodetables.cpp" ],
+
+    "Description": "The Unicode Character Database (UCD) is a set of files that
+ define the Unicode character properties and internal mappings.",
+    "Homepage": "https://www.unicode.org/ucd/",
+    "Comment": {
+        "Version": [ "Don't use the Unicode standard version;",
+                     "UCD has its own 'Revision' numbers",
+                     "see the 'UAX #44, UCD' page (https://www.unicode.org/reports/tr44/)" ] },
+    "Version": "30",
+    "License": "Unicode License Agreement - Data Files and Software (2016)",
+    "LicenseId": "Unicode-DFS-2016",
+    "LicenseFile": "UNICODE_LICENSE.txt",
+    "Copyright": "Copyright (C) 1991-2022 Unicode, Inc."
+},
+{
+    "Id": "unicode-cldr",
+    "Name": "Unicode Common Locale Data Repository (CLDR)",
+    "QDocModule": "qtcore",
+    "QtUsage": "Used in Qt Core (QTimeZone, QLocale).",
+    "Comment": { "Files": "For update, see qtbase/util/locale_database/cldr2qlocalexml.py" },
+    "Files": [ "qlocale_data_p.h",
+               "../time/qtimezoneprivate_data_p.h", "../time/qhijricalendar_data_p.h",
+               "../time/qjalalicalendar_data_p.h", "../time/qromancalendar_data_p.h" ],
+
+    "Description": "The Unicode CLDR provides key building blocks for software to support the
+ world's languages, with the largest and most extensive standard repository of locale data
+ available.",
+    "Homepage": "https://cldr.unicode.org/",
+    "Version": "v42",
+    "Comment": { "License": "as specified in https://spdx.org/licenses/Unicode-DFS-2016.html" },
+    "License": "Unicode License Agreement - Data Files and Software (2016)",
+    "LicenseId": "Unicode-DFS-2016",
+    "LicenseFile": "UNICODE_LICENSE.txt",
+    "Copyright": "Copyright (C) 1991-2022 Unicode, Inc."
+}
+]

@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example network-chat
+    \title Network Chat Example
+    \ingroup examples-network
+    \brief Demonstrates a stateful peer-to-peer Chat client.
+
+    This example uses broadcasting with QUdpSocket and QNetworkInterface to
+    discover its peers.
+
+    \image network-chat-example.png
+*/

@@ -1,0 +1,122 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+
+#include "qwindowsnativeimage_p.h"
+
+#include <QtGui/private/qpaintengine_p.h>
+#include <QtGui/private/qpaintengine_raster_p.h>
+
+QT_BEGIN_NAMESPACE
+
+typedef struct {
+    BITMAPINFOHEADER bmiHeader;
+    DWORD redMask;
+    DWORD greenMask;
+    DWORD blueMask;
+} BITMAPINFO_MASK;
+
+/*!
+    \class QWindowsNativeImage
+    \brief Windows Native image
+
+    Note that size can be 0 (widget autotests with zero size), which
+    causes CreateDIBSection() to fail.
+
+    \sa QWindowsBackingStore
+    \internal
+*/
+
+static inline HDC createDC()
+{
+    HDC display_dc = GetDC(0);
+    HDC hdc = CreateCompatibleDC(display_dc);
+    ReleaseDC(0, display_dc);
+    Q_ASSERT(hdc);
+    return hdc;
+}
+
+static inline HBITMAP createDIB(HDC hdc, int width, int height,
+                                QImage::Format format,
+                                uchar **bitsIn)
+{
+    BITMAPINFO_MASK bmi;
+    memset(&bmi, 0, sizeof(bmi));
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = width;
+    bmi.bmiHeader.biHeight      = -height; // top-down.
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biSizeImage   = 0;
+
+    if (format == QImage::Format_RGB16) {
+        bmi.bmiHeader.biBitCount = 16;
+        bmi.bmiHeader.biCompression = BI_BITFIELDS;
+        bmi.redMask = 0xF800;
+        bmi.greenMask = 0x07E0;
+        bmi.blueMask = 0x001F;
+    } else {
+        bmi.bmiHeader.biBitCount    = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        bmi.redMask = 0;
+        bmi.greenMask = 0;
+        bmi.blueMask = 0;
+    }
+
+    uchar *bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(hdc, reinterpret_cast<BITMAPINFO *>(&bmi),
+                                      DIB_RGB_COLORS, reinterpret_cast<void **>(&bits), 0, 0);
+    if (Q_UNLIKELY(!bitmap || !bits)) {
+        qFatal("%s: CreateDIBSection failed (%dx%d, format: %d)", __FUNCTION__,
+               width, height, int(format));
+    }
+
+    *bitsIn = bits;
+    return bitmap;
+}
+
+QWindowsNativeImage::QWindowsNativeImage(int width, int height,
+                                         QImage::Format format) :
+    m_hdc(createDC())
+{
+    if (width != 0 && height != 0) {
+        uchar *bits;
+        m_bitmap = createDIB(m_hdc, width, height, format, &bits);
+        m_null_bitmap = static_cast<HBITMAP>(SelectObject(m_hdc, m_bitmap));
+        m_image = QImage(bits, width, height, format);
+        Q_ASSERT(m_image.paintEngine()->type() == QPaintEngine::Raster);
+        static_cast<QRasterPaintEngine *>(m_image.paintEngine())->setDC(m_hdc);
+    } else {
+        m_image = QImage(width, height, format);
+    }
+
+    GdiFlush();
+}
+
+QWindowsNativeImage::~QWindowsNativeImage()
+{
+    if (m_hdc) {
+        if (m_bitmap) {
+            if (m_null_bitmap)
+                SelectObject(m_hdc, m_null_bitmap);
+            DeleteObject(m_bitmap);
+        }
+        DeleteDC(m_hdc);
+    }
+}
+
+QImage::Format QWindowsNativeImage::systemFormat()
+{
+    static int depth = -1;
+    if (depth == -1) {
+        if (HDC defaultDC = GetDC(0)) {
+            depth = GetDeviceCaps(defaultDC, BITSPIXEL);
+            ReleaseDC(0, defaultDC);
+        } else {
+            // FIXME Same remark as in QWindowsFontDatabase::defaultVerticalDPI()
+            // BONUS FIXME: Is 32 too generous/optimistic?
+            depth = 32;
+        }
+    }
+    return depth == 16 ? QImage::Format_RGB16 : QImage::Format_RGB32;
+}
+
+QT_END_NAMESPACE

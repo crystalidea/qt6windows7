@@ -1,0 +1,154 @@
+# Smoke builds
+#
+# The goal of this workflow is to finish as fast as possible. Therefore some
+# choices have been made:
+# - no optimizations
+# - link to system-provided libraries instead of building
+#   bundled 3rd party libraries
+# - ccache
+
+name: Smoke build
+
+on: push
+
+env:
+  BRANCH:     dev
+  BRANCH_REF: refs/heads/dev
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-20.04
+            os:   ubuntu-20.04
+            # NOTE: system libmd4c is not detected
+            deps:  libgl-dev libglu-dev 'libxcb*-dev' libx11-xcb-dev libxkbcommon-x11-dev libpcre2-dev libz-dev libfreetype6-dev libpng-dev libjpeg-dev libsqlite3-dev libharfbuzz-dev libb2-dev libdouble-conversion-dev libmd4c-dev
+            tools: ninja-build ccache
+            install_cmd: sudo apt-get -y install
+            configure_flags: -xcb -system-sqlite -system-pcre -system-zlib -system-freetype -system-libpng -system-libjpeg -system-harfbuzz -system-libb2 -system-doubleconversion -system-libmd4c
+          - name: ubuntu-18.04
+            os:   ubuntu-18.04
+            # NOTE: system libb2 is not detected because version < 0.98.1 lacks pkg-config module
+            # NOTE: system libharfbuzz is not detected because system has old version
+            deps:  libgl-dev libglu-dev 'libxcb*-dev' libx11-xcb-dev libxkbcommon-x11-dev libpcre2-dev libz-dev libfreetype6-dev libpng-dev libjpeg-dev libsqlite3-dev libharfbuzz-dev libb2-dev libdouble-conversion-dev
+            tools: ninja-build ccache gcc-10
+            install_cmd: sudo apt-get -y install
+            configure_flags: -xcb -system-sqlite -system-pcre -system-zlib -system-freetype -system-libpng -system-libjpeg -system-harfbuzz -system-libb2 -system-doubleconversion
+          - name: macos-10.15
+            os:   macos-10.15
+            deps:  jpeg sqlite libpng pcre2 harfbuzz freetype libb2 double-conversion
+            tools: ninja ccache pkg-config
+            install_cmd: HOMEBREW_NO_INSTALL_CLEANUP=1 brew install
+            # Specifically on macOS pkg_config has to be manually turned on otherwise libraries under /usr/local are not detected.
+            configure_flags: -pkg-config -system-sqlite -system-pcre -system-zlib -system-freetype -system-libpng -system-libjpeg -system-harfbuzz -system-libb2 -system-doubleconversion
+          - name: windows-2019
+            os:   windows-2019
+            install_cmd: choco install
+            install_cmd_postfix: --yes --no-progress
+            # Chocolatey sqlite package does not come with headers, so we build with bundled sqlite.
+            #deps: sqlite
+            # ccache installed separately later in order to force version
+            tools: ninja
+            # We don't want the system headers / libraries from Strawberry Perl while compiling with MinGW 8.1.0
+            configure_flags: -qt-sqlite -qt-pcre -qt-zlib -qt-freetype -qt-libpng -qt-libjpeg -qt-harfbuzz -no-feature-sql-psql -no-feature-sql-mysql -no-feature-sql-odbc
+    runs-on: ${{ matrix.os }}
+
+
+    steps:
+
+    - name: prepare Linux
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+    - name: prepare macOS
+      if: runner.os == 'macOS'
+      run: echo noop
+    - name: prepare Windows
+      if: runner.os == 'Windows'
+      # Header pthread.h from postgres is included and creates issues.
+      # Also library zlib.lib is linked instead of the system one.
+      run: |
+        rm -rf "C:/Program Files/PostgreSQL/"
+        choco install ccache --version 3.7.12 --yes --no-progress --not-silent --verbose --debug
+
+    - uses: actions/checkout@v2
+      with:
+        path: source
+
+    - name: restore ccache
+      id: ccache
+      uses: actions/cache@v2
+      with:
+        path: ${{ runner.temp }}/ccache
+        # "github.run_id" is unique, which causes the cache to always get
+        # saved at the end of a successful run.
+        key:  ccache-${{ matrix.os }}-${{ github.ref }}-${{ github.run_id }}
+        # As the unique "key" above will never be found in the cache when the
+        # job starts, we need these broader "restore-keys" in order to match
+        # and restore the most recent cache.
+        restore-keys: |
+          ccache-${{ matrix.os }}-${{ github.ref }}-
+          ccache-${{ matrix.os }}-${{ env.BRANCH_REF }}-
+          ccache-${{ matrix.os }}-refs/heads/dev-
+          ccache-${{ matrix.os }}-
+
+    - name: install build dependencies
+      run:  ${{ matrix.install_cmd }}  ${{ matrix.deps }}  ${{ matrix.install_cmd_postfix }}
+      if: matrix.deps != ''
+    - name: install compiler tools
+      run:  ${{ matrix.install_cmd }}  ${{ matrix.tools }}  ${{ matrix.install_cmd_postfix }}
+    - name: configure ccache
+      run: |
+        ccache --set-config sloppiness=file_macro,time_macros
+        ccache --set-config cache_dir='${{ runner.temp }}'/ccache
+        ccache --set-config compression=true
+        ccache --set-config max_size=1G
+    - name: print versions and environment
+      run: |
+        gcc --version    | head -1
+        cmake --version  | head -1
+        echo Ninja `ninja --version`
+        { ninja --help || true ; } 2>&1 | grep "run N jobs in parallel"
+        ccache --version | head -1
+        ccache --show-config  ||  echo 'Old ccache version does not support --show-config'
+        echo Environment:
+        printenv
+
+    - name: make build directory
+      run:  mkdir build
+    - name: configure
+      working-directory: build
+      run:  "../source/configure -opensource -confirm-license -ccache -no-pch
+        -debug -nomake tests -nomake examples
+        -prefix '${{ runner.temp }}'/install_dir
+        ${{ matrix.configure_flags }}"
+    - name: ninja
+      working-directory: build
+      run: ninja
+
+    - name: various stats
+      # Print ccache utilization statistics, then reset them.
+      run: |
+        ccache -s
+        ccache -x 2>/dev/null || true
+        ccache -z
+
+    - name: print logfiles and other info in case of failure
+      if: ${{ failure() }}
+      run: |
+        echo ==== CMakeOutput.log ====
+        cat build/CMakeFiles/CMakeOutput.log
+        echo
+        echo ==== CMakeError.log ====
+        cat build/CMakeFiles/CMakeError.log
+        echo ==== CMakeCache.txt ====
+        cat build/CMakeCache.txt

@@ -1,0 +1,15 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \group plugins
+    \title Plugin Classes
+    \ingroup groups
+
+    \brief Plugin related classes.
+
+    These \l{Qt Core} classes deal with shared libraries, (for example, .so and DLL
+    files), and with Qt plugins.
+
+    See the \l{How to Create Qt Plugins} page for more information.
+*/

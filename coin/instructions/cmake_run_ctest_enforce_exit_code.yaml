@@ -1,0 +1,117 @@
+type: Group
+instructions:
+  - type: ScheduleUploadTestResults
+  - type: PrependToEnvironmentVariable
+    variableName: PATH
+    variableValue: "{{.Env.PYTHON3_PATH}}:"
+    disable_if:
+      condition: property
+      property: host.os
+      equals_value: Windows
+  - type: EnvironmentVariable
+    variableName: TESTRUNNER
+    variableValue: "{{.Env.LIBEXEC_INSTALL_DIR}}qt-testrunner.py --"
+    # Running wasm tests with the coin testrunner is not yet implemented
+    disable_if:
+      condition: property
+      property: target.osVersion
+      in_values: [WebAssembly]
+  - type: AppendToEnvironmentVariable
+    variableName: TESTRUNNER
+    variableValue: " {{.SourceDir}}/coin_qnx_qemu_runner.sh"
+    enable_if:
+      condition: property
+      property: target.osVersion
+      in_values: [QNX_710]
+  - type: Group
+    enable_if:
+      condition: property
+      property: features
+      contains_value: UseAddressSanitizer
+    instructions:
+    - type: EnvironmentVariable
+      variableName: ASAN_OPTIONS
+      variableValue: "malloc_context_size=100:detect_leaks=0"
+    - type: EnvironmentVariable
+      # Override qt-testrunner as we don't want to gather test statistics
+      # because many tests FAIL when built with ASAN.
+      variableName: TESTRUNNER
+      variableValue: "{{.Env.LIBEXEC_INSTALL_DIR}}sanitizer-testrunner.py"
+  - type: EnvironmentVariable
+    variableName: COIN_CTEST_RESULTSDIR
+    variableValue: "{{.AgentWorkingDir}}\\testresults"
+    enable_if:
+      condition: property
+      property: host.os
+      equals_value: Windows
+  - type: EnvironmentVariable
+    variableName: COIN_CTEST_RESULTSDIR
+    variableValue: "{{.AgentWorkingDir}}/testresults"
+    disable_if:
+      condition: property
+      property: host.os
+      equals_value: Windows
+  - type: EnvironmentVariable
+    variableName: CTEST_ARGS
+    variableValue: "-V"
+  - type: AppendToEnvironmentVariable
+    variableName: CTEST_ARGS
+    variableValue: " --stop-on-failure"
+    enable_if:
+      condition: property
+      property: features
+      contains_value: AbortTestingOnFirstFailure
+  - type: ExecuteCommand
+    command: "{{.Env.TESTS_ENV_PREFIX}} ctest {{.Env.CTEST_ARGS}}"
+    executeCommandArgumentSplitingBehavior: SplitAfterVariableSubstitution
+    ignoreExitCode: false
+    maxTimeInSeconds: 10800
+    maxTimeBetweenOutput: 900
+    userMessageOnFailure: >
+      Failed to run tests.
+
+  - type: Group
+    instructions:
+      # Qttestrunner does not work with bic tests.
+      - type: EnvironmentVariable
+        variableName: TESTRUNNER
+        variableValue: ""
+      - type: EnvironmentVariable
+        variableName: QT_MODULE_TO_TEST
+        variableValue: "{{.SourceDir}}"
+      - type: PrependToEnvironmentVariable
+        variableName: PATH
+        variableValue: "{{.InstallDir}}/bin:"
+      - type: InstallSourceArchive
+        maxTimeInSeconds: 600
+        maxTimeBetweenOutput: 600
+        project: qt/qtqa
+        ref: dev
+        directory: qt/qtqa
+        userMessageOnFailure: "Could not install qt/qtqa source archive. Please investigate why."
+      - type: ChangeDirectory
+        directory: "{{.AgentWorkingDir}}/qt/qtqa/tests/postbuild/bic"
+      - type: ExecuteCommand
+        command: ["{{.InstallDir}}/bin/qmake"]
+        maxTimeInSeconds: 7200
+        maxTimeBetweenOutput: 300
+        userMessageOnFailure: "Failed to execute qmake for bic tests"
+      - type: RunQtUnitTest
+        runTestCommand: ["make", "check", "-j1"]
+        directory: "{{.AgentWorkingDir}}/qt/qtqa/tests/postbuild/bic"
+        testRepetitionAllowance: 0
+        maxTimeInSeconds: 7200
+        maxTimeBetweenOutput: 300
+        userMessageOnFailure: "Running bic tests failed."
+    enable_if:
+      condition: and
+      conditions:
+        - condition: property
+          property: features
+          contains_value: Packaging
+        - condition: property
+          property: target.os
+          equals_value: Linux
+        - condition: property
+          property: features
+          contains_value: EnableBicTests

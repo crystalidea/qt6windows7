@@ -1,0 +1,23 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtDBus
+    \title Qt D-Bus C++ Classes
+    \brief The Qt D-Bus module is a Unix-only library that you can use
+    to perform Inter-Process Communication using the \l{Qt D-Bus}{D-Bus} protocol.
+
+    \ingroup modules
+    \qtcmakepackage DBus
+    \qtvariable dbus
+
+    \keyword The QDBus compiler
+
+
+    Applications using the Qt D-Bus module can provide services to
+    other, remote applications by exporting objects, as well as use
+    services exported by those applications by placing calls and
+    accessing properties.
+
+    The \l{Qt D-Bus} page contains information about how to use the module.
+*/

@@ -1,0 +1,81 @@
+type: Group
+instructions:
+  - type: ChangeDirectory
+    directory: "{{.SourceDir}}"
+  - type: MakeDirectory
+    directory: .git
+  - type: MakeDirectory
+    directory: "{{.SourceDir}}_build"
+  - type: SetBuildDirectory
+    directory: "{{.SourceDir}}_build"
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}"
+
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIGURE_ARGS
+    variableValue: "{{.Env.CONFIGURE_ARGS}}"
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    # Use unix separators even on Windows, to avoid escaping issues in the configure script.
+    variableValue: "{{.Env.CMAKE_ARGS}} {{.Env.COMMON_CMAKE_ARGS}} -DCMAKE_INSTALL_PREFIX:PATH={{unixPathSeparators .InstallDir}}"
+  - type: EnvironmentVariable
+    variableName: CONFIGURE_ENV_PREFIX
+    variableValue: "{{.Env.ENV_PREFIX}}"
+  - !include "{{qt/qtbase}}/call_configure_qtbase.yaml"
+
+  - type: ExecuteCommand
+    command: "{{.Env.CONFIGURE_ENV_PREFIX}} cmake --build . --parallel -v"
+    maxTimeInSeconds: 6000
+    maxTimeBetweenOutput: 1200
+    userMessageOnFailure: >
+      Failed to build sources.
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_BUILD_DIR
+    variableValue: "{{.BuildDir}}"
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_BUILD_LIBEXEC_DIR
+    variableValue: "{{.Env.COIN_CMAKE_BUILD_DIR}}{{.Env.CI_PATH_SEP}}libexec"
+    disable_if:
+      condition: and
+      conditions:
+        - condition: property
+          property: host.os
+          equals_value: Windows
+        - condition: property
+          property: target.osVersion
+          not_in_values: [WebAssembly, Android_ANY]
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_BUILD_LIBEXEC_DIR
+    variableValue: "{{.Env.COIN_CMAKE_BUILD_DIR}}{{.Env.CI_PATH_SEP}}bin"
+    enable_if:
+      condition: and
+      conditions:
+        - condition: property
+          property: host.os
+          equals_value: Windows
+        - condition: property
+          property: target.osVersion
+          not_in_values: [WebAssembly, Android_ANY]
+  - !include "{{qt/qtbase}}/call_host_install.yaml"
+  - type: EnvironmentVariable
+    variableName: DESTDIR
+    variableValue: "{{.InstallRoot}}"
+  - !include "{{qt/qtbase}}/call_host_install.yaml"
+  - type: SignPackage
+    enable_if:
+      condition: property
+      property: host.os
+      equals_value: Windows
+    directory: "{{.InstallRoot}}/{{.AgentWorkingDir}}"
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+  - type: UploadArtifact
+    archiveDirectory: "{{.InstallRoot}}/{{.AgentWorkingDir}}"
+    transferType: UploadModuleBuildArtifact
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIG_TYPE
+    variableValue: "Host"
+  - !include "{{qt/qtbase}}/qmake/get_qmake_location_host.yaml"
+  - !include "{{qt/qtbase}}/qmake_examples/build_qmake_examples_instructions.yaml"

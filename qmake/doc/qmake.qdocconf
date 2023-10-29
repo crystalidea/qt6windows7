@@ -1,0 +1,64 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+
+project                 = QMake
+moduleheader            = qmake_pch.h
+description             = QMake Manual
+
+qhp.projects            = qmake
+
+qhp.qmake.file                = qmake.qhp
+qhp.qmake.namespace           = org.qt-project.qmake.$QT_VERSION_TAG
+qhp.qmake.virtualFolder       = qmake
+qhp.qmake.indexTitle          = QMake Manual
+qhp.qmake.subprojects         = manual
+qhp.qmake.subprojects.manual.title = Manual
+qhp.qmake.subprojects.manual.indexTitle = qmake Manual
+qhp.qmake.subprojects.manual.selectors = fake:page
+
+language                = Cpp
+
+sources                 = src/qmake-manual.qdoc
+
+imagedirs               = images
+exampledirs             = snippets
+
+tagfile = qmake.tags
+
+macro.qtbug = "\\l{https://bugreports.qt.io/browse/\1}{\1}"
+
+depends += \
+    activeqt \
+    qt3d \
+    qtassistant \
+    qtbluetooth \
+    qtconcurrent \
+    qtcore \
+    qtdbus \
+    qtdoc \
+    qtdesigner \
+    qtgui \
+    qthelp \
+    qtimageformats \
+    qtlinguist \
+    qtlocation \
+    qtmultimedia \
+    qtnetwork \
+    qtopengl \
+    qtprintsupport \
+    qtqml qtqmltest \
+    qtquick \
+    qtquickcontrols \
+    qtquickdialogs \
+    qtsensors \
+    qtserialport \
+    qtsql \
+    qtsvg \
+    qttestlib \
+    qtuitools \
+    qtwidgets \
+    qtxml
+
+navigation.landingpage = "qmake Manual"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

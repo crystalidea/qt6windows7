@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example querymodel
+    \title Query Model Example
+    \ingroup sql_examples
+
+    \brief The Query Model example shows how to make customized versions of
+    data obtained from a SQL query, using a model that encapsulates
+    the query and table views to display the results.
+
+    \borderedimage querymodel-example.png
+*/

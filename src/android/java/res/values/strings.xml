@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- %%INSERT_STRINGS -->
+    <string name="fatal_error_msg">Your application encountered a fatal error and cannot continue.</string>
+    <string name="unsupported_android_version">This version of Android is not supported.</string>
+</resources>

@@ -1,0 +1,20 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!   \page textedit-example.html
+
+  \ingroup examples
+  \title Text Edit Example
+
+  \brief This example displays a text editor with the user interface written
+  in pure C++.
+
+  A similar example which uses Qt Designer to produce the user
+  interface is in the \l {Qt Designer Manual}.
+
+
+  See \c{$QTDIR/examples/textedit} for the source code.
+
+*/
+
+

@@ -1,0 +1,87 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page ssl.html
+    \title Secure Sockets Layer (SSL) Classes
+    \brief Classes for secure communication over network sockets.
+
+    \keyword SSL
+
+    The classes below provide support for secure network communication using
+    the Secure Sockets Layer (SSL) protocol, using a native TLS backend,
+    the \l{OpenSSL Toolkit}, or any appropriate TLS plugin to perform encryption
+    and protocol handling.
+
+    From Qt version 5.15 onward, the officially supported version for OpenSSL
+    is 1.1.1 or later.
+
+    \annotatedlist ssl
+
+    For Android applications see \l{Adding OpenSSL Support for Android}.
+
+    \section1 Enabling and Disabling SSL Support when Building Qt from Source
+
+    When building Qt from source, Qt builds plugins for native TLS libraries
+    that are supported for the operating system you are building for. For
+    Windows this means
+    \l{https://docs.microsoft.com/en-us/windows/win32/com/schannel}{Schannel},
+    while for macOS this is
+    \l{https://developer.apple.com/documentation/security/secure_transport}{Secure Transport}.
+
+    On all platforms, the configuration system checks for the presence of the
+    \c{openssl/opensslv.h} header provided by source or developer packages
+    of OpenSSL. If found, it will enable and build the OpenSSL backend for Qt.
+
+    By default, an OpenSSL-enabled Qt library dynamically loads any installed
+    OpenSSL library at run-time. However, it is possible to link against the
+    library at compile-time by configuring Qt with the \c{-openssl-linked}
+    option.
+
+    When building a version of Qt linked against OpenSSL, Qt's build system will
+    use CMake's \c{FindOpenSSL} command to find OpenSSL in several standard
+    locations. You can set the CMake variable OPENSSL_ROOT_DIR to force a
+    specific location.
+
+    For example:
+    \code
+        configure -openssl-linked -- -D OPENSSL_ROOT_DIR=<openssl_dir>
+    \endcode
+
+    To disable SSL support in a Qt build, configure Qt with the \c{-no-openssl}
+    option.
+
+    \section1 Considerations While Packaging Your Application
+
+    When you package your application, you may run a tool like \l{windeployqt}. This
+    copies all the plugins for the libraries you use to the \c{plugins/} folder.
+    However, for TLS you only need one backend, and you may delete the other
+    plugins before packaging your application. For example, if you're on Windows
+    and don't require any of the extra features the OpenSSL backend provides,
+    you can choose to forego shipping the \c{qopensslbackend} plugin as well as
+    the OpenSSL library, and simply ship the \c{qschannelbackend} plugin.
+
+    However, shipping multiple backends is not a problem. Qt will
+    attempt to load the backends in order (with OpenSSL attempted first) until
+    one is successfully loaded. The other backends are then unused.
+
+    \section1 Datagram Transport Layer Security
+
+    Datagram Transport Layer Security (DTLS) is a protocol that enables security
+    for datagram-based applications, providing them with protection against
+    eavesdropping, tampering, or message forgery. The DTLS protocol is based on the
+    stream-oriented Transport Layer Security (TLS) protocol. QtNetwork enables
+    the use of DTLS with User Datagram Protocol (UDP), as defined by
+    \l {RFC 6347}.
+
+    \section1 Import and Export Restrictions
+
+    Qt binary installers include the OpenSSL libraries used by QtNetwork. However,
+    those are not automatically deployed with applications that are built with Qt.
+    Import and export restrictions apply for some types of software, and for
+    some parts of the world. Developers wishing to use SSL communication in their
+    deployed applications should either ensure that their users have the appropriate
+    libraries installed, or they should consult a suitably qualified legal
+    professional to ensure that applications using code from the OpenSSL project
+    are correctly certified for import and export in relevant regions of the world.
+*/

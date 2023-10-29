@@ -1,0 +1,20 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \ingroup all-examples
+    \title OpenGL Examples from the Qt OpenGL module
+    \brief Accessing OpenGL from Qt.
+    \group examples-widgets-opengl
+
+    \image opengl-examples.png
+
+    These examples describe how to use the \l {Qt OpenGL} module.
+
+    Qt provides support for integration with OpenGL implementations, giving
+    developers the opportunity to display hardware accelerated 3D graphics
+    alongside a more conventional user interface.
+
+    These examples demonstrate the basic techniques used to take advantage of
+    OpenGL in Qt applications.
+*/

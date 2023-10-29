@@ -1,0 +1,161 @@
+TAP version 13
+# tst_globaldata
+ok 1 - initTestCase()
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: initTestCase initTestCase (null)
+  ...
+ok 2 - testGlobal(global=false:local=false)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init testGlobal local=false
+    - severity: debug
+      message: global: false
+    - severity: debug
+      message: local: false
+    - severity: debug
+      message: cleanup testGlobal local=false
+  ...
+ok 3 - testGlobal(global=false:local=true)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init testGlobal local=true
+    - severity: debug
+      message: global: false
+    - severity: debug
+      message: local: true
+    - severity: debug
+      message: cleanup testGlobal local=true
+  ...
+ok 4 - testGlobal(global=true:local=false)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init testGlobal local=false
+    - severity: debug
+      message: global: true
+    - severity: debug
+      message: local: false
+    - severity: debug
+      message: cleanup testGlobal local=false
+  ...
+ok 5 - testGlobal(global=true:local=true)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init testGlobal local=true
+    - severity: debug
+      message: global: true
+    - severity: debug
+      message: local: true
+    - severity: debug
+      message: cleanup testGlobal local=true
+  ...
+ok 6 - skip(global=false) # SKIP skipping
+ok 7 - skipLocal(global=false:local=false) # SKIP skipping
+  ---
+  at: tst_globaldata::skipLocal() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipLocal local=false
+  ...
+# debug: cleanup skipLocal local=false
+ok 8 - skipLocal(global=false:local=true) # SKIP skipping
+  ---
+  at: tst_globaldata::skipLocal() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipLocal local=true
+  ...
+# debug: cleanup skipLocal local=true
+ok 9 - skipLocal(global=true:local=false) # SKIP skipping
+  ---
+  at: tst_globaldata::skipLocal() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipLocal local=false
+  ...
+# debug: cleanup skipLocal local=false
+ok 10 - skipLocal(global=true:local=true) # SKIP skipping
+  ---
+  at: tst_globaldata::skipLocal() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipLocal local=true
+  ...
+# debug: cleanup skipLocal local=true
+ok 11 - skipSingle(global=false:local=false)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipSingle local=false
+    - severity: debug
+      message: global: false local: false
+    - severity: debug
+      message: cleanup skipSingle local=false
+  ...
+ok 12 - skipSingle(global=false:local=true) # SKIP Skipping
+  ---
+  at: tst_globaldata::skipSingle() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipSingle local=true
+  ...
+# debug: cleanup skipSingle local=true
+ok 13 - skipSingle(global=true:local=false) # SKIP Skipping
+  ---
+  at: tst_globaldata::skipSingle() (qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/globaldata/tst_globaldata.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipSingle local=false
+  ...
+# debug: cleanup skipSingle local=false
+ok 14 - skipSingle(global=true:local=true)
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: init skipSingle local=true
+    - severity: debug
+      message: global: true local: true
+    - severity: debug
+      message: cleanup skipSingle local=true
+  ...
+ok 15 - cleanupTestCase()
+  ---
+  extensions:
+    messages:
+    - severity: debug
+      message: cleanupTestCase cleanupTestCase (null)
+  ...
+1..15
+# tests 15
+# pass 8
+# fail 0

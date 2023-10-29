@@ -1,0 +1,13 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example textures
+    \title Textures Example
+    \ingroup examples-widgets-opengl
+
+    \brief The Textures example demonstrates the use of Qt's image classes as textures in
+    applications that use both OpenGL and Qt to display graphics.
+
+    \image textures-example.png
+*/

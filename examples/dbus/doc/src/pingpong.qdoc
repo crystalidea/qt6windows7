@@ -1,0 +1,24 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example pingpong
+    \title D-Bus Ping Pong
+    \ingroup examples-dbus
+    \brief Demonstrates a simple message system using D-Bus.
+
+    \e{Ping Pong} is a command-line example that demonstrates the basics of
+    \l{Qt D-Bus}. A message is sent to another application and there is a
+    confirmation of the message.
+
+    \include examples-run.qdocinc
+
+    Run the \c pong application and run the \c ping application with the message
+    as the argument.
+
+    \badcode
+    $ ./pong &
+    $ ./ping Hello
+    Reply was: ping("Hello") got called
+    \endcode
+*/

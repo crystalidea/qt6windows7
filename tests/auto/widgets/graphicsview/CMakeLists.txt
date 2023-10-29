@@ -1,0 +1,23 @@
+# Copyright (C) 2022 The Qt Company Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+if(QT_FEATURE_private_tests)
+    add_subdirectory(qgraphicsanchorlayout)
+    add_subdirectory(qgraphicsanchorlayout1)
+    add_subdirectory(qgraphicsitem)
+    add_subdirectory(qgraphicsscene)
+    add_subdirectory(qgraphicssceneindex)
+endif()
+add_subdirectory(qgraphicseffectsource)
+add_subdirectory(qgraphicsgridlayout)
+add_subdirectory(qgraphicsitemanimation)
+add_subdirectory(qgraphicslayout)
+add_subdirectory(qgraphicslayoutitem)
+add_subdirectory(qgraphicslinearlayout)
+add_subdirectory(qgraphicsobject)
+add_subdirectory(qgraphicspixmapitem)
+add_subdirectory(qgraphicspolygonitem)
+add_subdirectory(qgraphicstransform)
+add_subdirectory(qgraphicsproxywidget)
+add_subdirectory(qgraphicswidget)
+add_subdirectory(qgraphicsview)

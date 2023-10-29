@@ -1,0 +1,16 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example ipc/localfortuneclient
+    \title Local Fortune Client Example
+    \ingroup examples-ipc
+    \brief Demonstrates using QLocalSocket for a simple local service client.
+
+    The Local Fortune Client example shows how to create a client for a simple
+    local service using QLocalSocket. It is intended to be run alongside the
+    \l{Local Fortune Server Example}.
+
+    \image localfortuneclient-example.png Screenshot of the Local Fortune Client example
+
+*/

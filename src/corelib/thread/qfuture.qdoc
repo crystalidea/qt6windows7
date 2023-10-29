@@ -1,0 +1,1494 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*! \class QFuture
+    \inmodule QtCore
+    \threadsafe
+    \brief The QFuture class represents the result of an asynchronous computation.
+    \since 4.4
+
+    \ingroup thread
+
+    QFuture allows threads to be synchronized against one or more results
+    which will be ready at a later point in time. The result can be of any type
+    that has default, copy and possibly move constructors. If
+    a result is not available at the time of calling the result(), resultAt(),
+    results() and takeResult() functions, QFuture will wait until the result
+    becomes available. You can use the isResultReadyAt() function to determine
+    if a result is ready or not. For QFuture objects that report more than one
+    result, the resultCount() function returns the number of continuous results.
+    This means that it is always safe to iterate through the results from 0 to
+    resultCount(). takeResult() invalidates a future, and any subsequent attempt
+    to access result or results from the future leads to undefined behavior.
+    isValid() tells you if results can be accessed.
+
+    QFuture provides a \l{Java-style iterators}{Java-style iterator}
+    (QFutureIterator) and an \l{STL-style iterators}{STL-style iterator}
+    (QFuture::const_iterator). Using these iterators is another way to access
+    results in the future.
+
+    If the result of one asynchronous computation needs to be passed
+    to another, QFuture provides a convenient way of chaining multiple sequential
+    computations using then(). onCanceled() can be used for adding a handler to
+    be called if the QFuture is canceled. Additionally, onFailed() can be used
+    to handle any failures that occurred in the chain. Note that QFuture relies
+    on exceptions for the error handling. If using exceptions is not an option,
+    you can still indicate the error state of QFuture, by making the error type
+    part of the QFuture type. For example, you can use std::variant, std::any or
+    similar for keeping the result or failure or make your custom type.
+
+    The example below demonstrates how the error handling can be done without
+    using exceptions. Let's say we want to send a network request to obtain a large
+    file from a network location. Then we want to write it to the file system and
+    return its location in case of a success. Both of these operations may fail
+    with different errors. So, we use \c std::variant to keep the result
+    or error:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 3
+
+    And we combine the two operations using then():
+
+    \snippet code/src_corelib_thread_qfuture.cpp 4
+
+    It's possible to chain multiple continuations and handlers in any order.
+    For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 15
+
+    Depending on the state of \c testFuture (canceled, has exception or has a
+    result), the next onCanceled(), onFailed() or then() will be called. So
+    if \c testFuture is successfully fulfilled, \c {Block 1} will be called. If
+    it succeeds as well, the next then() (\c {Block 4}) is called. If \c testFuture
+    gets canceled or fails with an exception, either \c {Block 2} or \c {Block 3}
+    will be called respectively. The next then() will be called afterwards, and the
+    story repeats.
+
+    \note If \c {Block 2} is invoked and throws an exception, the following
+    onFailed() (\c {Block 3}) will handle it. If the order of onFailed() and
+    onCanceled() were reversed, the exception state would propagate to the
+    next continuations and eventually would be caught in \c {Block 5}.
+
+    In the next example the first onCanceled() (\c {Block 2}) is removed:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 16
+
+    If \c testFuture gets canceled, its state is propagated to the next then(),
+    which will be also canceled. So in this case \c {Block 6} will be called.
+
+    The future can have only one continuation. Consider the following example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 31
+
+    In this case \c f1 and \c f2 are effectively the same QFuture object, as
+    they share the same internal state. As a result, calling
+    \l {QFuture::}{then} on \c f2 will overwrite the continuation specified for
+    \c {f1}. So, only \c {"second"} will be printed when this code is executed.
+
+    QFuture also offers ways to interact with a running computation. For
+    instance, the computation can be canceled with the cancel() function. To
+    suspend or resume the computation, use the setSuspended() function or one of
+    the suspend(), resume(), or toggleSuspended() convenience functions. Be aware
+    that not all running asynchronous computations can be canceled or suspended.
+    For example, the future returned by QtConcurrent::run() cannot be canceled;
+    but the future returned by QtConcurrent::mappedReduced() can.
+
+    Progress information is provided by the progressValue(),
+    progressMinimum(), progressMaximum(), and progressText() functions. The
+    waitForFinished() function causes the calling thread to block and wait for
+    the computation to finish, ensuring that all results are available.
+
+    The state of the computation represented by a QFuture can be queried using
+    the isCanceled(), isStarted(), isFinished(), isRunning(), isSuspending()
+    or isSuspended() functions.
+
+    QFuture<void> is specialized to not contain any of the result fetching
+    functions. Any QFuture<T> can be assigned or copied into a QFuture<void>
+    as well. This is useful if only status or progress information is needed
+    - not the actual result data.
+
+    To interact with running tasks using signals and slots, use QFutureWatcher.
+
+    You can also use QtFuture::connect() to connect signals to a QFuture object
+    which will be resolved when a signal is emitted. This allows working with
+    signals like with QFuture objects. For example, if you combine it with then(),
+    you can attach multiple continuations to a signal, which are invoked in the
+    same thread or a new thread.
+
+    The QtFuture::whenAll() and QtFuture::whenAny() functions can be used to
+    combine several futures and track when the last or first of them completes.
+
+    A ready QFuture object with a value or a QFuture object holding exception can
+    be created using convenience functions QtFuture::makeReadyFuture() and
+    QtFuture::makeExceptionalFuture().
+
+    \note To start a computation and store results in a QFuture, use QPromise or
+    one of the APIs in the \l {Qt Concurrent} framework.
+
+    \sa QPromise, QtFuture::connect(), QtFuture::makeReadyFuture(),
+    QtFuture::makeExceptionalFuture(), QFutureWatcher, {Qt Concurrent}
+*/
+
+/*! \fn template <typename T> QFuture<T>::QFuture()
+
+    Constructs an empty, canceled future.
+*/
+
+/*! \fn template <typename T> QFuture<T>::QFuture(const QFuture<T> &other)
+
+    Constructs a copy of \a other.
+
+    \sa operator=()
+*/
+
+/*! \fn template <typename T> QFuture<T>::QFuture(QFutureInterface<T> *resultHolder)
+    \internal
+*/
+
+/*! \fn template <typename T> QFuture<T>::~QFuture()
+
+    Destroys the future.
+
+    Note that this neither waits nor cancels the asynchronous computation. Use
+    waitForFinished() or QFutureSynchronizer when you need to ensure that the
+    computation is completed before the future is destroyed.
+*/
+
+/*! \fn template <typename T> QFuture<T> &QFuture<T>::operator=(const QFuture<T> &other)
+
+     Assigns \a other to this future and returns a reference to this future.
+*/
+
+/*! \fn template <typename T> void QFuture<T>::cancel()
+
+    Cancels the asynchronous computation represented by this future. Note that
+    the cancellation is asynchronous. Use waitForFinished() after calling
+    cancel() when you need synchronous cancellation.
+
+    Results currently available may still be accessed on a canceled future,
+    but new results will \e not become available after calling this function.
+    Any QFutureWatcher object that is watching this future will not deliver
+    progress and result ready signals on a canceled future.
+
+    Be aware that not all running asynchronous computations can be canceled.
+    For example, the future returned by QtConcurrent::run() cannot be canceled;
+    but the future returned by QtConcurrent::mappedReduced() can.
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isCanceled() const
+
+    Returns \c true if the asynchronous computation has been canceled with the
+    cancel() function; otherwise returns \c false.
+
+    Be aware that the computation may still be running even though this
+    function returns \c true. See cancel() for more details.
+*/
+
+
+#if QT_DEPRECATED_SINCE(6, 0)
+/*! \fn template <typename T> void QFuture<T>::setPaused(bool paused)
+
+    \deprecated [6.0] Use setSuspended() instead.
+
+    If \a paused is true, this function pauses the asynchronous computation
+    represented by the future. If the computation is  already paused, this
+    function does nothing. Any QFutureWatcher object that is watching this
+    future will stop delivering progress and result ready signals while the
+    future is paused. Signal delivery will continue once the future is
+    resumed.
+
+    If \a paused is false, this function resumes the asynchronous computation.
+    If the computation was not previously paused, this function does nothing.
+
+    Be aware that not all computations can be paused. For example, the future
+    returned by QtConcurrent::run() cannot be paused; but the future returned
+    by QtConcurrent::mappedReduced() can.
+
+    \sa suspend(), resume(), toggleSuspended()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isPaused() const
+
+    \deprecated [6.0] Use isSuspending() or isSuspended() instead.
+
+    Returns \c true if the asynchronous computation has been paused with the
+    pause() function; otherwise returns \c false.
+
+    Be aware that the computation may still be running even though this
+    function returns \c true. See setPaused() for more details. To check
+    if pause actually took effect, use isSuspended() instead.
+
+    \sa toggleSuspended(), isSuspended()
+*/
+
+/*! \fn template <typename T> void QFuture<T>::pause()
+
+    \deprecated [6.0] Use suspend() instead.
+
+    Pauses the asynchronous computation represented by this future. This is a
+    convenience method that simply calls setPaused(true).
+
+    \sa resume()
+*/
+
+/*! \fn template <typename T> void QFuture<T>::togglePaused()
+
+    \deprecated [6.0] Use toggleSuspended() instead.
+
+    Toggles the paused state of the asynchronous computation. In other words,
+    if the computation is currently paused, calling this function resumes it;
+    if the computation is running, it is paused. This is a convenience method
+    for calling setPaused(!isPaused()).
+
+    \sa setSuspended(), suspend(), resume()
+*/
+#endif // QT_DEPRECATED_SINCE(6, 0)
+
+/*! \fn template <typename T> void QFuture<T>::setSuspended(bool suspend)
+
+    \since 6.0
+
+    If \a suspend is true, this function suspends the asynchronous computation
+    represented by the future(). If the computation is already suspended, this
+    function does nothing. QFutureWatcher will not immediately stop delivering
+    progress and result ready signals when the future is suspended. At the moment
+    of suspending there may still be computations that are in progress and cannot
+    be stopped. Signals for such computations will still be delivered.
+
+    If \a suspend is false, this function resumes the asynchronous computation.
+    If the computation was not previously suspended, this function does nothing.
+
+    Be aware that not all computations can be suspended. For example, the
+    QFuture returned by QtConcurrent::run() cannot be suspended; but the QFuture
+    returned by QtConcurrent::mappedReduced() can.
+
+    \sa suspend(), resume(), toggleSuspended()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isSuspending() const
+
+    \since 6.0
+
+    Returns \c true if the asynchronous computation has been suspended with the
+    suspend() function, but the work is not yet suspended, and computation is still
+    running. Returns \c false otherwise.
+
+    To check if suspension is actually in effect, use isSuspended() instead.
+
+    \sa setSuspended(), toggleSuspended(), isSuspended()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isSuspended() const
+
+    \since 6.0
+
+    Returns \c true if a suspension of the asynchronous computation has been
+    requested, and it is in effect, meaning that no more results or progress
+    changes are expected.
+
+    \sa setSuspended(), toggleSuspended(), isSuspending()
+*/
+
+/*! \fn template <typename T> void QFuture<T>::suspend()
+
+    \since 6.0
+
+    Suspends the asynchronous computation represented by this future. This is a
+    convenience method that simply calls setSuspended(true).
+
+    \sa resume()
+*/
+
+/*! \fn template <typename T> void QFuture<T>::resume()
+
+    Resumes the asynchronous computation represented by the future(). This is
+    a convenience method that simply calls setSuspended(false).
+
+    \sa suspend()
+*/
+
+/*! \fn template <typename T> void QFuture<T>::toggleSuspended()
+
+    \since 6.0
+
+    Toggles the suspended state of the asynchronous computation. In other words,
+    if the computation is currently suspending or suspended, calling this
+    function resumes it; if the computation is running, it is suspended. This is a
+    convenience method for calling setSuspended(!(isSuspending() || isSuspended())).
+
+    \sa setSuspended(), suspend(), resume()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isStarted() const
+
+    Returns \c true if the asynchronous computation represented by this future
+    has been started; otherwise returns \c false.
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isFinished() const
+
+    Returns \c true if the asynchronous computation represented by this future
+    has finished; otherwise returns \c false.
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isRunning() const
+
+    Returns \c true if the asynchronous computation represented by this future is
+    currently running; otherwise returns \c false.
+*/
+
+/*! \fn template <typename T> int QFuture<T>::resultCount() const
+
+    Returns the number of continuous results available in this future. The real
+    number of results stored might be different from this value, due to gaps
+    in the result set. It is always safe to iterate through the results from 0
+    to resultCount().
+    \sa result(), resultAt(), results(), takeResult()
+*/
+
+/*! \fn template <typename T> int QFuture<T>::progressValue() const
+
+    Returns the current progress value, which is between the progressMinimum()
+    and progressMaximum().
+
+    \sa progressMinimum(), progressMaximum()
+*/
+
+/*! \fn template <typename T> int QFuture<T>::progressMinimum() const
+
+    Returns the minimum progressValue().
+
+    \sa progressValue(), progressMaximum()
+*/
+
+/*! \fn template <typename T> int QFuture<T>::progressMaximum() const
+
+    Returns the maximum progressValue().
+
+    \sa progressValue(), progressMinimum()
+*/
+
+/*! \fn template <typename T> QString QFuture<T>::progressText() const
+
+    Returns the (optional) textual representation of the progress as reported
+    by the asynchronous computation.
+
+    Be aware that not all computations provide a textual representation of the
+    progress, and as such, this function may return an empty string.
+*/
+
+/*! \fn template <typename T> void QFuture<T>::waitForFinished()
+
+    Waits for the asynchronous computation to finish (including cancel()ed
+    computations), i.e. until isFinished() returns \c true.
+*/
+
+/*! \fn template <typename T> T QFuture<T>::result() const
+
+    Returns the first result in the future. If the result is not immediately
+    available, this function will block and wait for the result to become
+    available. This is a convenience method for calling resultAt(0). Note
+    that \c result() returns a copy of the internally stored result. If \c T is
+    a move-only type, or you don't want to copy the result, use takeResult()
+    instead.
+
+    \note Calling \c result() leads to undefined behavior if isValid()
+    returns \c false for this QFuture.
+
+    \sa resultAt(), results(), takeResult()
+*/
+
+/*! \fn template <typename T> T QFuture<T>::resultAt(int index) const
+
+    Returns the result at \a index in the future. If the result is not
+    immediately available, this function will block and wait for the result to
+    become available.
+
+    \note Calling resultAt() leads to undefined behavior if isValid()
+    returns \c false for this QFuture.
+
+    \sa result(), results(), takeResult(), resultCount()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isResultReadyAt(int index) const
+
+    Returns \c true if the result at \a index is immediately available; otherwise
+    returns \c false.
+
+    \note Calling isResultReadyAt() leads to undefined behavior if isValid()
+    returns \c false for this QFuture.
+
+    \sa resultAt(), resultCount(), takeResult()
+*/
+
+/*! \fn template <typename T> QList<T> QFuture<T>::results() const
+
+    Returns all results from the future. If the results are not immediately available,
+    this function will block and wait for them to become available. Note that
+    \c results() returns a copy of the internally stored results. Getting all
+    results of a move-only type \c T is not supported at the moment. However you can
+    still iterate through the list of move-only results by using \l{STL-style iterators}
+    or read-only \l{Java-style iterators}.
+
+    \note Calling \c results() leads to undefined behavior if isValid()
+    returns \c false for this QFuture.
+
+    \sa result(), resultAt(), takeResult(), resultCount(), isValid()
+*/
+
+#if 0
+/*! \fn template <typename T> std::vector<T> QFuture<T>::takeResults()
+
+    If isValid() returns \c false, calling this function leads to undefined behavior.
+    takeResults() takes all results from the QFuture object and invalidates it
+    (isValid() will return \c false for this future). If the results are
+    not immediately available, this function will block and wait for them to
+    become available. This function tries to use move semantics for the results
+    if available and falls back to copy construction if the type is not movable.
+
+    \note QFuture in general allows sharing the results between different QFuture
+    objects (and potentially between different threads). takeResults() was introduced
+    to make QFuture also work with move-only types (like std::unique_ptr), so it
+    assumes that only one thread can move the results out of the future, and only
+    once.
+
+    \sa takeResult(), result(), resultAt(), results(), resultCount(), isValid()
+*/
+#endif
+
+/*! \fn template <typename T> std::vector<T> QFuture<T>::takeResult()
+
+    \since 6.0
+
+    Call this function only if isValid() returns \c true, otherwise
+    the behavior is undefined. This function takes (moves) the first result from
+    the QFuture object, when only one result is expected. If there are any other
+    results, they are discarded after taking the first one.
+    If the result is not immediately available, this function will block and
+    wait for the result to become available. The QFuture will try to use move
+    semantics if possible, and will fall back to copy construction if the type
+    is not movable. After the result was taken, isValid() will evaluate
+    as \c false.
+
+    \note QFuture in general allows sharing the results between different QFuture
+    objects (and potentially between different threads). takeResult() was introduced
+    to make QFuture also work with move-only types (like std::unique_ptr), so it
+    assumes that only one thread can move the results out of the future, and
+    do it only once. Also note that taking the list of all results is not supported
+    at the moment. However you can still iterate through the list of move-only
+    results by using \l{STL-style iterators} or read-only \l{Java-style iterators}.
+
+    \sa result(), results(), resultAt(), isValid()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::isValid() const
+
+    \since 6.0
+
+    Returns \c true if a result or results can be accessed or taken from this
+    QFuture object. Returns false after the result was taken from the future.
+
+    \sa takeResult(), result(), results(), resultAt()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::begin() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first result in the
+    future.
+
+    \sa constBegin(), end()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::end() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary result
+    after the last result in the future.
+
+    \sa begin(), constEnd()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::constBegin() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first result in the
+    future.
+
+    \sa begin(), constEnd()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::constEnd() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary result
+    after the last result in the future.
+
+    \sa constBegin(), end()
+*/
+
+/*! \class QFuture::const_iterator
+    \reentrant
+    \since 4.4
+    \inmodule QtCore
+
+    \brief The QFuture::const_iterator class provides an STL-style const
+    iterator for QFuture.
+
+    QFuture provides both \l{STL-style iterators} and \l{Java-style iterators}.
+    The STL-style iterators are more low-level and more cumbersome to use; on
+    the other hand, they are slightly faster and, for developers who already
+    know STL, have the advantage of familiarity.
+
+    The default QFuture::const_iterator constructor creates an uninitialized
+    iterator. You must initialize it using a QFuture function like
+    QFuture::constBegin() or QFuture::constEnd() before you start iterating.
+    Here's a typical loop that prints all the results available in a future:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 0
+
+    \sa QFutureIterator, QFuture
+*/
+
+/*! \typedef QFuture::const_iterator::iterator_category
+
+    Typedef for std::bidirectional_iterator_tag. Provided for STL compatibility.
+*/
+
+/*! \typedef QFuture::const_iterator::difference_type
+
+    Typedef for ptrdiff_t. Provided for STL compatibility.
+*/
+
+/*! \typedef QFuture::const_iterator::value_type
+
+    Typedef for T. Provided for STL compatibility.
+*/
+
+/*! \typedef QFuture::const_iterator::pointer
+
+    Typedef for const T *. Provided for STL compatibility.
+*/
+
+/*! \typedef QFuture::const_iterator::reference
+
+    Typedef for const T &. Provided for STL compatibility.
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator::const_iterator()
+
+    Constructs an uninitialized iterator.
+
+    Functions like operator*() and operator++() should not be called on an
+    uninitialized iterartor. Use operator=() to assign a value to it before
+    using it.
+
+    \sa QFuture::constBegin(), QFuture::constEnd()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator::const_iterator(QFuture const * const future, int index)
+    \internal
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator::const_iterator(const const_iterator &other)
+
+    Constructs a copy of \a other.
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator &QFuture<T>::const_iterator::operator=(const const_iterator &other)
+
+    Assigns \a other to this iterator.
+*/
+
+/*! \fn template <typename T> const T &QFuture<T>::const_iterator::operator*() const
+
+    Returns the current result.
+*/
+
+/*! \fn template <typename T> const T *QFuture<T>::const_iterator::operator->() const
+
+    Returns a pointer to the current result.
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::const_iterator::operator!=(const const_iterator &other) const
+
+    Returns \c true if \a other points to a different result than this iterator;
+    otherwise returns \c false.
+
+    \sa operator==()
+*/
+
+/*! \fn template <typename T> bool QFuture<T>::const_iterator::operator==(const const_iterator &other) const
+
+    Returns \c true if \a other points to the same result as this iterator;
+    otherwise returns \c false.
+
+    \sa operator!=()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator &QFuture<T>::const_iterator::operator++()
+
+    The prefix \c{++} operator (\c{++it}) advances the iterator to the next result
+    in the future and returns an iterator to the new current result.
+
+    Calling this function on QFuture<T>::constEnd() leads to undefined results.
+
+    \sa operator--()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::const_iterator::operator++(int)
+
+    \overload
+
+    The postfix \c{++} operator (\c{it++}) advances the iterator to the next
+    result in the future and returns an iterator to the previously current
+    result.
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator &QFuture<T>::const_iterator::operator--()
+
+    The prefix \c{--} operator (\c{--it}) makes the preceding result current and
+    returns an iterator to the new current result.
+
+    Calling this function on QFuture<T>::constBegin() leads to undefined results.
+
+    \sa operator++()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::const_iterator::operator--(int)
+
+    \overload
+
+    The postfix \c{--} operator (\c{it--}) makes the preceding result current and
+    returns an iterator to the previously current result.
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator &QFuture<T>::const_iterator::operator+=(int j)
+
+    Advances the iterator by \a j results. (If \a j is negative, the iterator
+    goes backward.)
+
+    \sa operator-=(), operator+()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator &QFuture<T>::const_iterator::operator-=(int j)
+
+    Makes the iterator go back by \a j results. (If \a j is negative, the
+    iterator goes forward.)
+
+    \sa operator+=(), operator-()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::const_iterator::operator+(int j) const
+
+    Returns an iterator to the results at \a j positions forward from this
+    iterator. (If \a j is negative, the iterator goes backward.)
+
+    \sa operator-(), operator+=()
+*/
+
+/*! \fn template <typename T> QFuture<T>::const_iterator QFuture<T>::const_iterator::operator-(int j) const
+
+    Returns an iterator to the result at \a j positions backward from this
+    iterator. (If \a j is negative, the iterator goes forward.)
+
+    \sa operator+(), operator-=()
+*/
+
+/*! \typedef QFuture::ConstIterator
+
+    Qt-style synonym for QFuture::const_iterator.
+*/
+
+/*!
+    \class QFutureIterator
+    \reentrant
+    \since 4.4
+    \inmodule QtCore
+
+    \brief The QFutureIterator class provides a Java-style const iterator for
+    QFuture.
+
+    QFuture has both \l{Java-style iterators} and \l{STL-style iterators}. The
+    Java-style iterators are more high-level and easier to use than the
+    STL-style iterators; on the other hand, they are slightly less efficient.
+
+    An alternative to using iterators is to use index positions. Some QFuture
+    member functions take an index as their first parameter, making it
+    possible to access results without using iterators.
+
+    QFutureIterator\<T\> allows you to iterate over a QFuture\<T\>. Note that
+    there is no mutable iterator for QFuture (unlike the other Java-style
+    iterators).
+
+    The QFutureIterator constructor takes a QFuture as its argument. After
+    construction, the iterator is located at the very beginning of the result
+    list (i.e. before the first result). Here's how to iterate over all the
+    results sequentially:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 1
+
+    The next() function returns the next result (waiting for it to become
+    available, if necessary) from the future and advances the iterator. Unlike
+    STL-style iterators, Java-style iterators point \e between results rather
+    than directly \e at results. The first call to next() advances the iterator
+    to the position between the first and second result, and returns the first
+    result; the second call to next() advances the iterator to the position
+    between the second and third result, and returns the second result; and
+    so on.
+
+    \image javaiterators1.png
+
+    Here's how to iterate over the elements in reverse order:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 2
+
+    If you want to find all occurrences of a particular value, use findNext()
+    or findPrevious() in a loop.
+
+    Multiple iterators can be used on the same future. If the future is
+    modified while a QFutureIterator is active, the QFutureIterator will
+    continue iterating over the original future, ignoring the modified copy.
+
+    \sa QFuture::const_iterator, QFuture
+*/
+
+/*!
+    \fn template <typename T> QFutureIterator<T>::QFutureIterator(const QFuture<T> &future)
+
+    Constructs an iterator for traversing \a future. The iterator is set to be
+    at the front of the result list (before the first result).
+
+    \sa operator=()
+*/
+
+/*! \fn template <typename T> QFutureIterator<T> &QFutureIterator<T>::operator=(const QFuture<T> &future)
+
+    Makes the iterator operate on \a future. The iterator is set to be at the
+    front of the result list (before the first result).
+
+    \sa toFront(), toBack()
+*/
+
+/*! \fn template <typename T> void QFutureIterator<T>::toFront()
+
+    Moves the iterator to the front of the result list (before the first
+    result).
+
+    \sa toBack(), next()
+*/
+
+/*! \fn template <typename T> void QFutureIterator<T>::toBack()
+
+    Moves the iterator to the back of the result list (after the last result).
+
+    \sa toFront(), previous()
+*/
+
+/*! \fn template <typename T> bool QFutureIterator<T>::hasNext() const
+
+    Returns \c true if there is at least one result ahead of the iterator, e.g.,
+    the iterator is \e not at the back of the result list; otherwise returns
+    false.
+
+    \sa hasPrevious(), next()
+*/
+
+/*! \fn template <typename T> const T &QFutureIterator<T>::next()
+
+    Returns the next result and advances the iterator by one position.
+
+    Calling this function on an iterator located at the back of the result
+    list leads to undefined results.
+
+    \sa hasNext(), peekNext(), previous()
+*/
+
+/*! \fn template <typename T> const T &QFutureIterator<T>::peekNext() const
+
+    Returns the next result without moving the iterator.
+
+    Calling this function on an iterator located at the back of the result
+    list leads to undefined results.
+
+    \sa hasNext(), next(), peekPrevious()
+*/
+
+/*! \fn template <typename T> bool QFutureIterator<T>::hasPrevious() const
+
+    Returns \c true if there is at least one result ahead of the iterator, e.g.,
+    the iterator is \e not at the front of the result list; otherwise returns
+    false.
+
+    \sa hasNext(), previous()
+*/
+
+/*! \fn template <typename T> const T &QFutureIterator<T>::previous()
+
+    Returns the previous result and moves the iterator back by one position.
+
+    Calling this function on an iterator located at the front of the result
+    list leads to undefined results.
+
+    \sa hasPrevious(), peekPrevious(), next()
+*/
+
+/*! \fn template <typename T> const T &QFutureIterator<T>::peekPrevious() const
+
+    Returns the previous result without moving the iterator.
+
+    Calling this function on an iterator located at the front of the result
+    list leads to undefined results.
+
+    \sa hasPrevious(), previous(), peekNext()
+*/
+
+/*! \fn template <typename T> bool QFutureIterator<T>::findNext(const T &value)
+
+    Searches for \a value starting from the current iterator position forward.
+    Returns \c true if \a value is found; otherwise returns \c false.
+
+    After the call, if \a value was found, the iterator is positioned just
+    after the matching result; otherwise, the iterator is positioned at the
+    back of the result list.
+
+    \sa findPrevious()
+*/
+
+/*! \fn template <typename T> bool QFutureIterator<T>::findPrevious(const T &value)
+
+    Searches for \a value starting from the current iterator position
+    backward. Returns \c true if \a value is found; otherwise returns \c false.
+
+    After the call, if \a value was found, the iterator is positioned just
+    before the matching result; otherwise, the iterator is positioned at the
+    front of the result list.
+
+    \sa findNext()
+*/
+
+/*!
+    \namespace QtFuture
+    \inheaderfile QFuture
+
+    \inmodule QtCore
+    \brief Contains miscellaneous identifiers used by the QFuture class.
+*/
+
+
+/*!
+  \enum QtFuture::Launch
+
+  \since 6.0
+
+  Represents execution policies for running a QFuture continuation.
+
+  \value Sync           The continuation will be launched in the same thread that
+                        fulfills the promise associated with the future to which the
+                        continuation was attached, or if it has already finished, the
+                        continuation will be invoked immediately, in the thread that
+                        executes \c then().
+
+  \value Async          The continuation will be launched in a separate thread taken from
+                        the global QThreadPool.
+
+  \value Inherit        The continuation will inherit the launch policy or thread pool of
+                        the future to which it is attached.
+
+  \c Sync is used as a default launch policy.
+
+  \sa QFuture::then(), QThreadPool::globalInstance()
+
+*/
+
+/*!
+    \class QtFuture::WhenAnyResult
+    \inmodule QtCore
+    \ingroup thread
+    \brief QtFuture::WhenAnyResult is used to represent the result of QtFuture::whenAny().
+    \since 6.3
+
+    The \c {QtFuture::WhenAnyResult<T>} struct is used for packaging the copy and
+    the index of the first completed \c QFuture<T> in the sequence of futures
+    packaging type \c T that are passed to QtFuture::whenAny().
+
+    \sa QFuture, QtFuture::whenAny()
+*/
+
+/*!
+    \variable QtFuture::WhenAnyResult::index
+
+    The field contains the index of the first completed QFuture in the sequence
+    of futures passed to whenAny(). It has type \c qsizetype.
+
+    \sa QtFuture::whenAny()
+*/
+
+/*!
+    \variable QtFuture::WhenAnyResult::future
+
+    The field contains the copy of the first completed QFuture that packages type
+    \c T, where \c T is the type packaged by the futures passed to whenAny().
+
+    \sa QtFuture::whenAny()
+*/
+
+/*! \fn template<class Sender, class Signal> static QFuture<ArgsType<Signal>> QtFuture::connect(Sender *sender, Signal signal)
+
+    Creates and returns a QFuture which will become available when the \a sender emits
+    the \a signal. If the \a signal takes no arguments, a QFuture<void> is returned. If
+    the \a signal takes a single argument, the resulted QFuture will be filled with the
+    signal's argument value. If the \a signal takes multiple arguments, the resulted QFuture
+    is filled with std::tuple storing the values of signal's arguments. If the \a sender
+    is destroyed before the \a signal is emitted, the resulted QFuture will be canceled.
+
+    For example, let's say we have the following object:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 10
+
+    We can connect its signals to QFuture objects in the following way:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 11
+
+    We can also chain continuations to be run when a signal is emitted:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 12
+
+    You can also start the continuation in a new thread or a custom thread pool
+    using QtFuture::Launch policies. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 13
+
+    Throwing an exception from a slot invoked by Qt's signal-slot connection
+    is considered to be an undefined behavior, if it is not handled within the
+    slot. But with QFuture::connect(), you can throw and handle exceptions from
+    the continuations:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 14
+
+    \note The connected future will be fulfilled only once, when the signal is
+    emitted for the first time.
+
+    \sa QFuture, QFuture::then()
+*/
+
+/*! \fn template<typename T> static QFuture<std::decay_t<T>> QtFuture::makeReadyFuture(T &&value)
+
+    \since 6.1
+    \overload
+
+    Creates and returns a QFuture which already has a result \a value.
+    The returned QFuture has a type of std::decay_t<T>, where T is not void.
+
+    \code
+    auto f = QtFuture::makeReadyFuture(std::make_unique<int>(42));
+    ...
+    const int result = *f.takeResult(); // result == 42
+    \endcode
+
+    \sa QFuture, QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn QFuture<void> QtFuture::makeReadyFuture()
+
+    \since 6.1
+    \overload
+
+    Creates and returns a void QFuture. Such QFuture can't store any result.
+    One can use it to query the state of the computation.
+    The returned QFuture will always be in the finished state.
+
+    \code
+    auto f = QtFuture::makeReadyFuture();
+    ...
+    const bool started = f.isStarted(); // started == true
+    const bool running = f.isRunning(); // running == false
+    const bool finished = f.isFinished(); // finished == true
+    \endcode
+
+    \sa QFuture, QFuture::isStarted(), QFuture::isRunning(),
+    QFuture::isFinished(), QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn template<typename T> static QFuture<T> QtFuture::makeReadyFuture(const QList<T> &values)
+
+    \since 6.1
+    \overload
+
+    Creates and returns a QFuture which already has multiple results set from \a values.
+
+    \code
+    const QList<int> values { 1, 2, 3 };
+    auto f = QtFuture::makeReadyFuture(values);
+    ...
+    const int count = f.resultCount(); // count == 3
+    const auto results = f.results(); // results == { 1, 2, 3 }
+    \endcode
+
+    \sa QFuture, QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn template<typename T> static QFuture<T> QtFuture::makeExceptionalFuture(const QException &exception)
+
+    \since 6.1
+
+    Creates and returns a QFuture which already has an exception \a exception.
+
+    \code
+    QException e;
+    auto f = QtFuture::makeExceptionalFuture<int>(e);
+    ...
+    try {
+        f.result(); // throws QException
+    } catch (QException &) {
+        // handle exception here
+    }
+    \endcode
+
+    \sa QFuture, QException, QtFuture::makeReadyFuture()
+*/
+
+/*! \fn template<typename T> static QFuture<T> QtFuture::makeExceptionalFuture(std::exception_ptr exception)
+
+    \since 6.1
+    \overload
+
+    Creates and returns a QFuture which already has an exception \a exception.
+
+    \code
+    struct TestException
+    {
+    };
+    ...
+    auto exception = std::make_exception_ptr(TestException());
+    auto f = QtFuture::makeExceptionalFuture<int>(exception);
+    ...
+    try {
+        f.result(); // throws TestException
+    } catch (TestException &) {
+        // handle exception here
+    }
+    \endcode
+
+    \sa QFuture, QException, QtFuture::makeReadyFuture()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<typename QFuture<T>::ResultType<Function>> QFuture<T>::then(Function &&function)
+
+    \since 6.0
+    \overload
+
+    Attaches a continuation to this future, allowing to chain multiple asynchronous
+    computations if desired, using the \l {QtFuture::Launch}{Sync} policy.
+    \a function is a callable that takes an argument of the type packaged by this
+    future if this has a result (is not a QFuture<void>). Otherwise it takes no
+    arguments. This method returns a new QFuture that packages a value of the type
+    returned by \a function. The returned future will be in an uninitialized state
+    until the attached continuation is invoked, or until this future fails or is
+    canceled.
+
+    \note Use other overloads of this method if you need to launch the continuation in
+    a separate thread.
+
+    You can chain multiple operations like this:
+
+    \code
+    QFuture<int> future = ...;
+    future.then([](int res1){ ... }).then([](int res2){ ... })...
+    \endcode
+
+    Or:
+    \code
+    QFuture<void> future = ...;
+    future.then([](){ ... }).then([](){ ... })...
+    \endcode
+
+    The continuation can also take a QFuture argument (instead of its value), representing
+    the previous future. This can be useful if, for example, QFuture has multiple results,
+    and the user wants to access them inside the continuation. Or the user needs to handle
+    the exception of the previous future inside the continuation, to not interrupt the chain
+    of multiple continuations. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 5
+
+    If the previous future throws an exception and it is not handled inside the
+    continuation, the exception will be propagated to the continuation future, to
+    allow the caller to handle it:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 6
+
+    In this case the whole chain of continuations will be interrupted.
+
+    \note If this future gets canceled, the continuations attached to it will
+    also be canceled.
+
+    \sa onFailed(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<typename QFuture<T>::ResultType<Function>> QFuture<T>::then(QtFuture::Launch policy, Function &&function)
+
+    \since 6.0
+    \overload
+
+    Attaches a continuation to this future, allowing to chain multiple asynchronous
+    computations. When the asynchronous computation represented by this future
+    finishes, \a function will be invoked according to the given launch \a policy.
+    A new QFuture representing the result of the continuation is returned.
+
+    Depending on the \a policy, continuation will be invoked in the same thread as
+    this future, in a new thread, or will inherit the launch policy and thread pool of
+    this future. If no launch policy is specified (see the overload taking only a callable),
+    the \c Sync policy will be used.
+
+    In the following example both continuations will be invoked in a new thread (but in
+    the same one).
+
+    \code
+    QFuture<int> future = ...;
+    future.then(QtFuture::Launch::Async, [](int res){ ... }).then([](int res2){ ... });
+    \endcode
+
+    In the following example both continuations will be invoked in new threads using the
+    same thread pool.
+
+    \code
+    QFuture<int> future = ...;
+    future.then(QtFuture::Launch::Async, [](int res){ ... })
+          .then(QtFuture::Launch::Inherit, [](int res2){ ... });
+    \endcode
+
+    See the documentation of the other overload for more details about \a function.
+
+    \sa onFailed(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<typename QFuture<T>::ResultType<Function>> QFuture<T>::then(QThreadPool *pool, Function &&function)
+
+    \since 6.0
+    \overload
+
+    Attaches a continuation to this future, allowing to chain multiple asynchronous
+    computations if desired. When the asynchronous computation represented by this
+    future finishes, \a function will be invoked in a separate thread taken from the
+    QThreadPool \a pool.
+
+    \sa onFailed(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<typename QFuture<T>::ResultType<Function>> QFuture<T>::then(QObject *context, Function &&function)
+
+    \since 6.1
+    \overload
+
+    Attaches a continuation to this future, allowing to chain multiple asynchronous
+    computations if desired. When the asynchronous computation represented by this
+    future finishes, \a function will be invoked in the thread of the \a context object.
+    This can be useful if the continuation needs to be invoked in a specific thread.
+    For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 17
+
+    The continuation attached into QtConcurrent::run updates the UI elements and cannot
+    be invoked from a non-gui thread. So \c this is provided as a context to \c .then(),
+    to make sure that it will be invoked in the main thread.
+
+    The following continuations will be also invoked from the same context,
+    unless a different context or launch policy is specified:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 18
+
+    This is because by default \c .then() is invoked from the same thread as the
+    previous one.
+
+    But note that if the continuation is attached after this future has already finished,
+    it will be invoked immediately, in the thread that executes \c then():
+
+    \snippet code/src_corelib_thread_qfuture.cpp 20
+
+    In the above example if \c cachedResultsReady is \c true, and a ready future is
+    returned, it is possible that the first \c .then() finishes before the second one
+    is attached. In this case it will be resolved in the current thread. Therefore, when
+    in doubt, pass the context explicitly.
+
+    \note When calling this method, it should be guaranteed that the \a context stays alive
+    throughout the execution of the chain.
+
+    \sa onFailed(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<T> QFuture<T>::onFailed(Function &&handler)
+
+    \since 6.0
+
+    Attaches a failure handler to this future, to handle any exceptions. The
+    returned future behaves exactly as this future (has the same state and result)
+    unless this future fails with an exception.
+
+    The \a handler is a callable which takes either no argument or one argument, to
+    filter by specific error types, similar to the
+    \l {https://en.cppreference.com/w/cpp/language/try_catch} {catch} statement.
+    It returns a value of the type packaged by this future. After the failure, the
+    returned future packages the value returned by \a handler.
+
+    The handler will only be invoked if an exception is raised. If the exception
+    is raised after this handler is attached, the handler is executed in the thread
+    that reports the future as finished as a result of the exception. If the handler
+    is attached after this future has already failed, it will be invoked immediately,
+    in the thread that executes \c onFailed(). Therefore, the handler cannot always
+    make assumptions about which thread it will be run on. Use the overload that
+    takes a context object if you want to control which thread the handler is
+    invoked on.
+
+    The example below demonstrates how to attach a failure handler:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 7
+
+    If there are multiple handlers attached, the first handler that matches with the
+    thrown exception type will be invoked. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 8
+
+    If none of the handlers matches with the thrown exception type, the exception
+    will be propagated to the resulted future:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 9
+
+    \note You can always attach a handler taking no argument, to handle all exception
+    types and avoid writing the try-catch block.
+
+    \sa then(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<T> QFuture<T>::onFailed(QObject *context, Function &&handler)
+
+    \since 6.1
+    \overload
+
+    Attaches a failure handler to this future, to handle any exceptions that the future
+    raises, or that it has already raised. Returns a QFuture of the same type as this
+    future. The handler will be invoked only in case of an exception, in the thread of
+    the \a context object. This can be useful if the failure needs to be handled in a
+    specific thread. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 19
+
+    The failure handler attached into QtConcurrent::run updates the UI elements and cannot
+    be invoked from a non-gui thread. So \c this is provided as a context to \c .onFailed(),
+    to make sure that it will be invoked in the main thread.
+
+    \note When calling this method, it should be guaranteed that the \a context stays alive
+    throughout the execution of the chain.
+
+    See the documentation of the other overload for more details about \a handler.
+
+    \sa then(), onCanceled()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<T> QFuture<T>::onCanceled(Function &&handler)
+
+    \since 6.0
+
+    Attaches a cancellation \a handler to this future. The returned future
+    behaves exactly as this future (has the same state and result) unless
+    this future is cancelled. The \a handler is a callable which takes no
+    arguments and returns a value of the type packaged by this future. After
+    cancellation, the returned future packages the value returned by \a handler.
+
+    If attached before the cancellation, \a handler will be invoked in the same
+    thread that reports the future as finished after the cancellation. If the
+    handler is attached after this future has already been canceled, it will be
+    invoked immediately in the thread that executes \c onCanceled(). Therefore,
+    the handler cannot always make assumptions about which thread it will be run
+    on. Use the overload that takes a context object if you want to control
+    which thread the handler is invoked on.
+
+    The example below demonstrates how to attach a cancellation handler:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 21
+
+    If \c testFuture is canceled, \c {Block 3} will be called and the
+    \c resultFuture will have \c -1 as its result. Unlike \c testFuture, it won't
+    be in a \c Canceled state. This means that you can get its result, attach
+    countinuations to it, and so on.
+
+    Also note that you can cancel the chain of continuations while they are
+    executing via the future that started the chain. Let's say \c testFuture.cancel()
+    was called while \c {Block 1} is already executing. The next continuation will
+    detect that cancellation was requested, so \c {Block 2} will be skipped, and
+    the cancellation handler (\c {Block 3}) will be called.
+
+    \note This method returns a new \c QFuture representing the result of the
+    continuation chain. Canceling the resulting \c QFuture itself won't invoke the
+    cancellation handler in the chain that lead to it. This means that if you call
+    \c resultFuture.cancel(), \c {Block 3} won't be called: because \c resultFuture is
+    the future that results from attaching the cancellation handler to \c testFuture,
+    no cancellation handlers have been attached to \c resultFuture itself. Only
+    cancellation of \c testFuture or the futures returned by continuations attached
+    before the \c onCancelled() call can trigger \c{Block 3}.
+
+    \sa then(), onFailed()
+*/
+
+/*! \fn template<class T> template<class Function> QFuture<T> QFuture<T>::onCanceled(QObject *context, Function &&handler)
+
+    \since 6.1
+    \overload
+
+    Attaches a cancellation \a handler to this future, to be called when the future is
+    canceled. The \a handler is a callable which doesn't take any arguments. It will be
+    invoked in the thread of the \a context object. This can be useful if the cancellation
+    needs to be handled in a specific thread.
+
+    \note When calling this method, it should be guaranteed that the \a context stays alive
+    throughout the execution of the chain.
+
+    See the documentation of the other overload for more details about \a handler.
+
+    \sa then(), onFailed()
+*/
+
+/*! \fn template<class T> template<class U> QFuture<U> QFuture<T>::unwrap()
+
+    \since 6.4
+
+    Unwraps the inner future from this \c QFuture<T>, where \c T is a future
+    of type \c QFuture<U>, i.e. this future has type of \c QFuture<QFuture<U>>.
+    For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 28
+
+    \c unwrappedFuture will be fulfilled as soon as the inner future nested
+    inside the \c outerFuture is fulfilled, with the same result or exception
+    and in the same thread that reports the inner future as finished. If the
+    inner future is canceled, \c unwrappedFuture will also be canceled.
+
+    This is especially useful when chaining multiple computations, and one of
+    them returns a \c QFuture as its result type. For example, let's say we
+    want to download multiple images from an URL, scale the images, and reduce
+    them to a single image using QtConcurrent::mappedReduced(). We could write
+    something like:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 29
+
+    Here \c QtConcurrent::mappedReduced() returns a \c QFuture<QImage>, so
+    \c .then(processImages) returns a \c QFuture<QFuture<QImage>>. Since
+    \c show() takes a \c QImage as argument, the result of \c .then(processImages)
+    can't be passed to it directly. We need to call \c .unwrap(), that will
+    get the result of the inner future when it's ready and pass it to the next
+    continuation.
+
+    In case of multiple nesting, \c .unwrap() goes down to the innermost level:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 30
+*/
+
+/*! \fn template<typename OutputSequence, typename InputIt> QFuture<OutputSequence> QtFuture::whenAll(InputIt first, InputIt last)
+
+    \since 6.3
+
+    Returns a new QFuture that succeeds when all futures from \a first to \a last
+    complete. \a first and \a last are iterators to a sequence of futures packaging
+    type \c T. \c OutputSequence is a sequence containing all completed futures
+    from \a first to \a last, appearing in the same order as in the input. If the
+    type of \c OutputSequence is not specified, the resulting futures will be
+    returned in a \c QList of \c QFuture<T>. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 22
+
+    \note The output sequence must support random access and the \c resize()
+    operation.
+
+    If \c first equals \c last, this function returns a ready QFuture that
+    contains an empty \c OutputSequence.
+
+//! [whenAll]
+    The returned future always completes successfully after all the specified
+    futures complete. It doesn't matter if any of these futures completes with
+    error or is canceled. You can use \c .then() to process the completed futures
+    after the future returned by \c whenAll() succeeds:
+//! [whenAll]
+
+    \snippet code/src_corelib_thread_qfuture.cpp 23
+
+//! [whenAll-note]
+    \note If the input futures complete on different threads, the future returned
+    by this method will complete in the thread that the last future completes in.
+    Therefore, the continuations attached to the future returned by \c whenAll()
+    cannot always make assumptions about which thread they will be run on. Use the
+    overload of \c .then() that takes a context object if you want to control which
+    thread the continuations are invoked on.
+//! [whenAll-note]
+*/
+
+/*! \fn template<typename OutputSequence, typename... Futures> QFuture<OutputSequence> QtFuture::whenAll(Futures &&... futures)
+
+    \since 6.3
+
+    Returns a new QFuture that succeeds when all \a futures packaging arbitrary
+    types complete. \c OutputSequence is a sequence of completed futures. The type
+    of its entries is \c std::variant<Futures...>. For each \c QFuture<T> passed to
+    \c whenAll(), the entry at the corresponding position in \c OutputSequence
+    will be a \c std::variant holding that \c QFuture<T>, in its completed state.
+    If the type of \c OutputSequence is not specified, the resulting futures will
+    be returned in a QList of \c std::variant<Futures...>. For example:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 24
+
+    \note The output sequence should support random access and the \c resize()
+    operation.
+
+    \include qfuture.qdoc whenAll
+
+    \snippet code/src_corelib_thread_qfuture.cpp 25
+
+    \include qfuture.qdoc whenAll-note
+*/
+
+/*! \fn template<typename T, typename InputIt> QFuture<QtFuture::WhenAnyResult<T>> QtFuture::whenAny(InputIt first, InputIt last)
+
+    \since 6.3
+
+    Returns a new QFuture that succeeds when any of the futures from \a first to
+    \a last completes. \a first and \a last are iterators to a sequence of futures
+    packaging type \c T. The returned future packages a value of type
+    \c {QtFuture::WhenAnyResult<T>} which in turn packages the index of the
+    first completed \c QFuture and the \c QFuture itself. If \a first equals \a last,
+    this function returns a ready \c QFuture that has \c -1 for the \c index field in
+    the QtFuture::WhenAnyResult struct and a default-constructed \c QFuture<T> for
+    the \c future field. Note that a default-constructed QFuture is a completed
+    future in a cancelled state.
+
+//! [whenAny]
+    The returned future always completes successfully after the first future
+    from the specified futures completes. It doesn't matter if the first future
+    completes with error or is canceled. You can use \c .then() to process the
+    result after the future returned by \c whenAny() succeeds:
+//! [whenAny]
+
+    \snippet code/src_corelib_thread_qfuture.cpp 26
+
+//! [whenAny-note]
+    \note If the input futures complete on different threads, the future returned
+    by this method will complete in the thread that the first future completes in.
+    Therefore, the continuations attached to the future returned by \c whenAny()
+    cannot always make assumptions about which thread they will be run on. Use the
+    overload of \c .then() that takes a context object if you want to control which
+    thread the continuations are invoked on.
+//! [whenAny-note]
+
+    \sa QtFuture::WhenAnyResult
+*/
+
+/*! \fn template<typename... Futures> QFuture<std::variant<std::decay_t<Futures>...>> QtFuture::whenAny(Futures &&... futures)
+
+    \since 6.3
+
+    Returns a new QFuture that succeeds when any of the \a futures completes.
+    \a futures can package arbitrary types. The returned future packages the
+    value of type \c std::variant<Futures...> which in turn packages the first
+    completed QFuture from \a futures. You can use
+    \l {https://en.cppreference.com/w/cpp/utility/variant/index} {std::variant::index()}
+    to find out the index of the future in the sequence of \a futures that
+    finished first.
+
+    \include qfuture.qdoc whenAny
+
+    \snippet code/src_corelib_thread_qfuture.cpp 27
+
+    \include qfuture.qdoc whenAny-note
+*/

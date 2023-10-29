@@ -1,0 +1,17 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+/*
+    \example painting/separations
+    \title Color Separations Example
+
+    This example enables simple color manipulation of images and demonstrates a
+    number of image-related features of Qt, from per-pixel image manipulation to
+    drag and drop handling of images.
+
+    \image separations-example.png
+
+    The application allows the user to load an image, shown in the top-left
+    part of the main window, and to adjust its color balance by replacing its
+    initial cyan, magenta, and yellow components with different colors.
+*/

@@ -1,0 +1,160 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page android-deploy-qt-tool.html
+    \brief An overview of the androiddeployqt tool and how to use it.
+    \title The androiddeployqt Tool
+
+    \target androiddeployqt
+    Building an application package is complex, so Qt comes with a tool which
+    handles the work for you. The steps described in
+    \l{Deploying an Application on Android} are handled by the androiddeployqt
+    tool.
+
+    \section1 Prerequisites Before Running androiddeployqt
+
+    Before running the tool manually, you need to run \c qmake or \c CMake
+    on your project to generate \c Makefiles and a \c JSON file (i.e.
+    \c{android-project-deployment-settings.json}) containing important settings
+    used by \c androiddeployqt.
+
+    \note It is not recommended to modify the androiddeployqt JSON file.
+
+    To prepare the build for androiddeployqt, it is recommended to build your
+    project in a separate directory. Run the following commands:
+
+
+    \badcode
+    mkdir build-project
+    cd build-project
+    \endcode
+
+    Followed by:
+
+    For qmake:
+    \badcode
+    qmake ../project/project.pro
+    make -j$(nproc)
+    make -j$(nproc) apk_install_target
+    \endcode
+
+    For CMake:
+    \badcode
+    cmake --build
+    \endcode
+
+    \section1 Command Line Arguments
+
+    The only required command line argument when running the tool is \c{--output}.
+    Other command line arguments are optional but useful. The list below is available
+    by passing the \c{--help} argument to androiddeployqt.
+
+    \quotefromfile main.cpp
+    \skipto Syntax: androiddeployqt --output <destination> [options]
+    \printuntil --help: Displays this information.
+
+    With a project named \c project, to directly build the application package
+    with \c androiddeployqt without deploying it the device, run the following:
+
+    \badcode
+   .androiddeployqt --input $BUILD_DIR/android-project-deployment-settings.json --output $ANDROID_BUILD_DIR
+    \endcode
+
+    To deploy the built package to the device:
+
+    \badcode
+    androiddeployqt --verbose --output $ANDROID_BUILD_DIR --no-build --input $BUILD_DIR/android-project-deployment-settings.json --gradle --reinstall --device <adb_device_id>
+    \endcode
+
+    \section1 Dependencies Detection
+
+    Qt comes with a number of plugins which are loaded at run-time when they are
+    needed. These can handle anything from connecting to SQL databases to loading
+    specific image formats. Detecting plugin dependencies is impossible as the
+    plugins are loaded at run-time, but androiddeployqt tries to guess such
+    dependencies based on the Qt dependencies of your application. If the plugin
+    has any Qt dependencies which are not also dependencies of your application,
+    it will not be included by default. For instance, in order to ensure that
+    the SVG image format plugin is included, you will need to add \l{Qt SVG}
+    module to your project for it to become a dependency of your application:
+
+    \badcode
+    QT += svg
+    \endcode
+
+    If you are wondering why a particular plugin is not included automatically,
+    you can run androiddeployqt with the \c{--verbose} option to get the list of
+    missing dependencies for each excluded plugin. You can achieve the same in
+    Qt Creator by ticking the \uicontrol {Verbose output} check box in the
+    \uicontrol {Projects} > \uicontrol {Build Steps} > \uicontrol {Build Android APK} >
+    \uicontrol {Advanced Actions}.
+
+    It's also possible to manually specify the dependencies of your application.
+    For more information, see \l{ANDROID_DEPLOYMENT_DEPENDENCIES} qmake variable.
+
+    \note androiddeployqt scans the QML files of the project to collect the QML imports.
+    However, if you are loading QML code as a QString from C++ at runtime, that might
+    not work properly because androiddeployqt won't be aware of it at deploy time.
+    To remedy that, you can add a dummy QML file that imports such QML modules that
+    are referenced at runtime.
+
+    \section1 Android-specific qmake Variables
+
+    Unless the project has special requirements such as third party libraries,
+    it should be possible to run \l androiddeployqt on it with no modifications
+    and get a working Qt for Android application.
+
+    There are two important environment variables used by Qt:
+
+    \list
+        \li \c{ANDROID_SDK_ROOT}: specifies the path to the Android SDK used for
+            building the application. The Android SDK contains the build-tools,
+            Android NDK, and Android toolchains.
+        \li \c{ANDROID_NDK_ROOT}: specifies the path to the Android NDK used to
+            build the application. It is not recommended to hard-code this path,
+            since different Qt for Android versions can depend on different
+            Android NDK versions.
+    \endlist
+
+    \note Qt Creator sets these variables by default.
+
+    There are a set of \c qmake or \c CMake variables that can be used to tailor
+    your package. At some point during development, you will most likely want
+    to look into these variables to customize your application.
+
+    Here is a list of some variables that are particularly interesting when
+    making Android applications:
+
+    \list
+        \li \l{ANDROID_PACKAGE_SOURCE_DIR}
+        \li \l{ANDROID_VERSION_CODE}
+        \li \l{ANDROID_VERSION_NAME}
+        \li \l{ANDROID_EXTRA_LIBS}
+        \li \l{ANDROID_EXTRA_PLUGINS}
+        \li \l{ANDROID_ABIS}
+        \li \l{ANDROID_API_VERSION}
+        \li \l{ANDROID_DEPLOYMENT_DEPENDENCIES}
+        \li \l{ANDROID_MIN_SDK_VERSION}
+        \li \l{ANDROID_TARGET_SDK_VERSION}
+        \li \l{JAVA_HOME}
+    \endlist
+
+    Also, the following \c qmake variables are primarily useful when writing a Qt module, and not
+    normal applications:
+
+    \list
+        \li \l{ANDROID_BUNDLED_JAR_DEPENDENCIES}
+        \li \l{ANDROID_LIB_DEPENDENCIES}
+        \li \l{ANDROID_PERMISSIONS}
+        \li \l{ANDROID_FEATURES}
+    \endlist
+
+    \note This list of variables can also be used with CMake.
+
+    \section1 Deployment in Qt Creator
+
+    Qt Creator runs \c androiddeployqt by default, and provides easy
+    and intuitive user interfaces to specify many of the options. For more
+    information, see \l{Qt Creator: Deploying Applications to Android Devices}.
+*/

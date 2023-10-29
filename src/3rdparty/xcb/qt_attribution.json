@@ -1,0 +1,14 @@
+{
+    "Id": "xcb-xinput",
+    "Name": "XCB-XInput",
+    "QDocModule": "qtgui",
+    "QtUsage": "Used in XCB platform plugin if xcb-xinput was not present on the system
+ during Qt configuration or -bundled-xcb-xinput switch was used. To force using xcb-xinput from
+ the system, pass -no-bundled-xcb-xinput.",
+    "Description": "XInput 2 extension for XCB (The X protocol C-language Binding) library.",
+    "Homepage": "https://xcb.freedesktop.org/",
+    "License": "MIT License",
+    "LicenseId": "MIT",
+    "LicenseFile": "LICENSE",
+    "Copyright": "Copyright (C) 2001-2006 Bart Massey, Jamey Sharp, and Josh Triplett.\nCopyright (C) 2006 Peter Hutterer\nCopyright (C) 2013 Daniel Martin"
+}

@@ -1,0 +1,21 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example tools/regularexpression
+    \title QRegularExpression Example
+    \ingroup examples-widgets-tools
+
+    \brief The QRegularExpression example shows how regular expressions in Qt are
+    applied to text by providing an environment in which new regular expressions can be
+    created and tested on custom text strings.
+
+    The example makes usage of the QRegularExpression class, which has been
+    introduced in Qt 5.0. QRegularExpression implements Perl-compatible regular
+    expressions, supporting a number of advanced matching features, such as
+    case insensitive matching, multiline matching, Unicode properties selectors
+    and partial/incremental matching.
+
+    \image regularexpression-example.png
+*/
+

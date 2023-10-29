@@ -1,0 +1,246 @@
+#!/bin/sh
+# Copyright (C) 2016 The Qt Company Ltd.
+# Copyright (C) 2016 Intel Corporation.
+# SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+
+#-------------------------------------------------------------------------------
+# script initialization
+#-------------------------------------------------------------------------------
+
+# the directory of this script is the "source tree"
+relpath=`dirname $0`
+relpath=`(cd "$relpath"; /bin/pwd)`
+# the current directory is the "build tree" or "object tree"
+outpath=`/bin/pwd`
+
+# do this early so we don't store it in config.status
+CFG_TOPLEVEL=
+outpathPrefix=
+
+checkTopLevelBuild()
+{
+    relpathMangled=$relpath
+    if [ x"$1" = x"-top-level" ]; then
+        CFG_TOPLEVEL=yes
+        relpathMangled=`dirname "$relpath"`
+        outpathPrefix=../
+    else
+        if [ -f ../.qmake.super ]; then
+            echo >&2 "ERROR: You cannot configure qtbase separately within a top-level build."
+            exit 1
+        fi
+    fi
+}
+
+OPT_CMDLINE=  # expanded version for the script
+determineOptFilePath()
+{
+set -f  # suppress globbing in for loop
+SAVED_IFS=$IFS
+IFS='
+'
+for i in "$@"; do
+    if [ x"$i" = x"-top-level" ]; then
+        continue
+    fi
+    case $i in
+        -redo|--redo)
+            optfile=${outpathPrefix}config.opt
+            if test -n "$CFG_TOPLEVEL" && ! test -f $optfile; then
+                optfile=config.opt
+            fi
+            if ! test -f $optfile; then
+                echo >&2 "No config.opt present - cannot redo configuration."
+                exit 1
+            fi
+            for a in `cat $optfile`; do
+                OPT_CMDLINE="$OPT_CMDLINE
+$a"
+            done
+            ;;
+        *)
+            OPT_CMDLINE="$OPT_CMDLINE
+$i"
+            ;;
+    esac
+done
+set --
+for i in $OPT_CMDLINE; do
+    set -- "$@" "$i"
+done
+set +f
+IFS=$SAVED_IFS
+}
+
+#-------------------------------------------------------------------------------
+# initialize variables
+#-------------------------------------------------------------------------------
+
+OPT_HELP=
+
+#-------------------------------------------------------------------------------
+# parse command line arguments
+#-------------------------------------------------------------------------------
+parseCommandline()
+{
+# parse the arguments, setting things to "yes" or "no"
+while [ "$#" -gt 0 ]; do
+    CURRENT_OPT="$1"
+    case "$1" in
+    #Autoconf style options
+    --enable-*)
+        VAR=`echo $1 | sed 's,^--enable-\(.*\),\1,'`
+        VAL=yes
+        ;;
+    --disable-*)
+        VAR=`echo $1 | sed 's,^--disable-\(.*\),\1,'`
+        VAL=no
+        ;;
+    --*=*)
+        VAR=`echo $1 | sed 's,^--\(.*\)=.*,\1,'`
+        VAL=`echo $1 | sed 's,^--.*=\(.*\),\1,'`
+        ;;
+    --no-*)
+        VAR=`echo $1 | sed 's,^--no-\(.*\),\1,'`
+        VAL=no
+        ;;
+    --*)
+        VAR=`echo $1 | sed 's,^--\(.*\),\1,'`
+        VAL=yes
+        ;;
+    #Qt plugin options
+    -no-*-*|-plugin-*-*|-qt-*-*)
+        VAR=`echo $1 | sed 's,^-[^-]*-\(.*\),\1,'`
+        VAL=`echo $1 | sed 's,^-\([^-]*\).*,\1,'`
+        ;;
+    #Qt style no options
+    -no-*)
+        VAR=`echo $1 | sed 's,^-no-\(.*\),\1,'`
+        VAL=no
+        ;;
+    #Qt style options that pass an argument
+    -prefix| \
+    -docdir| \
+    -headerdir| \
+    -plugindir| \
+    -qmldir| \
+    -archdatadir| \
+    -datadir| \
+    -libdir| \
+    -bindir| \
+    -libexecdir| \
+    -translationdir| \
+    -sysconfdir| \
+    -examplesdir| \
+    -testsdir| \
+    -hostdatadir| \
+    -extprefix| \
+    -sysroot| \
+    -make| \
+    -nomake| \
+    -skip| \
+    -platform| \
+    -xplatform| \
+    -device| \
+    -device-option| \
+    -sdk| \
+    -android-sdk| \
+    -android-ndk| \
+    -android-ndk-platform| \
+    -android-arch)
+        VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
+        shift
+        VAL="$1"
+        ;;
+    #Qt style complex options in one command
+    -enable-*|-disable-*)
+        VAR=`echo $1 | sed 's,^-\([^-]*\)-.*,\1,'`
+        VAL=`echo $1 | sed 's,^-[^-]*-\(.*\),\1,'`
+        ;;
+    #Qt Builtin/System style options
+    -no-*|-system-*|-qt-*)
+        VAR=`echo $1 | sed 's,^-[^-]*-\(.*\),\1,'`
+        VAL=`echo $1 | sed 's,^-\([^-]*\)-.*,\1,'`
+        ;;
+    #General options, including Qt style yes options
+    -*)
+        VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
+        VAL="yes"
+        ;;
+    # most options don't need processing in the configure script, skip them. qmake will do the real validation
+    *)
+        shift
+        continue
+        ;;
+    esac
+
+    shift
+
+    UNKNOWN_OPT=no
+    case "$VAR" in
+    h|help)
+        if [ "$VAL" = "yes" ]; then
+            OPT_HELP="$VAL"
+        else
+            UNKNOWN_OPT=yes
+        fi
+        ;;
+    *)
+        ;;
+    esac
+    if [ "$UNKNOWN_OPT" = "yes" ]; then
+        echo "${CURRENT_OPT}: invalid command-line switch"
+        ERROR=yes
+    fi
+done
+[ "x$ERROR" = "xyes" ] && exit 1
+}
+
+#-------------------------------------------------------------------------------
+# help - interactive parts of the script _after_ this section please
+#-------------------------------------------------------------------------------
+handleHelp()
+{
+if [ "$OPT_HELP" = "yes" ]; then
+    cat $relpath/config_help.txt
+    if [ -n "$CFG_TOPLEVEL" ]; then
+        IFS='
+'
+        for i in $relpathMangled/qt*/config_help.txt; do
+            if [ x"$i" != x"$relpath/config_help.txt" ]; then
+                echo
+                cat "$i"
+            fi
+        done
+    fi
+    exit 0
+fi
+}
+
+checkTopLevelBuild "$@"
+parseCommandline "$@"
+handleHelp
+determineOptFilePath "$@"
+
+fresh_requested_arg=
+optfilename=config.opt
+if [ -z "$optfile" ]; then   # only write optfile if not currently redoing
+    optfilepath=${outpathPrefix}${optfilename}
+    > "$optfilepath"
+    for arg in "$@"; do
+        if [ "$arg" = "-top-level" ]; then
+           continue
+        fi
+        echo $arg >> "$optfilepath"
+    done
+else
+    fresh_requested_arg=-DFRESH_REQUESTED=TRUE
+fi
+
+top_level_arg=
+if [ -n "$CFG_TOPLEVEL" ]; then
+    top_level_arg=-DTOP_LEVEL=TRUE
+    cd ..
+fi
+
+cmake "-DOPTFILE=$optfilename" $top_level_arg $fresh_requested_arg -P "$relpath/cmake/QtProcessConfigureArgs.cmake"

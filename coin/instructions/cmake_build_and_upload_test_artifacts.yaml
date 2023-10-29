@@ -1,0 +1,76 @@
+type: Group
+instructions:
+  - type: ChangeDirectory
+    directory: "{{.SourceDir}}"
+  - type: MakeDirectory
+    directory: "{{.SourceDir}}_standalone_tests"
+  - type: SetBuildDirectory
+    directory: "{{.SourceDir}}_standalone_tests"
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}"
+  - type: AppendToEnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: " -S {{.SourceDir}} -B ."
+    disable_if:
+      condition: runtime
+      env_var: COIN_CMAKE_ARGS
+      equals_value: null
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: "-S {{.SourceDir}} -B ."
+    enable_if:
+      condition: runtime
+      env_var: COIN_CMAKE_ARGS
+      equals_value: null
+
+  # Set an informational build environment env var during the an integration's build phase.
+  # It can be checked during Qt and standalone tests configuration (so configure,
+  # qt-configure-module and qt-internal-configure-tests time).
+  # It's currently needed for some CMake autotest iOS-specific decisions, but it could be useful
+  # for other scenarios as well.
+  #
+  # A related QTEST_ENVIRONMENT env var is set during an integration's test phase.
+  #
+  # Note that CMake auto tests are configured and built during the /test/ phase, NOT the build
+  # phase.
+  # BUT, the options that will be passed to the project cmake invocation in the test phase, are
+  # decided during the /build/ phase.
+  - type: EnvironmentVariable
+    variableName: QT_BUILD_ENVIRONMENT
+    variableValue: "ci"
+
+  # Inform CMake to build just a minimal set of tests for static Qt builds.
+  - type: AppendToEnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: " -DQT_BUILD_MINIMAL_STATIC_TESTS=ON"
+    enable_if:
+      condition: property
+      property: features
+      contains_value: "MinimalStaticTests"
+
+  # Inform CMake to build just a minimal set of tests for Android multi-ABI Qt builds.
+  - type: AppendToEnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: " -DQT_BUILD_MINIMAL_ANDROID_MULTI_ABI_TESTS=ON"
+    enable_if:
+      condition: property
+      property: features
+      contains_value: "MinimalAndroidMultiABITests"
+
+  - !include "{{qt/qtbase}}/call_cmake_for_standalone_tests.yaml"
+  - type: ExecuteCommand
+    command: "{{.Env.TESTS_ENV_PREFIX}} cmake --build . --parallel -v"
+    maxTimeInSeconds: 6000
+    maxTimeBetweenOutput: 4800
+    userMessageOnFailure: >
+      Failed to build sources.
+  - type: UploadTestArtifact
+    transferType: UploadModuleTestsArtifact
+    archiveDirectory: "{{.BuildDir}}"
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+    # INTEGRITY artifacts aren't used.
+    disable_if:
+      condition: property
+      property: target.osVersion
+      equals_value: INTEGRITY

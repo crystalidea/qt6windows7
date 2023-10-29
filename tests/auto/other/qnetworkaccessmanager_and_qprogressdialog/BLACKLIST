@@ -1,0 +1,4 @@
+[downloadCheck]
+windows-10
+[downloadCheck:with-zeroCopy]
+windows

@@ -1,0 +1,60 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtTestLib
+moduleheader            = QtTest
+description             = Qt Test Reference Documentation
+version                 = $QT_VERSION
+
+examplesinstallpath     = qtestlib
+
+qhp.projects            = QtTestLib
+
+qhp.QtTestLib.file                = qttestlib.qhp
+qhp.QtTestLib.namespace           = org.qt-project.qttest.$QT_VERSION_TAG
+qhp.QtTestLib.virtualFolder       = qttest
+qhp.QtTestLib.indexTitle          = Qt Test
+qhp.QtTestLib.indexRoot           =
+
+qhp.QtTestLib.subprojects         = classes
+qhp.QtTestLib.subprojects.classes.title = C++ Classes
+qhp.QtTestLib.subprojects.classes.indexTitle = Qt Test C++ Classes
+qhp.QtTestLib.subprojects.classes.selectors = class fake:headerfile
+qhp.QtTestLib.subprojects.classes.sortPages = true
+
+tagfile                 = ../../../doc/qttestlib/qttestlib.tags
+
+depends                 += qtcore qtdoc qtwidgets qtgui qmake qtqmltest qtcmake
+
+headerdirs  += ..
+
+headers     += ../../corelib/kernel/qtestsupport_core.h \
+               ../../gui/kernel/qtestsupport_gui.h \
+               ../../widgets/kernel/qtestsupport_widgets.h
+
+sourcedirs  += ..
+
+sources     += ../../corelib/kernel/qtestsupport_core.cpp \
+               ../../gui/kernel/qtestsupport_gui.cpp \
+               ../../widgets/kernel/qtestsupport_widgets.cpp
+
+exampledirs += ../../../examples/qtestlib \
+               .. \
+               . \
+               snippets \
+               includes
+
+excludedirs += ../../../examples/widgets/doc
+
+imagedirs   += images
+
+defines     += QT_FEATURE_batch_test_support
+
+# Add a thumbnail for examples that do not have images
+manifestmeta.thumbnail.names = "QtTestLib/Chapter *"
+
+navigation.landingpage = "Qt Test"
+navigation.cppclassespage = "Qt Test C++ Classes"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

@@ -1,0 +1,168 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+
+/*!
+    \externalpage http://www.y-adagio.com/public/standards/tr_xml_jpf/toc.htm
+    \title XML Japanese Profile
+*/
+
+/*!
+    \externalpage https://en.wikipedia.org/wiki/Tamil_Script_Code_for_Information_Interchange
+    \title  Tamil Script Code
+*/
+
+/*!
+    \externalpage http://home.infitt.org
+    \title Information Technology in Tamil
+*/
+
+/*!
+    \externalpage http://www.iso.org/iso/catalogue_detail?csnumber=40874
+    \title ISO 8601
+*/
+
+/*!
+    \externalpage http://www.iana.org/assignments/character-sets/character-sets.xml
+    \title IANA character-sets encoding file
+*/
+
+/*!
+    \externalpage https://marcmutz.wordpress.com/effective-qt/containers/#containers-qlist
+    \title Pros and Cons of Using QList
+*/
+
+/*!
+    \externalpage https://marcmutz.wordpress.com/effective-qt/containers/
+    \title Understand the Qt Containers
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-jni#javavm-and-jnienv
+    \title JNI tips: JavaVM and JNIEnv
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/jniTOC.html
+    \title Java Native Interface Specification
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/functions.html
+    \title Java: JNI Functions
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/design.html#global_and_local_references
+    \title JNI Design Overview: Global and Local References
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-jni#local-and-global-references
+    \title JNI tips: Local and global references
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/invocation.html#attach_current_thread
+    \title Java: AttachCurrentThread
+*/
+
+/*!
+    \externalpage https://docs.oracle.com/en/java/javase/13/docs/specs/jni/functions.html#interface-function-table
+    \title Java: Interface Function Table
+*/
+
+/*!
+    \externalpage https://doc.qt.io/qtcreator/creator-deploying-android.html#editing-manifest-files
+    \title Qt Creator: Editing Manifest Files
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/articles/perf-anr
+    \title Android: Keeping your app responsive
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/data-storage/shared/documents-files
+    \title Android: Access documents and other files from shared storage
+*/
+
+/*!
+    \externalpage https://developer.android.com/reference/androidx/documentfile/provider/DocumentFile#getParentFile()
+    \title Android: DocumentFile.getParentFile()
+*/
+
+/*!
+    \externalpage https://developer.android.com/guide/topics/providers/content-provider-basics#ContentURIs
+    \title Android: Content URIs
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/data-storage#scoped-storage
+    \title Android: Scoped storage
+*/
+
+/*!
+    \externalpage https://developer.android.com/training/data-storage/use-cases
+    \title Android: storage best practices
+*/
+
+/*!
+    \externalpage https://developer.android.com/reference/android/provider/MediaStore
+    \title Android: MediaStore
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/module/GNUInstallDirs.html
+    \title GNUInstallDirs
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/variable/CMAKE_INSTALL_PREFIX.html
+    \title CMAKE_INSTALL_PREFIX
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/guide/user-interaction/index.html#command-line-cmake-tool
+    \title Command Line cmake invocation
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/envvar/DESTDIR.html
+    \title DESTDIR
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/command/install.html#targets
+    \title install(TARGETS)
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/command/install.html#script
+    \title install(SCRIPT)
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/command/add_subdirectory.html
+    \title add_subdirectory()
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/module/FetchContent.html#command:fetchcontent_makeavailable
+    \title FetchContent_MakeAvailable()
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/prop_gbl/USE_FOLDERS.html
+    \title USE_FOLDERS
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/prop_tgt/FOLDER.html
+    \title FOLDER
+*/
+
+/*!
+    \externalpage https://cmake.org/cmake/help/latest/command/cmake_policy.html
+    \title cmake_policy
+*/

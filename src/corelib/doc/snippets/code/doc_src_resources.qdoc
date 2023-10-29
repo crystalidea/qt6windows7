@@ -1,0 +1,28 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+//! [0]
+<file alias="cut-img.png">images/cut.png</file>
+//! [0]
+
+
+//! [1]
+<qresource prefix="/myresources">
+    <file alias="cut-img.png">images/cut.png</file>
+</qresource>
+//! [1]
+
+
+//! [2]
+<qresource>
+    <file>cut.jpg</file>
+</qresource>
+<qresource lang="fr">
+    <file alias="cut.jpg">cut_fr.jpg</file>
+</qresource>
+//! [2]
+
+
+//! [3]
+rcc -binary myresource.qrc -o myresource.rcc
+//! [3]

@@ -1,0 +1,15 @@
+TAP version 13
+# tst_FailFetchType
+ok 1 - initTestCase()
+not ok 2 - fetch(bool)
+  ---
+  # Received a fatal error.
+  extensions:
+    messages:
+    - severity: fatal
+      message: Requested type 'QString' does not match available type 'bool'.
+  ...
+1..2
+# tests 2
+# pass 1
+# fail 1

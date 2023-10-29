@@ -1,0 +1,44 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page dbus-changes-qt6.html
+    \title Changes to Qt D-Bus
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt DBus to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt DBus, and provide
+    guidance to handle them.
+
+    \section1 API changes
+
+    The QtDBus module has undergone some basic consolidation and
+    cleanup. There should be minimal porting effort to be able to switch to Qt6.
+
+    \section2 The QDBusMessage class
+    The QDBusMessage::call() and QDBusMessage::asyncCall() methods with a fixed
+    size of arguments have been removed in Qt6.
+
+    \section2 The QDBusArgument class
+    The QDBusArgument::operator<<() specializations for QHash, QMap and QList
+    have been unified into common specializations for associative containers.
+
+    \section2 The QDBusConnection class
+    The QDBusConnection::sender() function has been removed in Qt6.
+
+    \section2 The QDBusMessage class
+    The QDBusMessage::createErrorReply() function now takes the QString \c name
+    argument by const reference instead of taking by value.
+
+    \section2 The QDBusPendingReply class
+    QDBusPendingReply has been changed to be a variadic template class in order
+    to support more than 8 template parameters now. The template parameters
+    are the types that will be used to extract the contents of the reply's data.
+*/

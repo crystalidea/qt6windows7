@@ -1,0 +1,16 @@
+# Copyright (C) 2022 The Qt Company Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+#####################################################################
+## tst_qsharedpointer Test:
+#####################################################################
+
+qt_internal_add_test(tst_qsharedpointer
+    SOURCES
+        forwarddeclared.cpp
+        nontracked.cpp
+        wrapper.cpp
+        tst_qsharedpointer.cpp
+    LIBRARIES
+        Qt::CorePrivate
+)

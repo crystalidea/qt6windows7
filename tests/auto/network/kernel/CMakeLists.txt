@@ -1,0 +1,23 @@
+# Copyright (C) 2022 The Qt Company Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+if(NOT INTEGRITY)
+    add_subdirectory(qdnslookup)
+    add_subdirectory(qdnslookup_appless)
+endif()
+if(QT_FEATURE_networkinterface)
+    add_subdirectory(qnetworkproxyfactory)
+    add_subdirectory(qnetworkinterface)
+endif()
+add_subdirectory(qnetworkproxy)
+add_subdirectory(qnetworkdatagram)
+add_subdirectory(qnetworkaddressentry)
+add_subdirectory(qhostaddress)
+if(QT_FEATURE_private_tests AND NOT MACOS AND NOT INTEGRITY)
+    add_subdirectory(qhostinfo)
+endif()
+if(QT_FEATURE_private_tests)
+    add_subdirectory(qauthenticator)
+    add_subdirectory(qnetworkinformation)
+    add_subdirectory(qnetworkinformation_appless)
+endif()

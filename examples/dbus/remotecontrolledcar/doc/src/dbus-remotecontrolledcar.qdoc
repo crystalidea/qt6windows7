@@ -1,0 +1,16 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example remotecontrolledcar
+    \title D-Bus Remote Controlled Car
+    \ingroup examples-dbus
+    \brief Shows how to use Qt D-Bus to control a car from another application.
+
+    The Remote Controlled Car example shows how to use \l{Qt D-Bus} to control
+    one application from another.
+
+    \image remotecontrolledcar-car-example.webp
+
+    \include examples-run.qdocinc
+*/

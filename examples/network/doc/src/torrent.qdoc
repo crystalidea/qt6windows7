@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example torrent
+    \title Torrent Example
+    \ingroup examples-network
+    \brief Demonstrates complex TCP/IP operations.
+
+    This example demonstrates some of the complex TCP/IP operations
+    supported by the Qt Network APIs.
+
+    \image torrent-example.png
+*/

@@ -1,0 +1,64 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtCore
+description             = Qt Core Reference Documentation
+version                 = $QT_VERSION
+
+moduleheader            = QtCoreDoc
+includepaths           += ./include
+
+examplesinstallpath     = corelib
+
+qhp.projects            = QtCore
+
+qhp.QtCore.file                = qtcore.qhp
+qhp.QtCore.namespace           = org.qt-project.qtcore.$QT_VERSION_TAG
+qhp.QtCore.virtualFolder       = qtcore
+qhp.QtCore.indexTitle          = Qt Core
+qhp.QtCore.indexRoot           =
+
+qhp.QtCore.subprojects         = classes
+qhp.QtCore.subprojects.classes.title = C++ Classes
+qhp.QtCore.subprojects.classes.indexTitle = Qt Core C++ Classes
+qhp.QtCore.subprojects.classes.selectors = class fake:headerfile
+qhp.QtCore.subprojects.classes.sortPages = true
+
+tagfile                 = ../../../doc/qtcore/qtcore.tags
+
+# Make QtCore depend on all doc modules; this ensures complete inheritance
+# information for classes
+depends                 = *
+
+headerdirs  += ..
+
+sourcedirs  += .. \
+                ../../tools/androiddeployqt \
+                ../../android/templates \
+                src/includes
+
+exampledirs += \
+               ../ \
+               snippets \
+               ../../../examples/corelib \
+               ../../../examples/network/dnslookup \
+               ../../../examples/widgets/tools \
+               ../../../tests/auto/corelib/thread/qpromise \
+               ../../tools/androiddeployqt
+
+imagedirs   += images
+
+excludedirs += snippets
+
+excludefiles += ../../../examples/widgets/tools/customcompleter/doc/src/customcompleter.qdoc
+
+defines += QT_BUILD_CORE_LIB
+
+# Included in qttestlib.qdocconf instead
+excludefiles += ../kernel/qtestsupport_core.cpp
+
+navigation.landingpage = "Qt Core"
+navigation.cppclassespage = "Qt Core C++ Classes"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

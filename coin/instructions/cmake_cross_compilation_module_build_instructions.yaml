@@ -1,0 +1,158 @@
+type: Group
+instructions:
+  - type: EnvironmentVariable
+    variableName: CMAKE_BUILD_TIMEOUT
+    variableValue: "6000"
+    enable_if:
+      condition: runtime
+      env_var: CMAKE_BUILD_TIMEOUT
+      equals_value: null
+  - type: EnvironmentVariable
+    variableName: CMAKE_BUILD_OUTPUT_TIMEOUT
+    variableValue: "1200"
+    enable_if:
+      condition: runtime
+      env_var: CMAKE_BUILD_OUTPUT_TIMEOUT
+      equals_value: null
+  - type: MakeDirectory
+    directory: .git
+  - type: MakeDirectory
+    directory: build
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}/build"
+  - type: MakeDirectory
+    directory: target
+  - type: Group
+    instructions:
+      - type: MakeDirectory
+        directory: host
+      - type: SetBuildDirectory
+        directory: "{{.SourceDir}}/build/host"
+      - type: ChangeDirectory
+        directory: "{{.BuildDir}}"
+
+      - type: EnvironmentVariable
+        variableName: COIN_CONFIGURE_ARGS
+        variableValue: "{{.Env.NON_QTBASE_CONFIGURE_ARGS}}"
+      - type: EnvironmentVariable
+        variableName: COIN_CMAKE_ARGS
+        variableValue: "{{.Env.NON_QTBASE_CMAKE_ARGS}} {{.Env.COMMON_NON_QTBASE_CMAKE_ARGS}}"
+      - type: EnvironmentVariable
+        variableName: CONFIGURE_ENV_PREFIX
+        variableValue: "{{.Env.ENV_PREFIX}}"
+      - !include "{{qt/qtbase}}/prepare_install_dir_suffix_host.yaml"
+      - !include "{{qt/qtbase}}/call_configure_module.yaml"
+
+      - type: ExecuteCommand
+        command: "{{.Env.CONFIGURE_ENV_PREFIX}} cmake --build . --parallel -v"
+        maxTimeInSeconds: "{{.Env.CMAKE_BUILD_TIMEOUT}}"
+        maxTimeBetweenOutput: "{{.Env.CMAKE_BUILD_OUTPUT_TIMEOUT}}"
+        userMessageOnFailure: >
+          Failed to build sources.
+      - type: EnvironmentVariable
+        variableName: COIN_CMAKE_INSTALL_DIR
+        variableValue: "{{.InstallDir}}{{.Env.CI_PATH_SEP}}host"
+      - type: EnvironmentVariable
+        variableName: COIN_CMAKE_INSTALL_LIBEXEC_DIR
+        variableValue: "{{.Env.COIN_CMAKE_INSTALL_DIR}}{{.Env.CI_PATH_SEP}}libexec"
+        disable_if:
+          condition: and
+          conditions:
+            - condition: property
+              property: host.os
+              equals_value: Windows
+            - condition: property
+              property: target.osVersion
+              not_in_values: [WebAssembly, Android_ANY]
+      - type: EnvironmentVariable
+        variableName: COIN_CMAKE_INSTALL_LIBEXEC_DIR
+        variableValue: "{{.InstallDir}}{{.Env.CI_PATH_SEP}}host{{.Env.CI_PATH_SEP}}bin"
+        enable_if:
+          condition: and
+          conditions:
+            - condition: property
+              property: host.os
+              equals_value: Windows
+            - condition: property
+              property: target.osVersion
+              not_in_values: [WebAssembly, Android_ANY]
+      - !include "{{qt/qtbase}}/call_host_install.yaml"
+      - type: EnvironmentVariable
+        variableName: DESTDIR
+        variableValue: "{{.InstallRoot}}"
+      - !include "{{qt/qtbase}}/call_host_install.yaml"
+    enable_if:
+      condition: property
+      property: platformDependency
+      equals_value: null
+  - type: EnvironmentVariable
+    variableName: DESTDIR
+    variableValue: ""
+  - type: SetBuildDirectory
+    directory: "{{.SourceDir}}/build/target"
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}"
+
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIGURE_ARGS
+    variableValue: "{{.Env.NON_QTBASE_TARGET_CONFIGURE_ARGS}}"
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: "{{.Env.NON_QTBASE_TARGET_CMAKE_ARGS}} {{.Env.COMMON_NON_QTBASE_TARGET_CMAKE_ARGS}}"
+  - type: EnvironmentVariable
+    variableName: CONFIGURE_ENV_PREFIX
+    variableValue: "{{.Env.TARGET_ENV_PREFIX}}"
+  - !include "{{qt/qtbase}}/prepare_install_dir_suffix_target.yaml"
+  - !include "{{qt/qtbase}}/call_configure_module.yaml"
+
+  - type: ExecuteCommand
+    command: "{{.Env.CONFIGURE_ENV_PREFIX}} cmake --build . --parallel -v"
+    maxTimeInSeconds: "{{.Env.CMAKE_BUILD_TIMEOUT}}"
+    maxTimeBetweenOutput: "{{.Env.CMAKE_BUILD_OUTPUT_TIMEOUT}}"
+    userMessageOnFailure: >
+      Failed to build sources.
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_INSTALL_DIR
+    variableValue: "{{.InstallDir}}{{.Env.CI_PATH_SEP}}target"
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_INSTALL_LIBEXEC_DIR
+    variableValue: "{{.Env.COIN_CMAKE_INSTALL_DIR}}{{.Env.CI_PATH_SEP}}libexec"
+    disable_if:
+      condition: and
+      conditions:
+        - condition: property
+          property: host.os
+          equals_value: Windows
+        - condition: property
+          property: target.osVersion
+          not_in_values: [WebAssembly, Android_ANY]
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_INSTALL_LIBEXEC_DIR
+    variableValue: "{{.InstallDir}}{{.Env.CI_PATH_SEP}}target{{.Env.CI_PATH_SEP}}bin"
+    enable_if:
+      condition: and
+      conditions:
+        - condition: property
+          property: host.os
+          equals_value: Windows
+        - condition: property
+          property: target.osVersion
+          not_in_values: [WebAssembly, Android_ANY]
+  - !include "{{qt/qtbase}}/call_target_install.yaml"
+  - type: EnvironmentVariable
+    variableName: DESTDIR
+    variableValue: "{{.InstallRoot}}"
+  - !include "{{qt/qtbase}}/call_target_install.yaml"
+  - type: EnvironmentVariable
+    variableName: DESTDIR
+    variableValue: ""
+  - type: UploadArtifact
+    archiveDirectory: "{{.InstallRoot}}/{{.AgentWorkingDir}}"
+    transferType: UploadModuleBuildArtifact
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIG_TYPE
+    variableValue: "Target"
+  - !include "{{qt/qtbase}}/qmake/get_qmake_location_target.yaml"
+  - !include "{{qt/qtbase}}/qmake_examples/build_qmake_examples_instructions.yaml"

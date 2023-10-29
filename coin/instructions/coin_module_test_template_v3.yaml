@@ -1,0 +1,24 @@
+type: Group
+instructions:
+  - type: Group
+    instructions:
+      - !include "{{qt/qtbase}}/coin_module_test_template_common.yaml"
+      - type: Group
+        instructions:
+          - !include "{{qt/qtbase}}/cmake_regular_test_instructions_enforced.yaml"
+        enable_if:
+          condition: or
+          conditions:
+            - condition: property
+              property: host.os
+              equals_property: target.os
+            - condition: property
+              property: target.osVersion
+              in_values: [QEMU, QNX_710, IOS_ANY]
+            - condition: property
+              property: features
+              contains_value: AndroidTestRun
+    disable_if:
+      condition: property
+      property: features
+      contains_value: DisableTests

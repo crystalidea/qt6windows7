@@ -1,0 +1,47 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtConcurrent
+description             = Qt Concurrent Reference Documentation
+version                 = $QT_VERSION
+
+examplesinstallpath     = qtconcurrent
+
+qhp.projects            = QtConcurrent
+
+qhp.QtConcurrent.file         = qtconcurrent.qhp
+qhp.QtConcurrent.namespace           = org.qt-project.qtconcurrent.$QT_VERSION_TAG
+qhp.QtConcurrent.virtualFolder       = qtconcurrent
+qhp.QtConcurrent.indexTitle          = Qt Concurrent
+qhp.QtConcurrent.indexRoot           =
+
+qhp.QtConcurrent.subprojects         = classes examples
+qhp.QtConcurrent.subprojects.classes.title = C++ Classes
+qhp.QtConcurrent.subprojects.classes.indexTitle = Qt Concurrent C++ Classes
+qhp.QtConcurrent.subprojects.classes.selectors = class fake:headerfile
+qhp.QtConcurrent.subprojects.classes.sortPages = true
+qhp.QtConcurrent.subprojects.examples.title = Qt Concurrent Examples
+qhp.QtConcurrent.subprojects.examples.indexTitle = Qt Concurrent Examples
+qhp.QtConcurrent.subprojects.examples.selectors = fake:example
+
+tagfile                 = ../../../doc/qtconcurrent/qtconcurrent.tags
+
+depends                 += qtcore qtnetwork qtdoc qmake qtcmake
+
+headerdirs  += ..
+
+sourcedirs  += ..
+
+exampledirs += ../../../examples/qtconcurrent \
+               snippets \
+               .
+
+excludedirs += snippets
+
+imagedirs   += images
+
+navigation.landingpage = "Qt Concurrent"
+navigation.cppclassespage = "Qt Concurrent C++ Classes"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

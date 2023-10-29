@@ -1,0 +1,20 @@
+/* This file is used to generate the Qt configuration info for the Core library.
+ * The 'qt_generate_qconfig_cpp' cmake routine
+ * contains variables that replace '@' entries in this file. It's important to
+ * align these values with the following:
+ *
+ * - QLibraryInfo::LibraryPath enum in qtbase/src/corelib/global/qlibraryinfo.h
+ * - qtConfEntries in qtbase/src/corelib/global/qlibraryinfo.cpp
+ */
+#include "private/qoffsetstringarray_p.h"
+
+/* Installation Info */
+static const char qt_configure_prefix_path_str  [12+256] = "qt_prfxpath=@QT_CONFIGURE_PREFIX_PATH_STR@";
+
+static constexpr auto qt_configure_strs = QT_PREPEND_NAMESPACE(qOffsetStringArray)(
+@QT_CONFIG_STRS@
+);
+
+#define QT_CONFIGURE_SETTINGS_PATH "@QT_SYS_CONF_DIR@"
+#define QT_CONFIGURE_LIBLOCATION_TO_PREFIX_PATH "@QT_CONFIGURE_LIBLOCATION_TO_PREFIX_PATH@"_L1
+#define QT_CONFIGURE_PREFIX_PATH qt_configure_prefix_path_str + 12

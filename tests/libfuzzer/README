@@ -1,0 +1,76 @@
+This directory contains tests to be run with clang's libFuzzer. It will generate data, pass this
+data to the function
+
+ LLVMFuzzerTestOneInput(const char *Data, size_t Size)
+
+of the test and track the code execution. Should the test crash, libFuzzer will provide you with the
+data which triggered the crash. You can then use this to debug and fix the called code.
+
+! Please note: The purpose of fuzz testing is to find unexpected code paths. Running fuzz tests may!
+! result in unforeseen behavior, including loss of data. Consider running the tests in an isolated !
+! environment, e.g. on a virtual machine. You have been warned.                                    !
+
+To run a test with libFuzzer:
+
+1. Install clang 5.0 or later, e.g. from the repositories of the Linux distribution you are using.
+   Depending on the version of clang and the source you are installing from, you might have to
+   install libFuzzer for this version of clang explicitly.
+2. Make sure clang and clang++ from this version of clang are found in PATH.
+3. Configure Qt with
+    -platform linux-clang -sanitize fuzzer-no-link
+   or, if you are using clang 5
+    -platform linux-clang -- -DCMAKE_CXX_FLAGS=-fsanitize-coverage=trace-pc-guard
+   to add the needed code coverage instrumentation. Since speed of execution is crucial for fuzz
+   testing, it's recommendable to also use the switches
+    -release -static
+   It might also make sense to add sanitizers by passing
+    -sanitize <...>
+4. Build Qt.
+5. Build one of the tests using this Qt build.
+6. Execute the resulting executable.
+   Depending on the expected input format of the tested function, you will get results faster if
+   you:
+    * provide a set of interesting input data by passing the path of a directory which contains
+      these data, each in one file. You can find such data sets in the subdirectory
+      "fuzzing/testcases" of the qtqa repository.
+    * pass a so-called dictionary listing keywords of the input format using
+       -dict=<dictionary file>
+      A couple of such dictionaries are provided by AFL (http://lcamtuf.coredump.cx/afl/)
+    * tell libFuzzer to generate only ASCII data using
+       -only_ascii=1
+
+For further info about libFuzzer, see https://llvm.org/docs/LibFuzzer.html
+
+Some of these tests are continuously being run on oss-fuzz, a service by Google for fuzzing free
+software. It is documented at:
+https://google.github.io/oss-fuzz/
+
+You can find:
+ - The build logs for Qt at
+   https://oss-fuzz-build-logs.storage.googleapis.com/index.html#qt
+ - The code coverage of the running fuzzers at
+   https://storage.googleapis.com/oss-fuzz-coverage/qt/reports/20201104/linux/report.html
+   Update the date in the URL to get more recent data.
+ - The found issues which were already published at:
+   https://bugs.chromium.org/p/oss-fuzz/issues/list?q=proj%3Dqt
+
+You can reproduce issues found by oss-fuzz using their Docker images, see
+https://google.github.io/oss-fuzz/advanced-topics/reproducing/
+Alternatively, you can also reproduce it locally with a native build:
+
+1. Read the tested submodule, the test's project and the architecture from the report.
+   For all findings since November 2020, you get the former from the "Fuzz Target". For example,
+   "qtbase_gui_text_qtextdocument_sethtml" is fuzzing qtbase using the project in
+   qtbase/tests/libfuzzer/gui/text/qtextdocument/sethtml/
+   The architecture you can find in "Job Type". If it contains "i386" it is a 32-bit x86 build,
+   otherwise it is an x86_64 build. Sometimes you can reproduce issues on both architectures.
+2. Build Qt including the tested submodule and its dependencies on the respective architecture with
+   the used sanitizer (see above).
+   The sanitizer is also written in the report. It is usually needed to reproduce the issue.
+3. Use this Qt build to build the test's project. For example:
+   <qt-build>/qtbase/bin/qt-cmake -S "<src>/qtbase/tests/libfuzzer/gui/text/qtextdocument/sethtml/"
+   cmake --build .
+4. Download the "Reproducer Testcase" from the report.
+5. Start the binary resulting from step 3 and pass the testcase. For example:
+   ./sethtml input.html
+   You should get the same symptoms as described in the report.

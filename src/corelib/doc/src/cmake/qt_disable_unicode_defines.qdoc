@@ -1,0 +1,34 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+\page qt-disable-unicode-defines.html
+\ingroup cmake-commands-qtcore
+
+\title qt_disable_unicode_defines
+\keyword qt6_disable_unicode_defines
+
+\summary {Prevents some unicode-related compiler definitions being set automatically on a target.}
+
+\include cmake-find-package-core.qdocinc
+
+\cmakecommandsince 6.2
+
+\section1 Synopsis
+
+\badcode
+qt_disable_unicode_defines(target)
+\endcode
+
+\versionlessCMakeCommandsNote qt6_disable_unicode_defines()
+
+\section1 Description
+
+In Qt 6, the \c UNICODE and \c{_UNICODE} compiler definitions are set by
+default for targets that link against Qt modules. This is in line with the
+qmake behavior, but it is a change compared to the CMake API behavior in Qt 5.
+Calling \c{qt_disable_unicode_defines()} on a \c target prevents these compiler
+definitions from being automatically set.
+
+\sa {qt6_allow_non_utf8_sources}{qt_allow_non_utf8_sources()}
+*/

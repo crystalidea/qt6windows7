@@ -1,0 +1,17 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example chat
+    \title D-Bus Chat
+    \ingroup examples-dbus
+    \brief Demonstrates communication among instances of an application.
+
+    \e Chat is a \l{Qt D-Bus} example which demonstrates a simple chat system
+    among instances of an application. Users connect and send message to
+    each other.
+
+    \image dbus-chat-example.webp
+
+    \include examples-run.qdocinc
+*/

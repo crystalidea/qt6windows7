@@ -1,0 +1,113 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page widgets-changes-qt6.html
+    \title Changes to Qt Widgets
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt Widgets to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt Widgets, and provide
+    guidance to handle them.
+
+    \section1 Kernel classes
+
+    \section2 The QWidget class
+
+    The virtual QWidget::enterEvent() handler now receives a QEnterEvent*
+    parameter which has information about the pointer position, rather than
+    a plain QEvent*.
+
+    \section2 QDesktopWidget and QApplication::desktop()
+
+    QDesktopWidget was already deprecated in Qt 5, and has been removed in
+    Qt 6, together with QApplication::desktop().
+
+    QScreen provides equivalent functionality to query for information about
+    available screens, screen that form a virtual desktop, and screen
+    geometries.
+
+    Use QWidget::setScreen() to create a QWidget on a specific display;
+    note that this does not move a widget to a screen in a virtual desktop
+    setup.
+
+    \section2 QAction, QActionGroup
+
+    These classes have been moved into the QtGui module. Member functions that
+    depend on types defined in QtWidgets (such as QAction::menu() and
+    QAction::setMenu()) are implemented as templates that will be instantiated
+    only when called.
+
+    \section1 Widgets
+
+    \section2 The QAbstractButton class
+
+    The default timeout parameter for QAbstractButton::animateClick() is
+    removed to allow modern connection syntax without the need for qOverload.
+
+    \section2 The QComboBox class
+
+    The QComboBox::setModel() function is now virtual.
+
+    \section2 The QDateTimeEdit class
+
+    When QDateTimeEdit::setDateTime() is called with a date-time whose
+    time-spec doesn't match that of the QDateTimeEdit instance, the
+    date-time is converted to the time-spec of the QDateTimeEdit. This
+    gives a date-time that describes the same instant in time, but
+    does so in the same terms as the QDateTimeEdit uses. Previously,
+    the date and time from the passed date-time were combined with the
+    time-spec of the widget, ignoring the time-spec of the date-time;
+    this could describe a different point in time than the one
+    described by the date-time passed.
+
+    \section1 ItemViews
+
+    \section2 The QAbstractItemView class
+
+    The virtual viewOptions() method that previously returned a QStyleOptionViewItem
+    object has been renamed to initViewItemOption, and initializes a
+    QStyleOptionViewItem object that's passed in through a pointer.
+
+    \section1 Styling Classes and related APIs
+
+    All versioned QStyleOption subclasses are consolidated, and the version
+    numbers are reset to 1.
+
+    The various initStyleOption() methods in widget classes are now virtual.
+
+    \section2 Style sheet changes
+
+    Styling a widget by its property in Qt 5 vs Qt 6 is different, especially if the
+    property is an enum. In Qt 5, the selector value for such a property is the integer
+    equivalent of the enum value, while in Qt 6 the string value is used. The following
+    example demonstrates this difference:
+
+    \code
+    // Qt 5 style sheet
+    QToolButton[popupMode="1"] {
+        padding-right: 20px;
+    }
+    \endcode
+
+    \code
+    // Qt 6 style sheet
+    QToolButton[popupMode=MenuButtonPopup] {
+        padding-right: 20px;
+    }
+    \endcode
+
+    \section1 Utility Classes
+
+    \section2 QUndoCommand, QUndoStack, and QUndoGroup
+
+    The widget independent classes of the Undo/Redo framework have been moved
+    into the QtGui module.
+*/

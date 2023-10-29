@@ -1,0 +1,86 @@
+TAP version 13
+# tst_StrCmp
+ok 1 - initTestCase()
+ok 2 - compareCharStars()
+not ok 3 - compareByteArray()
+  ---
+  type: QCOMPARE
+  message: Compared values are not the same
+  wanted: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"... (b)
+  found: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"... (a)
+  expected: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"... (b)
+  actual: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"... (a)
+  at: tst_StrCmp::compareByteArray() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+  line: 0
+  extensions:
+    messages:
+    - severity: xfail
+      message: Next test should fail
+      at: tst_StrCmp::compareByteArray() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+      file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+      line: 0
+    - severity: xfail
+      message: Next test should fail
+      at: tst_StrCmp::compareByteArray() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+      file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+      line: 0
+    - severity: xfail
+      message: Next test should fail
+      at: tst_StrCmp::compareByteArray() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+      file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+      line: 0
+  ...
+not ok 4 - failByteArray()
+  ---
+  type: QCOMPARE
+  message: Compared values are not the same
+  wanted: "cba" (QByteArray("cba"))
+  found: "abc" (QByteArray("abc"))
+  expected: "cba" (QByteArray("cba"))
+  actual: "abc" (QByteArray("abc"))
+  at: tst_StrCmp::failByteArray() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+  line: 0
+  ...
+not ok 5 - failByteArrayNull()
+  ---
+  type: QCOMPARE
+  message: Compared values are not the same
+  wanted: "" (QByteArray())
+  found: "foo" (QByteArray("foo"))
+  expected: "" (QByteArray())
+  actual: "foo" (QByteArray("foo"))
+  at: tst_StrCmp::failByteArrayNull() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+  line: 0
+  ...
+not ok 6 - failByteArrayEmpty()
+  ---
+  type: QCOMPARE
+  message: Compared values are not the same
+  wanted: "foo" (QByteArray("foo"))
+  found: "" (QByteArray(""))
+  expected: "foo" (QByteArray("foo"))
+  actual: "" (QByteArray(""))
+  at: tst_StrCmp::failByteArrayEmpty() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+  line: 0
+  ...
+not ok 7 - failByteArraySingleChars()
+  ---
+  type: QCOMPARE
+  message: Compared values are not the same
+  wanted: "7" (QByteArray("7"))
+  found: "6" (QByteArray("6"))
+  expected: "7" (QByteArray("7"))
+  actual: "6" (QByteArray("6"))
+  at: tst_StrCmp::failByteArraySingleChars() (qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp:0)
+  file: qtbase/tests/auto/testlib/selftests/strcmp/tst_strcmp.cpp
+  line: 0
+  ...
+ok 8 - cleanupTestCase()
+1..8
+# tests 8
+# pass 3
+# fail 5

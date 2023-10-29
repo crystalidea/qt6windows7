@@ -1,0 +1,16 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example multicastsender
+    \title Multicast Sender
+    \examplecategory {Networking}
+    \meta tags {network,multicast,ipv6,ipv4,udp}
+    \ingroup examples-network
+    \brief Demonstrates how to send messages to a multicast group.
+
+    This example demonstrates how to send messages to the clients of a
+    multicast group.
+
+    \image multicastsender-example.webp
+*/

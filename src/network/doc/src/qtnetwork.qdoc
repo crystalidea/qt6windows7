@@ -1,0 +1,93 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page qtnetwork-index.html
+    \title Qt Network
+    \brief Provides networking capabilities
+
+    The Qt Network module provides a set of APIs for programming
+    applications that use TCP/IP. Operations such as requests, cookies, and
+    sending data over HTTP are handled by various C++ classes.
+
+    \section1 Using the Module
+
+    \include {module-use.qdocinc} {using the c++ api}
+
+    \section2 Building with CMake
+
+    \include {module-use.qdocinc} {building with cmake} {Network}
+
+    \section2 Building with qmake
+
+    \include {module-use.qdocinc} {building_with_qmake} {network}
+
+    \section1 Articles and Guides
+
+    These articles contain information about Qt Network setup and about
+    applications with networking capabilities.
+    \list
+    \li \l{Network Programming with Qt} - Programming applications with
+        networking capabilities
+    \li \l{Secure Sockets Layer (SSL) Classes} - Classes for secure
+        communication over network sockets
+    \endlist
+
+    \section1 API Reference
+    These are links to the API reference materials.
+    \list
+    \li \l{Qt Network C++ Classes}{C++ Classes}
+    \endlist
+
+    \section1 Module Evolution
+    \l{Changes to Qt Network} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
+
+    \section1 Licenses and Attributions
+
+    Qt Network is available under commercial licenses from \l{The Qt Company}.
+    In addition, it is available under the
+    \l{GNU Lesser General Public License, version 3}, or
+    the \l{GNU General Public License, version 2}.
+    See \l{Qt Licensing} for further details.
+
+    Furthermore, Qt Network in Qt \QtVersion may contain third-party
+    modules under the following permissive licenses:
+
+    \generatelist{groupsbymodule attributions-qtnetwork}
+
+    Qt Network can make use of the \l{OpenSSL Toolkit} as a back end.
+    The library is then
+    linked against OpenSSL in a way that requires compliance with the \l{OpenSSL
+    License}. To allow linking OpenSSL with Qt Network under the GPL, following
+    exceptions to the GPL do apply:
+
+    \badcode
+    In addition, as a special exception, the copyright holders listed above give
+    permission to link the code of its release of Qt with the OpenSSL project's
+    "OpenSSL" library (or modified versions of the "OpenSSL" library that use the
+    same license as the original version), and distribute the linked executables.
+
+    You must comply with the GNU General Public License version 2 in all
+    respects for all of the code used other than the "OpenSSL" code.  If you
+    modify this file, you may extend this exception to your version of the file,
+    but you are not obligated to do so.  If you do not wish to do so, delete
+    this exception statement from your version of this file.
+    \endcode
+
+    Also note shipping OpenSSL might cause \l{Import and Export Restrictions}
+    to apply.
+*/
+
+/*!
+    \module QtNetwork
+    \title Qt Network C++ Classes
+    \ingroup modules
+    \qtcmakepackage Network
+    \qtvariable network
+    \brief Provides classes to make network programming easier and portable.
+
+
+    The \l{Qt Network} page contains information about how to use the module.
+
+*/

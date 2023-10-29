@@ -1,0 +1,28 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page printsupport-changes-qt6.html
+    \title Changes to Qt Print Support
+    \ingroup changes-qt-5-to-6
+    \brief Migrate Qt Print Support to Qt 6.
+
+    Qt 6 is a result of the conscious effort to make the framework more
+    efficient and easy to use.
+
+    We try to maintain binary and source compatibility for all the public
+    APIs in each release. But some changes were inevitable in an effort to
+    make Qt a better framework.
+
+    In this topic we summarize those changes in Qt Print Support, and provide
+    guidance to handle them.
+
+    \section1 General API consolidation
+
+    The various enums and types for \l{QPageSize}{page sizes},
+    margins, and orientation have been consolidated. QPrinter APIs to set
+    paper sizes and margins explicitly have been removed; use
+    QPagedPaintDevice::setPageLayout(), QPagedPaintDevice::setPageSize(),
+    QPagedPaintDevice::setPageOrientation(), and
+    QPagedPaintDevice::setPageMargins() instead.
+*/

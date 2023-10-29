@@ -1,0 +1,78 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+/*!
+    \page qtsql-index.html
+    \title Qt SQL
+    \brief Provides a driver layer, SQL API layer, and a user
+    interface layer for SQL databases
+
+    The Qt SQL module provides support for SQL databases. Qt SQL's APIs are
+    divided into different layers:
+
+    \list
+    \li Driver layer
+    \li SQL API layer
+    \li User interface layer
+    \endlist
+    The \l{SQL Programming} guide contains information about development using
+    Qt SQL.
+
+    \section1 Using the Module
+
+    \include {module-use.qdocinc} {using the c++ api}
+
+    \section2 Building with CMake
+
+    \include {module-use.qdocinc} {building with cmake} {Sql}
+
+    \section2 Building with qmake
+
+    \include {module-use.qdocinc} {building_with_qmake} {sql}
+
+    \section1 Articles and Guides
+
+    \list
+        \li \l {SQL Programming} {Qt SQL Programming Guide}
+    \endlist
+
+    \section1 Examples
+
+    \list
+        \li \l {SQL Examples}
+    \endlist
+
+    \section1 Reference
+
+    \list
+        \li \l {Qt SQL C++ Classes} {C++ Classes}
+    \endlist
+
+    \section1 Module Evolution
+    \l{Changes to Qt SQL} lists important changes in the module API
+    and functionality that were done for the Qt 6 series of Qt.
+
+    \section1 Licenses and Attributions
+
+    Qt SQL is available under commercial licenses from \l{The Qt Company}.
+    In addition, it is available under free software licenses:
+    The \l{GNU Lesser General Public License, version 3}, or
+    the \l{GNU General Public License, version 2}.
+    See \l{Qt Licensing} for further details.
+
+    Furthermore, Qt SQL in Qt \QtVersion may contain third party
+    modules under following permissive licenses:
+
+    \generatelist{groupsbymodule attributions-qtsql}
+*/
+
+/*!
+    \module QtSql
+    \title Qt SQL C++ Classes
+    \ingroup modules
+    \qtcmakepackage Sql
+    \qtvariable sql
+    \brief Provides a driver layer, SQL API layer, and a user
+    interface layer for SQL databases.
+
+    The \l{Qt SQL} page contains information about how to use the module.
+*/

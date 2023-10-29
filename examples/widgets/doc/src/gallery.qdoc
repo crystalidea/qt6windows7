@@ -1,0 +1,13 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example gallery
+    \meta {tag} {gallery}
+    \title Widgets Gallery Example
+    \ingroup examples-widgets
+    \brief The Widgets Gallery example shows widgets relevant for designing UIs.
+
+    This example demonstrates widgets typically used in dialogs and forms.
+    It also allows for changing the style.
+*/

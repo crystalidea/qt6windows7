@@ -1,0 +1,15 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtWidgets
+    \title Qt Widgets C++ Classes
+    \ingroup modules
+    \qtcmakepackage Widgets
+    \qtvariable widgets
+
+    \brief The Qt Widgets module extends Qt GUI with C++ widget functionality.
+
+    The \l{Qt Widgets} page contains information about how to use the module.
+*/
+

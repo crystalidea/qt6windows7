@@ -1,0 +1,1034 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \class QByteArrayView
+    \inmodule QtCore
+    \brief The QByteArrayView class provides a view on an array of bytes with a read-only
+           subset of the QByteArray API.
+    \since 6.0
+
+    \ingroup tools
+    \ingroup shared
+    \ingroup string-processing
+
+    \reentrant
+
+    A QByteArrayView references a contiguous portion of raw bytes it does
+    not own. It acts as an interface type to all kinds of byte-array-like data,
+    without the need to construct a QByteArray first.
+
+    The byte array data may be represented as an array (or an array-compatible
+    data-structure such as QByteArray, std::basic_string, etc.) of \c char,
+    \c{signed char}, \c{unsigned char} or \c std::byte.
+
+    QByteArrayView is designed as an interface type; its main use-case is
+    as a function parameter type. When QByteArrayViews are used as automatic
+    variables or data members, care must be taken to ensure that the referenced
+    data (for example, owned by a QByteArray) outlives the QByteArrayView on all
+    code paths, lest the byte array view ends up referencing deleted data.
+
+    When used as an interface type, QByteArrayView allows a single function to accept
+    a wide variety of byte-array-like data sources. One function accepting QByteArrayView
+    thus replaces several function overloads (taking, for example, QByteArray, const char *,
+    etc.) while at the same time enabling even more byte array data sources to be passed
+    to the function.
+
+    QByteArrayView should be passed by value, not by reference-to-const:
+    \snippet code/src_corelib_text_qbytearrayview.cpp 0
+
+    If you want to give your users maximum freedom in what type of data they
+    can pass to your function, accompany the QByteArrayView overload with
+    overloads for
+
+    \list
+        \li \e char: this overload can delegate to the QByteArrayView version:
+            \snippet code/src_corelib_text_qbytearrayview.cpp 1
+            even though, for technical reasons, QByteArrayView cannot provide a
+            char constructor by itself.
+        \li \e QByteArray: if you store an unmodified copy of the byte array and
+            thus would like to take advantage of QByteArray's implicit sharing.
+    \endlist
+
+    QByteArrayView can also be used as the return value of a function. If you call a
+    function returning QByteArrayView, take extra care to not keep the QByteArrayView
+    around longer than the function promises to keep the referenced data alive.
+    If in doubt, obtain a strong reference to the data by calling toByteArray() to convert
+    the QByteArrayView into a QByteArray.
+
+    The methods supported by QByteArrayView reflect those of \l QByteArray. In
+    particular, to the limited degree that it ascribes semantics (such as
+    character case, spacing, digits of numbers) to the character data viewed, it
+    uses the C locale and ASCII encoding. See \l {C locale and ASCII functions}
+    for details and the limitations on these methods.
+
+    \section1 Compatible Byte Types
+
+    QByteArrayView can be constructed on any container of bytes, where the byte type
+    is one of:
+
+    \list
+    \li \c char (both signed and unsigned)
+    \li \c std::byte
+    \endlist
+
+    \sa QByteArray, QStringView
+*/
+
+/*!
+    \typedef QByteArrayView::storage_type
+
+    Alias for \c char.
+*/
+
+/*!
+    \typedef QByteArrayView::value_type
+
+    Alias for \c{const char}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QByteArrayView::difference_type
+
+    Alias for \c{std::ptrdiff_t}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QByteArrayView::size_type
+
+    Alias for qsizetype. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QByteArrayView::reference
+
+    Alias for \c{value_type &}. Provided for compatibility with the STL.
+
+    QByteArrayView does not support mutable references, so this is the same
+    as const_reference.
+*/
+
+/*!
+    \typedef QByteArrayView::const_reference
+
+    Alias for \c{value_type &}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QByteArrayView::pointer
+
+    Alias for \c{value_type *}. Provided for compatibility with the STL.
+
+    QByteArrayView does not support mutable pointers, so this is the same
+    as const_pointer.
+*/
+
+/*!
+    \typedef QByteArrayView::const_pointer
+
+    Alias for \c{value_type *}. Provided for compatibility with the STL.
+*/
+
+/*!
+    \typedef QByteArrayView::iterator
+
+    This typedef provides an STL-style const iterator for QByteArrayView.
+
+    QByteArrayView does not support mutable iterators, so this is the same
+    as const_iterator.
+
+    \sa const_iterator, reverse_iterator
+*/
+
+/*!
+    \typedef QByteArrayView::const_iterator
+
+    This typedef provides an STL-style const iterator for QByteArrayView.
+
+    \sa iterator, const_reverse_iterator
+*/
+
+/*!
+    \typedef QByteArrayView::reverse_iterator
+
+    This typedef provides an STL-style const reverse iterator for QByteArrayView.
+
+    QByteArrayView does not support mutable reverse iterators, so this is the
+    same as const_reverse_iterator.
+
+    \sa const_reverse_iterator, iterator
+*/
+
+/*!
+    \typedef QByteArrayView::const_reverse_iterator
+
+    This typedef provides an STL-style const reverse iterator for QByteArrayView.
+
+    \sa reverse_iterator, const_iterator
+*/
+
+/*!
+    \fn QByteArrayView::QByteArrayView()
+
+    Constructs a null byte array view.
+
+    \sa isNull()
+*/
+
+/*!
+    \fn QByteArrayView::QByteArrayView(std::nullptr_t)
+
+    Constructs a null byte array view.
+
+    \sa isNull()
+*/
+
+/*!
+    \fn template <typename Byte> QByteArrayView::QByteArrayView(const Byte *data, qsizetype len)
+
+    Constructs a byte array view on \a data with length \a len.
+
+    The range \c{[data,len)} must remain valid for the lifetime of this QByteArrayView.
+
+    Passing \nullptr as \a data is safe if \a len is 0, too, and results in a null
+    byte array view.
+
+    The behavior is undefined if \a len is negative or, when positive, if \a data is \nullptr.
+
+    This constructor only participates in overload resolution if \c Byte is a compatible
+    byte type.
+
+    \sa {Compatible Byte Types}
+*/
+
+/*!
+    \fn template <typename Byte> QByteArrayView::QByteArrayView(const Byte *first, const Byte *last)
+
+    Constructs a byte array view on \a first with length (\a last - \a first).
+
+    The range \c{[first,last)} must remain valid for the lifetime of
+    this QByteArrayView.
+
+    Passing \c \nullptr as \a first is safe if \a last is \nullptr, too,
+    and results in a null byte array view.
+
+    The behavior is undefined if \a last precedes \a first, or \a first
+    is \nullptr and \a last is not.
+
+    This constructor only participates in overload resolution if \c Byte is
+    a compatible byte type.
+
+    \sa {Compatible Byte Types}
+*/
+
+/*!
+    \fn template <typename Byte> QByteArrayView::QByteArrayView(const Byte *data)
+
+    Constructs a byte array view on \a data. The length is determined
+    by scanning for the first \c{Byte(0)}.
+
+    \a data must remain valid for the lifetime of this byte array view object.
+
+    Passing \nullptr as \a data is safe and results in a null byte array view.
+
+    This constructor only participates in overload resolution if \a data is not
+    an array and if \c Byte is a compatible byte type.
+
+    \sa {Compatible Byte Types}
+*/
+
+/*!
+    \fn template <size_t Size> QByteArrayView::QByteArrayView(const char (&data)[Size])
+
+    Constructs a byte array view on the char array \a data.
+    The view covers the array until the first \c{'\0'} is encountered,
+    or \c Size, whichever comes first.
+    If you need the full array, use fromArray() instead.
+
+    \a data must remain valid for the lifetime of this byte array view
+    object.
+
+    \note This constructor is only available for char array literals.
+    The reasoning behind that is for compatibility with C-libraries
+    which predefine "large-enough" arrays, but only use some of the
+    preallocated space. To support this in an intuitive way in an
+    implicit constructor overload, we need to stop at the first
+    \c{char(0)}. This is logical for a char array, but not
+    for a \c{std::byte} array.
+
+    \sa fromArray
+*/
+
+/*!
+    \fn QByteArrayView::QByteArrayView(const QByteArray &byteArray)
+
+    Constructs a byte array view on \a byteArray.
+
+    \c{byteArray.data()} must remain valid for the lifetime of this byte array view object.
+
+    The byte array view will be null if and only if \c{byteArray.isNull()}.
+*/
+
+/*!
+    \fn template <typename Container> QByteArrayView::QByteArrayView(const Container &c)
+
+    Constructs a byte array view on the array-like container \a c. The length and data
+    are set via \c{std::size(c)} and \c{std::data(c)} respectively.
+
+    The container's data must remain valid for the lifetime of this byte array view object.
+
+    This constructor participates in overload resolution if \a c is any contiguous
+    container container with elements of a compatible byte type.
+
+    \sa {Compatible Byte Types}
+*/
+
+/*!
+    \fn template <typename Byte, size_t Size> QByteArrayView QByteArrayView::fromArray(const Byte (&data)[Size])
+
+    Constructs a byte array view on the array literal \a data. The view covers the full
+    array. That includes the trailing null-terminator of \c{char} array literals.
+    If you don't want the null-terminator included in the view, you can chop() it off
+    when you are certain it is at the end. Alternatively you can use the constructor
+    overload taking a char array literal which will create a view up to, but not including,
+    the first null-terminator in the data.
+
+    This function will work with any array literal of a compatible byte type.
+
+    \sa {Compatible Byte Types}, QByteArrayView
+*/
+
+/*!
+    \fn QByteArray QByteArrayView::toByteArray() const
+
+    Returns a deep copy of this byte array view's data as a QByteArray.
+
+    The return value will be a null QByteArray if and only if this byte array
+    view is null.
+*/
+
+/*!
+    \fn const char *QByteArrayView::data() const
+
+    Returns a const \c char pointer to the first byte in the byte array view.
+
+    \note The character array represented by the return value is \e not guaranteed
+    to be null-terminated. The returned pointer is only safe to use for accessing
+    bytes at indices that are less than this byte array view's size().
+
+    \sa begin(), end()
+*/
+
+/*!
+    \fn const char *QByteArrayView::constData() const
+
+    Returns a const \c char pointer to the first byte in the byte array view.
+
+    \note The character array represented by the return value is \e not guaranteed
+    to be null-terminated. The returned pointer is only safe to use for accessing
+    bytes at indices that are less than this byte array view's size().
+
+    \sa data(), begin(), end()
+*/
+
+/*! //! friend
+    \fn int QByteArrayView::operator==(QByteArrayView lhs, QByteArrayView rhs)
+    \fn int QByteArrayView::operator!=(QByteArrayView lhs, QByteArrayView rhs)
+    \fn int QByteArrayView::operator< (QByteArrayView lhs, QByteArrayView rhs)
+    \fn int QByteArrayView::operator<=(QByteArrayView lhs, QByteArrayView rhs)
+    \fn int QByteArrayView::operator> (QByteArrayView lhs, QByteArrayView rhs)
+    \fn int QByteArrayView::operator>=(QByteArrayView lhs, QByteArrayView rhs)
+
+    Comparison operators for QByteArrayView.
+*/
+
+/*!
+    \fn int QByteArrayView::compare(QByteArrayView bv, Qt::CaseSensitivity cs = Qt::CaseSensitive) const
+    \since 6.2
+
+    Returns an integer less than, equal to, or greater than zero depending on
+    whether this QByteArrayView sorts before, at the same position as, or after
+    the QByteArrayView \a bv. The comparison is performed according to case
+    sensitivity \a cs.
+
+    \sa operator==()
+*/
+
+/*!
+    \fn QByteArrayView::isValidUtf8() const
+
+    Returns \c true if this byte array view contains valid UTF-8 encoded data,
+    or \c false otherwise.
+
+    \since 6.3
+*/
+
+/*!
+    \fn QByteArrayView::const_iterator QByteArrayView::begin() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the
+    first byte in the byte array view.
+
+    This function is provided for STL compatibility.
+
+    \sa end(), cbegin(), rbegin(), data()
+*/
+
+/*!
+    \fn QByteArrayView::const_iterator QByteArrayView::cbegin() const
+
+    Same as begin().
+
+    This function is provided for STL compatibility.
+
+    \sa cend(), begin(), crbegin(), data()
+*/
+
+/*!
+    \fn QByteArrayView::const_iterator QByteArrayView::end() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing
+    just after the last byte in the byte array view.
+
+    This function is provided for STL compatibility.
+
+    \sa begin(), cend(), rend()
+*/
+
+/*! \fn QByteArrayView::const_iterator QByteArrayView::cend() const
+
+    Same as end().
+
+    This function is provided for STL compatibility.
+
+    \sa cbegin(), end(), crend()
+*/
+
+/*!
+    \fn QByteArrayView::const_reverse_iterator QByteArrayView::rbegin() const
+
+    Returns a const \l{STL-style iterators}{STL-style} reverse iterator pointing
+    to the first byte in the byte array view, in reverse order.
+
+    This function is provided for STL compatibility.
+
+    \sa rend(), crbegin(), begin()
+*/
+
+/*!
+    \fn QByteArrayView::const_reverse_iterator QByteArrayView::crbegin() const
+
+    Same as rbegin().
+
+    This function is provided for STL compatibility.
+
+    \sa crend(), rbegin(), cbegin()
+*/
+
+/*!
+    \fn QByteArrayView::const_reverse_iterator QByteArrayView::rend() const
+
+    Returns a \l{STL-style iterators}{STL-style} reverse iterator pointing to one past
+    the last byte in the byte array view, in reverse order.
+
+    This function is provided for STL compatibility.
+
+    \sa rbegin(), crend(), end()
+*/
+
+/*!
+    \fn QByteArrayView::const_reverse_iterator QByteArrayView::crend() const
+
+    Same as rend().
+
+    This function is provided for STL compatibility.
+
+    \sa crbegin(), rend(), cend()
+*/
+
+/*!
+    \fn bool QByteArrayView::empty() const
+
+    Returns \c true if this byte array view is empty - that is, \c{size() == 0}.
+
+    This function is provided for STL compatibility.
+
+    \sa isEmpty(), isNull(), size()
+*/
+
+/*!
+    \fn bool QByteArrayView::isEmpty() const
+
+    Returns \c true if this byte array view is empty - that is, \c{size() == 0}.
+
+    \sa empty(), isNull(), size()
+*/
+
+/*!
+    \fn bool QByteArrayView::isNull() const
+
+    Returns \c true if this byte array view is null - that is, \c{data() == nullptr}.
+
+    \sa empty(), isEmpty(), size()
+*/
+
+/*!
+    \fn qsizetype QByteArrayView::size() const
+
+    Returns the number of bytes in this byte array view.
+
+    \sa empty(), isEmpty(), isNull()
+*/
+
+/*!
+    \fn QByteArrayView::length() const
+
+    Same as size().
+
+    \sa empty(), isEmpty(), isNull(), size()
+*/
+
+/*!
+    \fn char QByteArrayView::operator[](qsizetype n) const
+
+    Returns the character at position \a n in this byte array view.
+
+    The behavior is undefined if \a n is negative or not less than size().
+
+    \sa at(), front(), back()
+*/
+
+/*!
+    \fn char QByteArrayView::at(qsizetype n) const
+
+    Returns the character at position \a n in this byte array view.
+
+    The behavior is undefined if \a n is negative or not less than size().
+
+    \sa operator[](), front(), back()
+*/
+
+/*!
+    \fn char QByteArrayView::front() const
+
+    Returns the first byte in the byte array view.
+
+    This function is provided for STL compatibility.
+
+    \warning Calling this function on an empty byte array view constitutes
+    undefined behavior.
+
+    \sa back()
+*/
+
+/*!
+    \fn char QByteArrayView::back() const
+
+    Returns the last byte in the byte array view.
+
+    This function is provided for STL compatibility.
+
+    \warning Calling this function on an empty byte array view constitutes
+    undefined behavior.
+
+    \sa front()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::first(qsizetype n) const
+
+    Returns a byte array view that points to the first \a n bytes
+    of this byte array view. Equivalent to \c{sliced(0, n)}.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa last(), startsWith(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::last(qsizetype n) const
+
+    Returns a byte array view that points to the last \a n bytes
+    of this byte array view.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa first(), endsWith(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::sliced(qsizetype pos, qsizetype n) const
+
+    Returns a byte array view that points to \a n bytes of this byte array
+    view, starting at position \a pos.
+
+    \note The behavior is undefined when \a pos < 0, \a n < 0,
+    or \a pos + \a n > size().
+
+    \sa first(), last(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::sliced(qsizetype pos) const
+
+    Returns a byte array view starting at position \a pos in this object,
+    and extending to its end.
+
+    \note The behavior is undefined when \a pos < 0 or \a pos > size().
+
+    \sa first(), last(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::chopped(qsizetype length) const
+
+    Returns a copy of this byte array view that omits its last \a length bytes.
+    In other words, returns a byte array view of length size() - \a length starting
+    at the beginning of this object.
+
+    Same as \c{first(size() - length)}.
+
+    \note The behavior is undefined when \a length < 0 or \a length > size().
+
+    \sa first(), last(), sliced(), chop(), truncate()
+*/
+
+/*!
+    \fn void QByteArrayView::truncate(qsizetype length)
+
+    Truncates this byte array view to length \a length.
+
+    Same as \c{*this = first(length)}.
+
+    \note The behavior is undefined when \a length < 0 or \a length > size().
+
+    \sa first(), last(), sliced(), chopped(), chop()
+*/
+
+/*!
+    \fn void QByteArrayView::chop(qsizetype length)
+
+    Truncates this byte array view by \a length characters.
+
+    Same as \c{*this = first(size() - length)}.
+
+    \note The behavior is undefined when \a length < 0 or \a length > size().
+
+    \sa sliced(), first(), last(), chopped(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::mid(qsizetype start, qsizetype length) const
+    \since 6.5
+
+    \deprecated Use sliced() instead in new code.
+
+    Returns the subarray of length \a length starting at position
+    \a start in this object.
+
+    Returns an empty byte array view if \a start exceeds the
+    length of the byte array view. If there are less than \a length characters
+    available in the byte array view starting at \a start, or if
+    \a length is negative (default), the function returns all characters that
+    are available from \a start.
+
+    \sa first(), last(), sliced(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::left(qsizetype length) const
+    \since 6.5
+
+    \deprecated Use first() instead in new code.
+
+    Returns the subarray of length \a length starting at position
+    0 in this object.
+
+    The entire byte array view is returned if \a length is greater than or equal
+    to size(), or less than zero.
+
+    \sa first(), last(), sliced(), startsWith(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::right(qsizetype length) const
+    \since 6.5
+
+    \deprecated Use last() instead in new code.
+
+    Returns the subarray of length \a length starting at position
+    size() - \a length in this object.
+
+    The entire byte array view is returned if \a length is greater than or equal
+    to size(), or less than zero.
+
+    \sa first(), last(), sliced(), endsWith(), chopped(), chop(), truncate()
+*/
+
+/*!
+    \fn QByteArrayView QByteArrayView::trimmed() const noexcept
+    \since 6.3
+
+    Returns a copy of this byte array view with spacing characters
+    removed from the start and end.
+
+    The spacing characters are those for which the standard C++ \c isspace()
+    function returns \c true in the C locale; these are the ASCII characters
+    tabulation '\\t', line feed '\\n', carriage return '\\r', vertical
+    tabulation '\\v', form feed '\\f', and space ' '.
+
+    \sa QChar::SpecialCharacter, {QByteArray#Spacing Characters}{Spacing Characters}
+*/
+
+/*!
+    \fn qlonglong QByteArrayView::toLongLong(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to a \c {long long} using base \a
+    base, which is ten by default. Bases 0 and 2 through 36 are supported, using
+    letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn qulonglong QByteArrayView::toULongLong(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to an \c {unsigned long long} using
+    base \a base, which is ten by default. Bases 0 and 2 through 36 are
+    supported, using letters for digits beyond 9; A is ten, B is eleven and so
+    on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn int QByteArrayView::toInt(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to an \c int using base \a base,
+    which is ten by default. Bases 0 and 2 through 36 are supported, using
+    letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \snippet code/src_corelib_text_qbytearrayview.cpp 2
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn uint QByteArrayView::toUInt(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to an \c {unsigned int} using base \a
+    base, which is ten by default. Bases 0 and 2 through 36 are supported, using
+    letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn long QByteArrayView::toLong(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to a \c long int using base \a base,
+    which is ten by default. Bases 0 and 2 through 36 are supported, using
+    letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \snippet code/src_corelib_text_qbytearrayview.cpp 3
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn ulong QByteArrayView::toULong(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to an \c {unsigned long int} using
+    base \a base, which is ten by default. Bases 0 and 2 through 36 are
+    supported, using letters for digits beyond 9; A is ten, B is eleven and so
+    on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn short QByteArrayView::toShort(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to a \c short using base \a base,
+    which is ten by default. Bases 0 and 2 through 36 are supported, using
+    letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn ushort QByteArrayView::toUShort(bool *ok, int base) const
+    \since 6.3
+
+    Returns this byte array view converted to an \c {unsigned short} using base
+    \a base, which is ten by default. Bases 0 and 2 through 36 are supported,
+    using letters for digits beyond 9; A is ten, B is eleven and so on.
+
+    If \a base is 0, the base is determined automatically using the following
+    rules: if the byte array view begins with "0x", the rest of it is read as
+    hexadecimal (base 16); otherwise, if it begins with "0", the rest of it is
+    read as octal (base 8); otherwise it is read as decimal.
+
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+*/
+
+/*!
+    \fn double QByteArrayView::toDouble(bool *ok) const
+    \since 6.3
+
+    Returns this byte array view converted to a \c double value.
+
+    Returns an infinity if the conversion overflows or 0.0 if the
+    conversion fails for other reasons (e.g. underflow).
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \warning The QByteArrayView content may only contain valid numerical
+    characters which includes the plus/minus sign, the character e used in
+    scientific notation, and the decimal point. Including the unit or additional
+    characters leads to a conversion error.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+
+    This function ignores leading and trailing spacing characters.
+*/
+
+/*!
+    \fn float QByteArrayView::toFloat(bool *ok) const
+    \since 6.3
+
+    Returns this byte array view converted to a \c float value.
+
+    Returns an infinity if the conversion overflows or 0.0 if the
+    conversion fails for other reasons (e.g. underflow).
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    \snippet code/src_corelib_text_qbytearrayview.cpp 4
+
+    \warning The QByteArrayView content may only contain valid numerical
+    characters which includes the plus/minus sign, the character e used in
+    scientific notation, and the decimal point. Including the unit or additional
+    characters leads to a conversion error.
+
+    \note The conversion of the number is performed in the default C locale,
+    regardless of the user's locale. Use QLocale to perform locale-aware
+    conversions between numbers and strings.
+
+    This function ignores leading and trailing whitespace.
+*/
+
+/*!
+    \fn bool QByteArrayView::startsWith(QByteArrayView bv) const
+    \fn bool QByteArrayView::startsWith(char ch) const
+
+    Returns \c true if this byte array view starts with byte array view \a bv
+    or character \a ch, respectively; otherwise returns \c false.
+
+    \sa endsWith()
+*/
+
+/*!
+    \fn bool QByteArrayView::endsWith(QByteArrayView bv) const
+    \fn bool QByteArrayView::endsWith(char ch) const
+
+    Returns \c true if this byte array view ends with byte array view \a bv
+    or character \a ch, respectively; otherwise returns \c false.
+
+    \sa startsWith()
+*/
+
+/*!
+    \fn qsizetype QByteArrayView::indexOf(QByteArrayView bv, qsizetype from = 0) const
+    \fn qsizetype QByteArrayView::indexOf(char ch, qsizetype from = 0) const
+
+    Returns the index position of either the start of the first occurrence of
+    the sequence of bytes viewed by \a bv or the first occurrence of byte \a ch,
+    respectively, in this byte array view, searching forward from index position
+    \a from.Returns -1 if no match is found.
+
+    \include qstring.qdocinc negative-index-start-search-from-end
+
+    \sa lastIndexOf(), contains()
+*/
+
+/*!
+    \fn bool QByteArrayView::contains(QByteArrayView bv) const
+    \fn bool QByteArrayView::contains(char ch) const
+
+    Returns \c true if this byte array view contains an occurrence of the sequence
+    of bytes viewed by \a bv or character \a ch, respectively; otherwise returns
+    \c false.
+
+    \sa indexOf(), lastIndexOf()
+*/
+
+/*!
+    \fn qsizetype QByteArrayView::lastIndexOf(QByteArrayView bv, qsizetype from) const
+    \fn qsizetype QByteArrayView::lastIndexOf(char ch, qsizetype from = -1) const
+
+    Returns the index position of either the start of the last occurrence of
+    the sequence of bytes viewed by \a bv or the last occurrence of byte \a ch,
+    respectively, in this byte array view, searching backward from index position
+    \a from.
+
+    \include qstring.qdocinc negative-index-start-search-from-end
+
+    Returns -1 if no match is found.
+
+    \note When searching for a 0-length \a bv, the match at the end of
+    the data is excluded from the search by a negative \a from, even
+    though \c{-1} is normally thought of as searching from the end of
+    the view: the match at the end is \e after the last character, so
+    it is excluded. To include such a final empty match, either give a
+    positive value for \a from or omit the \a from parameter entirely.
+
+    \sa indexOf(), contains()
+*/
+
+/*!
+    \fn qsizetype QByteArrayView::lastIndexOf(QByteArrayView bv) const
+    \since 6.2
+    \overload
+
+    Returns the index position of the start of the last
+    occurrence of the sequence of bytes viewed by \a bv in this byte
+    array view, searching backward from the end of this byte array
+    view. Returns -1 if no match is found.
+
+    \sa indexOf(), contains()
+*/
+
+/*!
+    \fn qsizetype QByteArrayView::count(QByteArrayView bv) const
+
+    Returns the number of (potentially overlapping) occurrences of the
+    sequence of bytes viewed by \a bv in this byte array view.
+
+    \sa contains(), indexOf()
+*/
+
+/*!
+    \fn bool QByteArrayView::count(char ch) const
+    \overload
+
+    Returns the number of occurrences of byte \a ch in this byte array view.
+
+    \sa contains(), indexOf()
+*/
+
+/*!
+    \fn QByteArrayView qToByteArrayViewIgnoringNull(const QByteArray &b);
+    \internal
+
+    Convert \a b to a QByteArrayView ignoring \c{b.isNull()}.
+
+    Returns a byte array view that references \a{b}'s data, but is never null.
+
+    This is a faster way to convert a QByteArray to a QByteArrayView,
+    if null QByteArray can legitimately be treated as empty ones.
+
+    \sa QByteArray::isNull(), QByteArrayView
+*/

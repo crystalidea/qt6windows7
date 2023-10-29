@@ -1,0 +1,15 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example graphicsview/chip
+    \title 40000 Chips
+    \ingroup examples-graphicsview
+    \brief Visualizes a huge graphic view scene with 40000 chip items.
+
+    This examples demonstrates Graphics View's powerful navigation
+    and interaction features, allowing you to zoom and rotate each of four
+    views independently, and you can select and move items around the scene.
+
+    \image chip-demo.png
+*/

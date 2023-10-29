@@ -1,0 +1,264 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page bindableproperties.html
+    \title Qt Bindable Properties
+    \brief Qt's bindable properties.
+
+    \ingroup qt-basic-concepts
+    \keyword Qt's Bindable Properties
+
+    Qt provides bindable properties. Bindable properties are properties
+    which either have a value or are specified using any C++ function,
+    typically a C++ lambda expression.
+    In case they are specified using a C++ function, they are
+    updated automatically whenever their dependencies change.
+
+    Bindable properties are implemented in the class QProperty, which
+    consists of the data object and a pointer to a management data structure, and
+    in class QObjectBindableProperty, which consists only of the data object and
+    uses the encapsulating QObject to store the pointer to the
+    management data structure.
+
+    \section1 Why Use Bindable Properties?
+
+    Property bindings are one of the core features of QML. They allow to specify
+    relationships between different object properties and automatically update
+    properties' values whenever their dependencies change. Bindable properties
+    allow to achieve the same not only in QML code, but also in C++. Using
+    bindable properties can help to simplify your program, by eliminating a lot
+    of boilerplate code for tracking and reacting to dependency updates of
+    different objects.
+
+    The \l {Introductory Example} below demonstrates the usage of bindable
+    properties in C++ code. You can also check \l {Bindable Properties Example}
+    to see how the bindable properties can help to improve your code.
+
+    \section1 Introductory Example
+
+    The binding expression computes the value by reading other QProperty values.
+    Behind the scenes this dependency is tracked. Whenever a change in any property's
+    dependency is detected, the binding expression is re-evaluated and the new
+    result is applied to the property. For example:
+
+    \code
+    QProperty<QString> firstname("John");
+    QProperty<QString> lastname("Smith");
+    QProperty<int> age(41);
+
+    QProperty<QString> fullname;
+    fullname.setBinding([&]() { return firstname.value() + " " + lastname.value() + " age: " + QString::number(age.value()); });
+
+    qDebug() << fullname.value(); // Prints "John Smith age: 41"
+
+    firstname = "Emma"; // Triggers binding reevaluation
+
+    qDebug() << fullname.value(); // Prints the new value "Emma Smith age: 41"
+
+    // Birthday is coming up
+    age.setValue(age.value() + 1); // Triggers re-evaluation
+
+    qDebug() << fullname.value(); // Prints "Emma Smith age: 42"
+    \endcode
+
+    When a new value is assigned to the \c firstname property, the binding
+    expression for \c fullname is reevaluated. So when the last \c qDebug() statement
+    tries to read the name value of the \c fullname property, the new value is returned.
+
+    Since bindings are C++ functions, they may do anything that's possible
+    in C++. This includes calling other functions. If those functions access values
+    held by QProperty, they automatically become dependencies to the binding.
+
+    Binding expressions may use properties of any type, so in the above example the age
+    is an integer and folded into the string value using conversion to integer, but
+    the dependency is fully tracked.
+
+    \section1 Bindable Property Getters and Setters
+
+    When a class has a bindable property, either using QProperty
+    or QObjectBindableProperty, special care has to be taken when formulating
+    getters and setters for that property.
+
+    \section2 Bindable Property Getters
+
+    To ensure proper operation of the automatic dependency-tracking system,
+    every possible code path in a getter needs to read from the underlying
+    property object.
+    In addition, the property must not be written inside the getter.
+    Design patterns which recompute or refresh anything in the getter
+    are not compatible with bindable properties.
+
+    It is therefore recommended to only use trivial getters with bindable properties.
+
+    \section2 Bindable Property Setters
+
+    To ensure proper operation of the automatic dependency-tracking system,
+    every possible code path in a setter needs to write to the underlying
+    property object, even if the value did not change.
+
+    Any other code in a setter has a high propability of being incorrect.
+    Any code doing updates based on the new value is most likely a bug,
+    as this code won't be executed when the property is changed
+    through a binding.
+
+    It is therefore recommended to only use trivial setters with bindable properties.
+
+    \section1 Writing to a Bindable Property
+
+    Bindable properties inform their dependent properties about each change.
+    This might trigger change handlers, which in turn might call arbitrary code.
+    Thus, every write to a bindable property has to be inspected carefully.
+    The following problems might occur.
+
+    \section2 Writing Intermediate Values to Bindable Properties
+
+    Bindable properties must not be used as variables in algorithms. Each value written
+    would be communicated to dependent properties.
+    For example, in the following code, other properties that depend on
+    \b myProperty would be first informed about the change to \b 42, then about
+    the change to \b maxValue.
+
+    \badcode
+    myProperty = somecomputation(); // returning, say, 42
+    if (myProperty.value() > maxValue)
+        myProperty = maxValue;
+    \endcode
+
+    Instead, perform the computation in a separate variable. Correct usage is shown in the
+    following example.
+
+    \code
+    int newValue = someComputation();
+    if (newValue > maxValue)
+        newValue = maxValue;
+    myProperty = newValue; // only write to the property once
+    \endcode
+
+    \section2 Writing Bindable Properties in Transitional States
+
+    When a bindable property is a member of a class, each write to that property
+    might expose the current state to the outside. So bindable properties must
+    not be written in transient states, when class invariants are not met.
+
+    For example, in a class representing a circle which holds two members
+    \b radius and \b area consistent, a setter might look like this (where radius
+    is a bindable property):
+
+    \badcode
+    void setRadius(double newValue)
+    {
+        radius = newValue; // this might trigger change handlers
+        area = M_PI * radius * radius;
+        emit radiusChanged();
+    }
+    \endcode
+
+    Here, code triggered in change handlers might use the circle, while it has
+    the new radius, but still the old area.
+
+    \section1 Bindable Properties with Virtual Setters and Getters
+
+    Property setters and getters should normally be minimal and do nothing but
+    setting the property; hence it is not normally appropriate for such setters
+    and getters to be virtual. There is nothing it makes sense for the derived
+    class to do.
+
+    However some Qt classes can have properties with virtual setters. When
+    subclassing such a Qt class, overriding such setters requires special care.
+
+    In any case the base implementation \e must be called for the binding to
+    work correctly.
+
+    The following illustrates this approach.
+
+    \badcode
+    void DerivedClass::setValue(int val)
+    {
+        // do something
+        BaseClass::setValue(val);
+        // probably do something else
+    }
+    \endcode
+
+    All the common rules and recommendations regarding writing to bindable
+    properties also apply here. As soon as the base class implementation is
+    called, all the observers are notified about the change to the property.
+    This means that class invariants must be met before calling the base
+    implementation.
+
+    In the rare case where such virtual getters or setters are necessary, the
+    base class should document the requirements it imposes on overrides.
+
+    \section1 Formulating a Property Binding
+
+    Any C++ expression evaluating to the correct type can be used as a binding
+    expression and be given to the setBinding() method. However, to formulate
+    a correct binding, some rules must be followed.
+
+    Dependency tracking only works on bindable properties. It's the developer's
+    responsibility to ensure that all properties used in the binding expression
+    are bindable properties. When non-bindable properties are used in a binding
+    expression, changes to those properties do not trigger updates to the bound
+    property. No warning or error is generated either at compile-time or at run-time.
+    The bound property will be updated only when bindable properties used in the
+    binding expression are changed.
+    Non-bindable properties might be used in a binding if it's possible
+    to ensure that markDirty is called on the property being bound on each
+    change of the non-bindable dependency.
+
+    The bound property might evaluate its binding several times during its lifetime.
+    The developer must make sure that all objects used in the binding expression
+    live longer than the binding.
+
+    The bindable property system is not thread-safe. Properties used in the binding
+    expression on one thread must not be read or modified by any other thread.
+    An object of a QObject-derived class which has a property with a binding must
+    not be moved to a different thread.
+    Also, an object of a QObject-derived class which has a property which is used
+    in a binding must not be moved to a different thread. In this context, it's
+    irrelevant whether it's used in a binding of a property in the same object
+    or in a binding of a property in another object.
+
+    The binding expression should not read from the property it's a binding for. Otherwise,
+    an evaluation loop exists.
+
+    The binding expression must not write to the property it's a binding for.
+
+    Functions used as bindings as well as all code which is called inside a binding
+    must not co_await. Doing so can confuse the property system's tracking of dependencies.
+
+    \section1 Bindable Properties and Multithreading
+
+    Bindable properties are not threadsafe, unless stated otherwise.
+    A bindable property must not be read or modified by any thread other than
+    the one is was created in.
+
+    \section1 Tracking Bindable Properties
+
+    Sometimes the relationships between properties cannot be expressed using
+    bindings. Instead you may need to run custom code whenever the value of a property
+    changes and instead of assigning the value to another property, pass it to
+    other parts of your application. For example writing data into a network socket
+    or printing debug output. QProperty provides two mechanisms for tracking.
+
+    You can register for a callback function to be called whenever the value of
+    a property changes, by using onValueChanged(). If you want the callback to also
+    be called for the current value of the property, register your callback using
+    subscribe() instead.
+
+    \section1 Interaction with Q_PROPERTYs
+
+    A \l {The Property System}{Q_PROPERTY} that defines \c BINDABLE can be bound and
+    used in binding expressions. You can implement such properties using \l {QProperty},
+    \l {QObjectBindableProperty}, or \l {QObjectComputedProperty}.
+
+    Q_PROPERTYs without \c BINDABLE can also be bound and be used in binding expressions,
+    as long as they define a \c NOTIFY signal. You must wrap the property in a \l QBindable
+    using the \c {QBindable(QObject* obj, const char* property)} constructor. Then, the
+    property can be bound using \c \l QBindable::setBinding() or used in a binding
+    expression via \c \l QBindable::value(). You must use \c QBindable::value() in binding
+    expressions instead of the normal property \c READ function (or \c MEMBER) to enable
+    dependency tracking if the property is not \c BINDABLE.
+
+*/

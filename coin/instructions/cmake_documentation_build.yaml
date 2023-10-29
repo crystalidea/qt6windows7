@@ -1,0 +1,38 @@
+type: Group
+instructions:
+  - type: ChangeDirectory
+    directory: "{{.SourceDir}}_build"
+  # If documentation feature is present, Coin installs top-level documentation
+  # built by product(qt5) build into <module_name>_doc_build/doc. Coin will
+  # silently omit installing the top-level documentations if not built by the product.
+  - type: ExecuteCommand
+    command: "rsync -a {{.SourceDir}}_doc_build/doc {{.SourceDir}}_build"
+    maxTimeInSeconds: 300
+    maxTimeBetweenOutput: 300
+    userMessageOnFailure: Failed to copy top-level docs to build dir.
+  # Filter list is created to exclude everything else than the
+  # generated documentation from the documentation archive.
+  - type: CreateFileListFromDirectory
+    directory: "{{.SourceDir}}_build/doc"
+    filterListFileName: "doc_build_filter"
+    userMessageOnFailure: "Failed to create filter list for docs"
+  - type: ExecuteCommand
+    command: "{{.Env.ENV_PREFIX}} cmake --build . --target docs -v"
+    maxTimeInSeconds: 6000
+    maxTimeBetweenOutput: 1200
+    userMessageOnFailure: Failed to generate documentation.
+  - type: UploadArtifact
+    archiveDirectory: "{{.SourceDir}}_build/doc"
+    transferType: UploadModuleDocumentation
+    filterListFileName: "doc_build_filter"
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+enable_if:
+  condition: and
+  conditions:
+  - condition: property
+    property: features
+    contains_value: Documentation
+  - condition: runtime
+    env_var: BUILD_DOCUMENTATION
+    not_equals_value: null

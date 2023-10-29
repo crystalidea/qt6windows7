@@ -1,0 +1,44 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtbase.qdocconf)
+
+project                 = QtSql
+description             = Qt SQL Reference Documentation
+version                 = $QT_VERSION
+
+examplesinstallpath     = sql
+
+qhp.projects            = QtSql
+
+qhp.QtSql.file            = qtsql.qhp
+qhp.QtSql.namespace           = org.qt-project.qtsql.$QT_VERSION_TAG
+qhp.QtSql.virtualFolder       = qtsql
+qhp.QtSql.indexTitle          = Qt SQL
+qhp.QtSql.indexRoot           =
+
+qhp.QtSql.subprojects         = classes
+qhp.QtSql.subprojects.classes.title = C++ Classes
+qhp.QtSql.subprojects.classes.indexTitle = Qt SQL C++ Classes
+qhp.QtSql.subprojects.classes.selectors = class fake:headerfile
+qhp.QtSql.subprojects.classes.sortPages = true
+tagfile                 = ../../../doc/qtsql/qtsql.tags
+
+depends                 += qtcore qtwidgets qtdoc qmake qtcmake
+
+headerdirs  += ..
+
+sourcedirs  += .. \
+               ../../../examples/sql/doc/src
+
+exampledirs += ../../../examples/sql \
+               ../ \
+               . \ \
+               snippets
+
+imagedirs   += images \
+               ../../../examples/sql/doc/images
+
+navigation.landingpage = "Qt SQL"
+navigation.cppclassespage = "Qt SQL C++ Classes"
+
+# Fail the documentation build if there are more warnings than the limit
+warninglimit = 0

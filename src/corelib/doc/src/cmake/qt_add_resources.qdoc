@@ -1,0 +1,110 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+\page qt-add-resources.html
+\ingroup cmake-commands-qtcore
+
+\title qt_add_resources
+\keyword qt6_add_resources
+
+\summary {Compiles binary resources into source code.}
+
+\include cmake-find-package-core.qdocinc
+
+\section1 Synopsis
+
+\badcode
+qt_add_resources(<VAR> file1.qrc [file2.qrc ...]
+                  [OPTIONS ...])
+\endcode
+
+\versionlessCMakeCommandsNote qt6_add_resources()
+
+Since 6.0:
+
+\badcode
+qt_add_resources(<TARGET> <RESOURCE_NAME>
+                  [PREFIX <PATH>]
+                  [LANG <LANGUAGE>]
+                  [BASE <PATH>]
+                  [BIG_RESOURCES]
+                  [OUTPUT_TARGETS <VARIABLE_NAME>]
+                  [FILES ...] [OPTIONS ...])
+\endcode
+
+\versionlessCMakeCommandsNote qt6_add_resources()
+
+\section1 Description
+
+To add resources, you can pass either a variable name or a target as the first
+argument of the command.
+
+When passing a variable name as first argument, \c qt_add_resources creates
+source code from Qt resource files using the \l{Resource Compiler (rcc)}. Paths
+to the generated source files are added to \c{<VAR>}.
+
+When passing a target as first argument, the function creates a resource with
+the name \c{RESOURCE_NAME}, containing the specified \c{FILES}. The resource is
+automatically linked into \c{TARGET}.
+
+For embedding bigger resources, see \l qt_add_big_resources.
+
+See \l{The Qt Resource System} for a general description of Qt resources.
+
+\section1 Arguments of the target-based variant
+
+\c PREFIX specifies a path prefix under which all files of this resource are
+accessible from C++ code. This corresponds to the XML attribute \c prefix of the
+\c .qrc file format. If \c PREFIX is not given, the target property
+\l{cmake-target-property-QT_RESOURCE_PREFIX}{QT_RESOURCE_PREFIX} is used. Since
+6.5, \c{PREFIX} is optional. If it is omitted and not specified by
+\c{QT_RESOURCE_PREFIX}, \c{"/"} will be used as the default path prefix.
+
+\c LANG specifies the locale of this resource. This corresponds to the XML
+attribute \c lang of the \c .qrc file format.
+
+\c BASE is a path prefix that denotes the root point of the file's alias. For
+example, if \c BASE is \c{"assets"} and \c FILES is
+\c{"assets/images/logo.png"}, then the alias of that file is
+\c{"images/logo.png"}.
+
+Alias settings for files need to be set via the \c QT_RESOURCE_ALIAS source file
+property.
+
+\c BIG_RESOURCES can be specified to enable support for big resources. This
+directly generates object files (\c .o, \c .obj) instead of C++ source code.
+This allows embedding bigger resources, without having to compile generated C++
+sources, which can be too time consuming and memory intensive.
+
+Note that \c BIG_RESOURCES is not compatible with iOS due to restrictions of
+CMake's Xcode project generator. See
+\l{https://bugreports.qt.io/browse/QTBUG-103497}{QTBUG-103497} for details.
+Also, \c BIG_RESOURCES only works reliably from CMake 3.17 onwards.
+
+When using this command with static libraries, one or more special targets will
+be generated. Should you wish to perform additional processing on these targets,
+pass a variable name to the \c OUTPUT_TARGETS parameter. The \c qt_add_resources
+function stores the names of the special targets in the specified variable.
+
+\section1 Arguments of both variants
+
+You can set additional \c{OPTIONS} that should be added to the \c{rcc} calls.
+You can find possible options in the \l{rcc}{rcc documentation}.
+
+\section1 Examples
+
+Variable variant, using a .qrc file:
+\snippet cmake-macros/examples.cmake qt_add_resources
+
+Target variant, using immediate resources:
+\snippet cmake-macros/examples.cmake qt_add_resources_target
+
+\section1 Caveats
+
+When adding multiple resources, \c{RESOURCE_NAME} must be unique across all
+resources linked into the final target.
+
+This especially affects static builds. There, the same resource name in
+different static libraries conflict in the consuming target.
+*/

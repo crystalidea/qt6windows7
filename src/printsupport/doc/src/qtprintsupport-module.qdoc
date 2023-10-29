@@ -1,0 +1,16 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtPrintSupport
+    \title Qt Print Support C++ Classes
+    \brief The Qt PrintSupport module provides classes to make printing easier and portable.
+
+    \ingroup modules
+    \qtcmakepackage PrintSupport
+    \qtvariable printsupport
+
+    The \l{Qt Print Support} page contains information about using the module.
+
+    Qt Print Support is not available on iOS.
+*/

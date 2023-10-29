@@ -1,0 +1,14 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtConcurrent
+    \title Qt Concurrent C++ Classes
+    \brief The Qt Concurrent module contains functionality to support concurrent execution of program code.
+
+    \ingroup modules
+    \qtcmakepackage Concurrent
+    \qtvariable concurrent
+
+    The \l{Qt Concurrent} page contains information about how to use the module.
+*/

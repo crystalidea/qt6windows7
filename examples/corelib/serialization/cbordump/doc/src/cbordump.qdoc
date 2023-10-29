@@ -1,0 +1,54 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example serialization/cbordump
+    \examplecategory {Input/Output}
+    \title Parsing and displaying CBOR data
+
+    \brief A demonstration of how to parse files in CBOR format.
+
+    This example shows how to use the QCborStreamReader class directly to parse
+    CBOR content. The \c cbordump program reads content in CBOR format from
+    files or standard input and dumps the decoded content to stdout in a
+    human-readable format. It can output in CBOR diagnostic notation (which is
+    similar to JSON), or it can produce a verbose output where each byte input
+    is displayed with its encoding beside it.
+
+    \sa QCborStreamReader
+
+    \image cbordump.png
+
+    \section1 The CborDumper Class
+
+    The CborDumper class contains a QCborStreamReader object that is initialized
+    using the QFile object argument passed to the CborDumper constructor. Based
+    on the arguments the dump function calls either dumpOne() or
+    dumpOneDetailed() to dump the contents to standard output,
+
+    \snippet serialization/cbordump/main.cpp 0
+
+    \section2 The dumpOne() Function
+
+    Switching on QCborStreamReader::type() enables printing appropriate to the
+    type of the current value in the stream. If the type is an array or map, the
+    value's content is iterated over, and for each entry the dumpOne() function
+    is called recursively with a higher indentation argument. If the type is a
+    tag, it is printed out and dumpOne() is called once without increasing the
+    indentation argument.
+
+    \section2 The dumpOneDetailed() Function
+
+    This function dumps out both the incoming bytes and the decoded contents
+    on the same line. It uses lambda functions to print out the bytes and
+    decoded content, but otherwise has a similar structure as dumpOne().
+
+    \section1 CborTagDescription
+
+    The \c tagDescriptions table, describing the CBOR tags available, is
+    automatically generated from an XML file available from the iana.org
+    website. When \c dumpOneDetailed() reports a tag, it uses its description
+    from this table.
+
+    \sa {CBOR Support in Qt}
+*/

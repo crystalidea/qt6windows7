@@ -1,0 +1,72 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page datastreamformat.html
+    \title Serializing Qt Data Types
+    \brief List of data types that can be serialized by QDataStream.
+
+    The \l QDataStream class allows you to serialize the Qt data types
+    listed in this section.
+
+    It is always best to cast integers to a Qt integer type, such as
+    \l{qint16} or \l{quint32}, when reading and writing. This ensures that
+    you always know exactly what size integers you are reading and
+    writing, no matter what the underlying platform and architecture
+    the application happens to be running on.
+
+    \list
+    \li bool
+    \li \l{qint8}
+    \li \l{qint16}
+    \li \l{qint32}
+    \li \l{qint64}
+    \li \l{quint8}
+    \li \l{quint16}
+    \li \l{quint32}
+    \li \l{quint64}
+    \li \c float
+    \li \c double
+    \li \c {const char *}
+    \li QBitArray
+    \li QBrush
+    \li QByteArray
+    \li QColor
+    \li QCursor
+    \li QDate
+    \li QDateTime
+    \li QEasingCurve
+    \li QFont
+    \li QGenericMatrix
+    \li QHash<Key, T>
+    \li QIcon
+    \li QImage
+    \li QKeySequence
+    \li QList<T>
+    \li QMap<Key, T>
+    \li QMargins
+    \li QMatrix4x4
+    \li QPair<T1, T2>
+    \li QPalette
+    \li QPen
+    \li QPicture
+    \li QPixmap
+    \li QPoint
+    \li QQuaternion
+    \li QRect
+    \li QRegularExpression
+    \li QRegion
+    \li QSize
+    \li QString
+    \li QTime
+    \li QTransform
+    \li QUrl
+    \li QVariant
+    \li QVector2D
+    \li QVector3D
+    \li QVector4D
+    \endlist
+
+    \sa {JSON Support in Qt}, {CBOR Support in Qt}
+
+*/

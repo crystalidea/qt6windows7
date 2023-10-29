@@ -1,0 +1,1535 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \class QVector
+    \inmodule QtCore
+    \brief QVector is an alias for QList.
+
+    Please see the QList documentation for details.
+*/
+
+/*!
+    \class QList
+    \inmodule QtCore
+    \brief The QList class is a template class that provides a dynamic array.
+
+    \ingroup tools
+    \ingroup shared
+
+    \reentrant
+
+    QList\<T\> is one of Qt's generic \l{container classes}. It
+    stores its items in adjacent memory locations and provides fast
+    index-based access. QVector\<T\> used to be a different class in
+    Qt 5, but is now a simple alias to QList.
+
+    QList\<T\> and QVarLengthArray\<T\>
+    provide similar APIs and functionality. They are often interchangeable,
+    but there are performance consequences. Here is an overview of use cases:
+
+    \list
+    \li QList should be your default first choice.
+    \li QVarLengthArray provides an array that reserves space on the stack,
+        but can dynamically grow onto the heap if required. It's good to
+        use for short lived containers that are usually small.
+    \li If you need a real linked list, which guarantees
+        \l{Algorithmic Complexity}{constant time} insertions mid-list and
+        uses iterators to items rather than indexes, use std::list.
+    \endlist
+
+    \note QList and QVarLengthArray both guarantee C-compatible
+    array layout.
+    \note QList in Qt 5 did not always have a C-compatible array layout and
+    we often recommended to use QVector instead for more predictable
+    performance. This is not the case in Qt 6 anymore, where both classes
+    now share an implementation and can be used interchangeably.
+
+    Here's an example of a QList that stores integers and a QList
+    that stores QString values:
+
+    \snippet code/src_corelib_tools_qlist.cpp 0
+
+    QList stores its items in an array of continuous memory. Typically, lists
+    are created with an initial size. For example, the following code
+    constructs a QList with 200 elements:
+
+    \snippet code/src_corelib_tools_qlist.cpp 1
+
+    The elements are automatically initialized with a
+    \l{default-constructed value}. If you want to initialize the
+    list with a different value, pass that value as the second
+    argument to the constructor:
+
+    \snippet code/src_corelib_tools_qlist.cpp 2
+
+    You can also call fill() at any time to fill the list with a
+    value.
+
+    QList uses 0-based indexes, just like C++ arrays. To access the
+    item at a particular index position, you can use operator[](). On
+    non-const lists, operator[]() returns a reference to the item
+    that can be used on the left side of an assignment:
+
+    \snippet code/src_corelib_tools_qlist.cpp 3
+
+    For read-only access, an alternative syntax is to use at():
+
+    \snippet code/src_corelib_tools_qlist.cpp 4
+
+    at() can be faster than operator[](), because it never causes a
+    \l{deep copy} to occur.
+
+    Another way to access the data stored in a QList is to call
+    data(). The function returns a pointer to the first item in the
+    list. You can use the pointer to directly access and modify the
+    elements stored in the list. The pointer is also useful if you
+    need to pass a QList to a function that accepts a plain C++
+    array.
+
+    If you want to find all occurrences of a particular value in a
+    list, use indexOf() or lastIndexOf(). The former searches
+    forward starting from a given index position, the latter searches
+    backward. Both return the index of the matching item if they found
+    one; otherwise, they return -1. For example:
+
+    \snippet code/src_corelib_tools_qlist.cpp 5
+
+    If you simply want to check whether a list contains a
+    particular value, use contains(). If you want to find out how
+    many times a particular value occurs in the list, use count().
+
+    QList provides these basic functions to add, move, and remove
+    items: insert(), replace(), remove(), prepend(), append(). With the
+    exception of append(), prepend() and replace(), these functions can be slow
+    (\l{linear time}) for large lists, because they require moving many items in
+    the list by one position in memory. If you want a container class that
+    provides fast insertion/removal in the middle, use std::list instead.
+
+    Unlike plain C++ arrays, QLists can be resized at any time by
+    calling resize(). If the new size is larger than the old size,
+    QList might need to reallocate the whole list. QList tries
+    to reduce the number of reallocations by preallocating up to twice
+    as much memory as the actual data needs.
+
+    If you're building a QList gradually and know in advance
+    approximately how many elements it will contain, you can call reserve(),
+    asking QList to preallocate a certain amount of memory.
+    You can also call capacity() to find out how much memory the
+    QList actually has allocated.
+
+    Note that using non-const operators and functions can cause QList
+    to do a deep copy of the data, due to \l{implicit sharing}.
+
+    QList's value type must be an \l{assignable data type}. This
+    covers most data types that are commonly used, but the compiler
+    won't let you, for example, store a QWidget as a value; instead,
+    store a QWidget *. A few functions have additional requirements;
+    for example, indexOf() and lastIndexOf() expect the value type to
+    support \c operator==().  These requirements are documented on a
+    per-function basis.
+
+    For iterating over the items, see \l {Iterating over Containers}.
+
+    In addition to QList, Qt also provides QVarLengthArray, a very
+    low-level class with little functionality that is optimized for
+    speed.
+
+    \section2 More Information on Using Qt Containers
+
+    For a detailed discussion comparing Qt containers with each other and
+    with STL containers, see \l {Understand the Qt Containers}.
+
+    \section1 Maximum size and out-of-memory conditions
+
+    The maximum size of QList depends on the architecture. Most 64-bit
+    systems can allocate more than 2 GB of memory, with a typical limit
+    of 2^63 bytes. The actual value also depends on the overhead required for
+    managing the data block. As a result, you can expect the maximum size
+    of 2 GB minus overhead on 32-bit platforms, and 2^63 bytes minus overhead
+    on 64-bit platforms. The number of elements that can be stored in a
+    QList is this maximum size divided by the size of a stored element.
+
+    When memory allocation fails, QList uses the \l Q_CHECK_PTR macro,
+    which throws a \c std::bad_alloc exception if the application is being
+    compiled with exception support. If exceptions are disabled, then running
+    out of memory is undefined behavior.
+
+    Note that the operating system may impose further limits on applications
+    holding a lot of allocated memory, especially large, contiguous blocks.
+    Such considerations, the configuration of such behavior or any mitigation
+    are outside the scope of the Qt API.
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::mid(qsizetype pos, qsizetype length = -1) const
+
+    Returns a sub-list which contains elements from this list,
+    starting at position \a pos. If \a length is -1 (the default), all
+    elements after \a pos are included; otherwise \a length elements (or
+    all remaining elements if there are less than \a length elements)
+    are included.
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::first(qsizetype n) const
+    \since 6.0
+
+    Returns a sub-list that contains the first \a n elements
+    of this list.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa last(), sliced()
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::last(qsizetype n) const
+    \since 6.0
+
+    Returns a sub-list that contains the last \a n elements of this list.
+
+    \note The behavior is undefined when \a n < 0 or \a n > size().
+
+    \sa first(), sliced()
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::sliced(qsizetype pos, qsizetype n) const
+    \since 6.0
+
+    Returns a sub-list that contains \a n elements of this list,
+    starting at position \a pos.
+
+    \note The behavior is undefined when \a pos < 0, \a n < 0,
+    or \a pos + \a n > size().
+
+    \sa first(), last()
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::sliced(qsizetype pos) const
+    \since 6.0
+    \overload
+
+    Returns a sub-list that contains the elements of this list starting at
+    position \a pos and extending to its end.
+
+    \note The behavior is undefined when \a pos < 0 or \a pos > size().
+
+    \sa first(), last()
+*/
+
+
+/*! \fn template <typename T> QList<T>::QList()
+
+    Constructs an empty list.
+
+    \sa resize()
+*/
+
+/*!
+    \fn template <typename T> QList<T>::QList(QList<T> &&other)
+
+    Move-constructs a QList instance, making it point at the same
+    object that \a other was pointing to.
+
+    \since 5.2
+*/
+
+/*! \fn template <typename T> QList<T>::QList(qsizetype size)
+
+    Constructs a list with an initial size of \a size elements.
+
+    The elements are initialized with a \l{default-constructed
+    value}.
+
+    \sa resize()
+*/
+
+/*! \fn template <typename T> QList<T>::QList(qsizetype size, parameter_type value)
+
+    Constructs a list with an initial size of \a size elements.
+    Each element is initialized with \a value.
+
+    \sa resize(), fill()
+*/
+
+/*! \fn template <typename T> QList<T>::QList(const QList<T> &other)
+
+    Constructs a copy of \a other.
+
+    This operation takes \l{Algorithmic Complexity}{constant time},
+    because QList is \l{implicitly shared}. This makes returning
+    a QList from a function very fast. If a shared instance is
+    modified, it will be copied (copy-on-write), and that takes
+    \l{Algorithmic Complexity}{linear time}.
+
+    \sa operator=()
+*/
+
+/*! \fn template <typename T> QList<T>::QList(std::initializer_list<T> args)
+    \since 4.8
+
+    Constructs a list from the std::initializer_list given by \a args.
+*/
+
+/*! \fn template <typename T> template<typename InputIterator> QList<T>::QList(InputIterator first, InputIterator last)
+    \since 5.14
+
+    Constructs a list with the contents in the iterator range [\a first, \a last).
+
+    The value type of \c InputIterator must be convertible to \c T.
+*/
+
+/*! \fn template <typename T> QList<T>::~QList()
+
+    Destroys the list.
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator=(const QList<T> &other)
+
+    Assigns \a other to this list and returns a reference to this
+    list.
+*/
+
+/*!
+    \fn template <typename T> QList<T> &QList<T>::operator=(QList<T> &&other)
+
+    Move-assigns \a other to this QList instance.
+
+    \since 5.2
+*/
+
+/*!
+    \fn template <typename T> QList<T> &QList<T>::operator=(std::initializer_list<T> args)
+    \since 5.14
+
+    Assigns the collection of values in \a args to this QList instance.
+*/
+
+/*! \fn template <typename T> void QList<T>::swap(QList<T> &other)
+    \since 4.8
+
+    Swaps list \a other with this list. This operation is very fast and
+    never fails.
+*/
+
+/*! \fn template <typename T> void QList<T>::swapItemsAt(qsizetype i, qsizetype j)
+
+    Exchange the item at index position \a i with the item at index
+    position \a j. This function assumes that both \a i and \a j are
+    at least 0 but less than size(). To avoid failure, test that both
+    \a i and \a j are at least 0 and less than size().
+*/
+
+
+/*! \fn template <typename T> bool QList<T>::operator==(const QList<T> &other) const
+
+    Returns \c true if \a other is equal to this list; otherwise
+    returns \c false.
+
+    Two lists are considered equal if they contain the same values
+    in the same order.
+
+    This function requires the value type to have an implementation
+    of \c operator==().
+
+    \sa operator!=()
+*/
+
+/*! \fn template <typename T> bool QList<T>::operator!=(const QList<T> &other) const
+
+    Returns \c true if \a other is not equal to this list; otherwise
+    returns \c false.
+
+    Two lists are considered equal if they contain the same values
+    in the same order.
+
+    This function requires the value type to have an implementation
+    of \c operator==().
+
+    \sa operator==()
+*/
+
+/*! \fn template <typename T> bool QList<T>::operator<(const QList<T> &other) const
+    \since 5.6
+
+    Returns \c true if this list is
+    \l{http://en.cppreference.com/w/cpp/algorithm/lexicographical_compare}
+    {lexically less than} \a other; otherwise returns \c false.
+
+    This function requires the value type to have an implementation
+    of \c operator<().
+*/
+
+/*! \fn template <typename T> bool QList<T>::operator<=(const QList<T> &other) const
+    \since 5.6
+
+    Returns \c true if this list is
+    \l{http://en.cppreference.com/w/cpp/algorithm/lexicographical_compare}
+    {lexically less than or equal to} \a other; otherwise returns \c false.
+
+    This function requires the value type to have an implementation
+    of \c operator<().
+*/
+
+/*! \fn template <typename T> bool QList<T>::operator>(const QList<T> &other) const
+    \since 5.6
+
+    Returns \c true if this list is
+    \l{http://en.cppreference.com/w/cpp/algorithm/lexicographical_compare}
+    {lexically greater than} \a other; otherwise returns \c false.
+
+    This function requires the value type to have an implementation
+    of \c operator<().
+*/
+
+/*! \fn template <typename T> bool QList<T>::operator>=(const QList<T> &other) const
+    \since 5.6
+
+    Returns \c true if this list is
+    \l{http://en.cppreference.com/w/cpp/algorithm/lexicographical_compare}
+    {lexically greater than or equal to} \a other; otherwise returns \c false.
+
+    This function requires the value type to have an implementation
+    of \c operator<().
+*/
+
+/*!
+    \fn template <typename T> size_t qHash(const QList<T> &key, size_t seed = 0)
+    \since 5.6
+    \relates QList
+
+    Returns the hash value for \a key,
+    using \a seed to seed the calculation.
+
+    This function requires qHash() to be overloaded for the value type \c T.
+*/
+
+/*! \fn template <typename T> qsizetype QList<T>::size() const
+
+    Returns the number of items in the list.
+
+    \sa isEmpty(), resize()
+*/
+
+/*! \fn template <typename T> bool QList<T>::isEmpty() const
+
+    Returns \c true if the list has size 0; otherwise returns \c false.
+
+    \sa size(), resize()
+*/
+
+/*! \fn template <typename T> void QList<T>::resize(qsizetype size)
+    \since 6.0
+
+    Sets the size of the list to \a size. If \a size is greater than the
+    current size, elements are added to the end; the new elements are
+    initialized with a \l{default-constructed value}. If \a size is less
+    than the current size, elements are removed from the end.
+
+    If this list is not shared, the capacity() is preserved. Use squeeze()
+    to shed excess capacity.
+
+    \note In Qt versions prior to 5.7 (for QVector; QList lacked a resize()
+    until 6.0), this function released the memory used by the list instead of
+    preserving the capacity.
+
+    \sa size()
+*/
+
+/*! \fn template <typename T> qsizetype QList<T>::capacity() const
+
+    Returns the maximum number of items that can be stored in the
+    list without forcing a reallocation.
+
+    The sole purpose of this function is to provide a means of fine
+    tuning QList's memory usage. In general, you will rarely ever
+    need to call this function. If you want to know how many items are
+    in the list, call size().
+
+    \note a statically allocated list will report a capacity of 0,
+    even if it's not empty.
+
+    \warning The free space position in the allocated memory block is undefined.
+    In other words, you should not assume that the free memory is always located
+    at the end of the list. You can call reserve() to ensure that there is
+    enough space at the end.
+
+    \sa reserve(), squeeze()
+*/
+
+/*! \fn template <typename T> void QList<T>::reserve(qsizetype size)
+
+    Attempts to allocate memory for at least \a size elements.
+
+    If you know in advance how large the list will be, you should call this
+    function to prevent reallocations and memory fragmentation. If you resize
+    the list often, you are also likely to get better performance.
+
+    If in doubt about how much space shall be needed, it is usually better to
+    use an upper bound as \a size, or a high estimate of the most likely size,
+    if a strict upper bound would be much bigger than this. If \a size is an
+    underestimate, the list will grow as needed once the reserved size is
+    exceeded, which may lead to a larger allocation than your best overestimate
+    would have and will slow the operation that triggers it.
+
+    \warning reserve() reserves memory but does not change the size of the
+    list. Accessing data beyond the current end of the list is
+    undefined behavior. If you need to access memory beyond the current end of
+    the list, use resize().
+
+    \sa squeeze(), capacity(), resize()
+*/
+
+/*! \fn template <typename T> void QList<T>::squeeze()
+
+    Releases any memory not required to store the items.
+
+    The sole purpose of this function is to provide a means of fine
+    tuning QList's memory usage. In general, you will rarely ever
+    need to call this function.
+
+    \sa reserve(), capacity()
+*/
+
+/*! \fn template <typename T> void QList<T>::detach()
+
+    \internal
+*/
+
+/*! \fn template <typename T> bool QList<T>::isDetached() const
+
+    \internal
+*/
+
+/*! \fn template <typename T> void QList<T>::setSharable(bool sharable)
+
+    \internal
+*/
+
+/*! \fn template <typename T> bool QList<T>::isSharedWith(const QList<T> &other) const
+
+    \internal
+*/
+
+/*! \fn template <typename T> T *QList<T>::data()
+
+    Returns a pointer to the data stored in the list. The pointer
+    can be used to access and modify the items in the list.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 6
+
+    \warning The pointer is invalidated on detachment or when the QList is
+    modified.
+
+    This function is mostly useful to pass a list to a function
+    that accepts a plain C++ array.
+
+    \sa constData(), operator[]()
+*/
+
+/*! \fn template <typename T> const T *QList<T>::data() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> const T *QList<T>::constData() const
+
+    Returns a const pointer to the data stored in the list. The
+    pointer can be used to access the items in the list.
+
+    \warning The pointer is invalidated on detachment or when the QList is
+    modified.
+
+    This function is mostly useful to pass a list to a function
+    that accepts a plain C++ array.
+
+    \sa data(), operator[]()
+*/
+
+/*! \fn template <typename T> void QList<T>::clear()
+
+    Removes all the elements from the list.
+
+    If this list is not shared, the capacity() is preserved. Use squeeze() to
+    shed excess capacity.
+
+    \note In Qt versions prior to 5.7 (for QVector) and 6.0 (for QList), this
+    function released the memory used by the list instead of preserving the
+    capacity.
+
+    \sa resize(), squeeze()
+*/
+
+/*! \fn template <typename T> const T &QList<T>::at(qsizetype i) const
+
+    Returns the item at index position \a i in the list.
+
+    \a i must be a valid index position in the list (i.e., 0 <= \a
+    i < size()).
+
+    \sa value(), operator[]()
+*/
+
+/*! \fn template <typename T> T &QList<T>::operator[](qsizetype i)
+
+    Returns the item at index position \a i as a modifiable reference.
+
+    \a i must be a valid index position in the list (i.e., 0 <= \a i
+    < size()).
+
+    Note that using non-const operators can cause QList to do a deep
+    copy.
+
+    \sa at(), value()
+*/
+
+/*! \fn template <typename T> const T &QList<T>::operator[](qsizetype i) const
+
+    \overload
+
+    Same as at(\a i).
+*/
+
+/*!
+    \fn template <typename T> void QList<T>::append(parameter_type value)
+
+    Inserts \a value at the end of the list.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 7
+
+    This is the same as calling resize(size() + 1) and assigning \a
+    value to the new last element in the list.
+
+    This operation is relatively fast, because QList typically
+    allocates more memory than necessary, so it can grow without
+    reallocating the entire list each time.
+
+    \sa operator<<(), prepend(), insert()
+*/
+
+/*!
+    \fn template <typename T> void QList<T>::append(rvalue_ref value)
+    \since 5.6
+
+    \overload
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp move-append
+*/
+
+/*! \fn template <typename T> void QList<T>::append(const QList<T> &value)
+
+    \overload
+
+    \since 5.5
+
+    Appends the items of the \a value list to this list.
+
+    \sa operator<<(), operator+=()
+*/
+
+/*! \fn template <typename T> void QList<T>::append(QList<T> &&value)
+    \overload
+
+    \since 6.0
+
+    Moves the items of the \a value list to the end of this list.
+
+    \sa operator<<(), operator+=()
+*/
+
+/*!
+    \fn template <typename T> void QList<T>::prepend(parameter_type value)
+    \fn template <typename T> void QList<T>::prepend(rvalue_ref value)
+
+    Inserts \a value at the beginning of the list.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 8
+
+    This is the same as list.insert(0, \a value).
+
+    Normally this operation is relatively fast (amortized \l{constant time}).
+    QList is able to allocate extra memory at the beginning of the list data
+    and grow in that direction without reallocating or moving the data on each
+    operation. However if you want a container class with a guarantee of
+    \l{constant time} prepend, use std::list instead,
+    but prefer QList otherwise.
+
+    \sa append(), insert()
+*/
+
+/*!
+    \fn template <typename T> template <typename ...Args> T &QList<T>::emplaceBack(Args&&... args)
+    \fn template <typename T> template <typename ...Args> T &QList<T>::emplace_back(Args&&... args)
+
+    Adds a new element to the end for the container. This new element
+    is constructed in-place using \a args as the arguments for its
+    construction.
+
+    Returns a reference to the new element.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp emplace-back
+
+    It is also possible to access a newly created object by using
+    returned reference:
+    \snippet code/src_corelib_tools_qlist.cpp emplace-back-ref
+
+    This is the same as list.emplace(list.size(), \a args).
+
+    \sa emplace
+*/
+
+/*! \fn template <typename T> void QList<T>::insert(qsizetype i, parameter_type value)
+    \fn template <typename T> void QList<T>::insert(qsizetype i, rvalue_ref value)
+
+    Inserts \a value at index position \a i in the list. If \a i is
+    0, the value is prepended to the list. If \a i is size(), the
+    value is appended to the list.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 9
+
+    For large lists, this operation can be slow (\l{linear time}),
+    because it requires moving all the items at indexes \a i and
+    above by one position further in memory. If you want a container
+    class that provides a fast insert() function, use std::list
+    instead.
+
+    \sa append(), prepend(), remove()
+*/
+
+/*! \fn template <typename T> void QList<T>::insert(qsizetype i, qsizetype count, parameter_type value)
+
+    \overload
+
+    Inserts \a count copies of \a value at index position \a i in the
+    list.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 10
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::insert(const_iterator before, parameter_type value)
+    \fn template <typename T> QList<T>::iterator QList<T>::insert(const_iterator before, rvalue_ref value)
+
+    \overload
+
+    Inserts \a value in front of the item pointed to by the iterator
+    \a before. Returns an iterator pointing at the inserted item.
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::insert(const_iterator before, qsizetype count, parameter_type value)
+
+    Inserts \a count copies of \a value in front of the item pointed to
+    by the iterator \a before. Returns an iterator pointing at the
+    first of the inserted items.
+*/
+
+/*!
+    \fn template <typename T> template <typename ...Args> QList<T>::iterator QList<T>::emplace(qsizetype i, Args&&... args)
+
+    Extends the container by inserting a new element at position \a i.
+    This new element is constructed in-place using \a args as the
+    arguments for its construction.
+
+    Returns an iterator to the new element.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp emplace
+
+    \note It is guaranteed that the element will be created in place
+          at the beginning, but after that it might be copied or
+          moved to the right position.
+
+    \sa emplaceBack
+*/
+
+
+/*! \fn template <typename T> void QList<T>::replace(qsizetype i, parameter_type value)
+    \fn template <typename T> void QList<T>::replace(qsizetype i, rvalue_ref value)
+
+    Replaces the item at index position \a i with \a value.
+
+    \a i must be a valid index position in the list (i.e., 0 <= \a
+    i < size()).
+
+    \sa operator[](), remove()
+*/
+
+/*! \fn template <typename T> void QList<T>::remove(qsizetype i, qsizetype n = 1)
+
+    Removes \a n elements from the list, starting at index position \a i.
+
+//! [shrinking-erase]
+    Element removal will preserve the list's capacity and not reduce the amount of
+    allocated memory. To shed extra capacity and free as much memory as possible,
+    call squeeze().
+//! [shrinking-erase]
+
+//! [iterator-invalidation-erase]
+    \note When QList is not \l{implicitly shared}, this function only
+    invalidates iterators at or after the specified position.
+//! [iterator-invalidation-erase]
+
+    \sa insert(), replace(), fill()
+*/
+
+/*! \fn template <typename T> void QList<T>::removeAt(qsizetype i)
+    \since 5.2
+
+    Removes the element at index position \a i.
+    Equivalent to
+    \code
+    remove(i);
+    \endcode
+
+    \include qlist.qdoc shrinking-erase
+    \include qlist.qdoc iterator-invalidation-erase
+
+    \sa remove()
+*/
+
+/*! \fn template <typename T> template <typename AT = T> qsizetype QList<T>::removeAll(const AT &t)
+    \since 5.4
+
+    Removes all elements that compare equal to \a t from the
+    list. Returns the number of elements removed, if any.
+
+    \include qlist.qdoc shrinking-erase
+
+    \sa removeOne()
+*/
+
+/*! \fn template <typename T> template <typename AT = T> bool QList<T>::removeOne(const AT &t)
+    \since 5.4
+
+    Removes the first element that compares equal to \a t from the
+    list. Returns whether an element was, in fact, removed.
+
+    \include qlist.qdoc shrinking-erase
+
+    \sa removeAll()
+*/
+
+/*! \fn template <typename T> template <typename Predicate> qsizetype QList<T>::removeIf(Predicate pred)
+    \since 6.1
+
+    Removes all elements for which the predicate \a pred returns true
+    from the list. Returns the number of elements removed, if any.
+
+    \sa removeAll()
+*/
+
+/*! \fn template <typename T> qsizetype QList<T>::length() const
+    \since 5.2
+
+    Same as size() and count().
+
+    \sa size(), count()
+*/
+
+/*! \fn template <typename T> T QList<T>::takeAt(qsizetype i)
+    \since 5.2
+
+    Removes the element at index position \a i and returns it.
+
+    Equivalent to
+    \code
+    T t = at(i);
+    remove(i);
+    return t;
+    \endcode
+
+    \include qlist.qdoc iterator-invalidation-erase
+
+    \sa takeFirst(), takeLast()
+*/
+
+/*! \fn template <typename T> void QList<T>::move(qsizetype from, qsizetype to)
+    \since 5.6
+
+    Moves the item at index position \a from to index position \a to.
+*/
+
+/*! \fn template <typename T> void QList<T>::removeFirst()
+    \since 5.1
+    Removes the first item in the list. Calling this function is
+    equivalent to calling remove(0). The list must not be empty. If
+    the list can be empty, call isEmpty() before calling this
+    function.
+
+    \include qlist.qdoc shrinking-erase
+
+    \sa remove(), takeFirst(), isEmpty()
+*/
+
+/*! \fn template <typename T> void QList<T>::removeLast()
+    \since 5.1
+    Removes the last item in the list. Calling this function is
+    equivalent to calling remove(size() - 1). The list must not be
+    empty. If the list can be empty, call isEmpty() before calling
+    this function.
+
+    \include qlist.qdoc shrinking-erase
+
+    \sa remove(), takeLast(), removeFirst(), isEmpty()
+*/
+
+/*! \fn template <typename T> T QList<T>::takeFirst()
+    \since 5.1
+
+    Removes the first item in the list and returns it. This function
+    assumes the list is not empty. To avoid failure, call isEmpty()
+    before calling this function.
+
+    \sa takeLast(), removeFirst()
+*/
+
+/*! \fn template <typename T> T QList<T>::takeLast()
+    \since 5.1
+
+    Removes the last item in the list and returns it. This function
+    assumes the list is not empty. To avoid failure, call isEmpty()
+    before calling this function.
+
+    If you don't use the return value, removeLast() is more
+    efficient.
+
+    \sa takeFirst(), removeLast()
+*/
+
+/*!
+    \fn template <typename T> template <typename ...Args> QList<T>::iterator QList<T>::emplace(const_iterator before, Args&&... args)
+
+    \overload
+
+    Creates a new element in front of the item pointed to by the
+    iterator \a before. This new element is constructed in-place
+    using \a args as the arguments for its construction.
+
+    Returns an iterator to the new element.
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::fill(parameter_type value, qsizetype size = -1)
+
+    Assigns \a value to all items in the list. If \a size is
+    different from -1 (the default), the list is resized to \a size beforehand.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 11
+
+    \sa resize()
+*/
+
+/*! \fn template <typename T> template <typename AT = T> qsizetype QList<T>::indexOf(const AT &value, qsizetype from = 0) const
+
+    Returns the index position of the first occurrence of \a value in
+    the list, searching forward from index position \a from.
+    Returns -1 if no item matched.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 12
+
+    This function requires the value type to have an implementation of
+    \c operator==().
+
+    \sa lastIndexOf(), contains()
+*/
+
+/*! \fn template <typename T> template <typename AT = T> qsizetype QList<T>::lastIndexOf(const AT &value, qsizetype from = -1) const
+
+    Returns the index position of the last occurrence of the value \a
+    value in the list, searching backward from index position \a
+    from. If \a from is -1 (the default), the search starts at the
+    last item. Returns -1 if no item matched.
+
+    Example:
+    \snippet code/src_corelib_tools_qlist.cpp 13
+
+    This function requires the value type to have an implementation of
+    \c operator==().
+
+    \sa indexOf()
+*/
+
+/*! \fn template <typename T> template <typename AT = T> bool QList<T>::contains(const AT &value) const
+
+    Returns \c true if the list contains an occurrence of \a value;
+    otherwise returns \c false.
+
+    This function requires the value type to have an implementation of
+    \c operator==().
+
+    \sa indexOf(), count()
+*/
+
+/*! \fn template <typename T> bool QList<T>::startsWith(parameter_type value) const
+    \since 4.5
+
+    Returns \c true if this list is not empty and its first
+    item is equal to \a value; otherwise returns \c false.
+
+    \sa isEmpty(), first()
+*/
+
+/*! \fn template <typename T> bool QList<T>::endsWith(parameter_type value) const
+    \since 4.5
+
+    Returns \c true if this list is not empty and its last
+    item is equal to \a value; otherwise returns \c false.
+
+    \sa isEmpty(), last()
+*/
+
+
+/*! \fn template <typename T> template <typename AT = T> qsizetype QList<T>::count(const AT &value) const
+
+    Returns the number of occurrences of \a value in the list.
+
+    This function requires the value type to have an implementation of
+    \c operator==().
+
+    \sa contains(), indexOf()
+*/
+
+/*! \fn template <typename T> qsizetype QList<T>::count() const
+
+    \overload
+
+    Same as size().
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::begin()
+
+    Returns an \l{STL-style iterators}{STL-style iterator} pointing to the
+    first item in the list.
+
+//! [iterator-invalidation-func-desc]
+    \warning The returned iterator is invalidated on detachment or when the
+    QList is modified.
+//! [iterator-invalidation-func-desc]
+
+    \sa constBegin(), end()
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::begin() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::cbegin() const
+    \since 5.0
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the
+    first item in the list.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa begin(), cend()
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::constBegin() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the
+    first item in the list.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa begin(), constEnd()
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::end()
+
+    Returns an \l{STL-style iterators}{STL-style iterator} pointing just after
+    the last item in the list.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa begin(), constEnd()
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::end() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::cend() const
+    \since 5.0
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing just
+    after the last item in the list.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa cbegin(), end()
+*/
+
+/*! \fn template <typename T> QList<T>::const_iterator QList<T>::constEnd() const
+
+    Returns a const \l{STL-style iterators}{STL-style iterator} pointing just
+    after the last item in the list.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa constBegin(), end()
+*/
+
+/*! \fn template <typename T> QList<T>::reverse_iterator QList<T>::rbegin()
+    \since 5.6
+
+    Returns a \l{STL-style iterators}{STL-style} reverse iterator pointing to
+    the first item in the list, in reverse order.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa begin(), crbegin(), rend()
+*/
+
+/*! \fn template <typename T> QList<T>::const_reverse_iterator QList<T>::rbegin() const
+    \since 5.6
+    \overload
+*/
+
+/*! \fn template <typename T> QList<T>::const_reverse_iterator QList<T>::crbegin() const
+    \since 5.6
+
+    Returns a const \l{STL-style iterators}{STL-style} reverse iterator pointing
+    to the first item in the list, in reverse order.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa begin(), rbegin(), rend()
+*/
+
+/*! \fn template <typename T> QList<T>::reverse_iterator QList<T>::rend()
+    \since 5.6
+
+    Returns a \l{STL-style iterators}{STL-style} reverse iterator pointing just
+    after the last item in the list, in reverse order.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa end(), crend(), rbegin()
+*/
+
+/*! \fn template <typename T> QList<T>::const_reverse_iterator QList<T>::rend() const
+    \since 5.6
+    \overload
+*/
+
+/*! \fn template <typename T> QList<T>::const_reverse_iterator QList<T>::crend() const
+    \since 5.6
+
+    Returns a const \l{STL-style iterators}{STL-style} reverse iterator pointing
+    just after the last item in the list, in reverse order.
+
+    \include qlist.qdoc iterator-invalidation-func-desc
+
+    \sa end(), rend(), rbegin()
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::erase(const_iterator pos)
+
+    Removes the item pointed to by the iterator \a pos from the
+    list, and returns an iterator to the next item in the list
+    (which may be end()).
+
+    \include qlist.qdoc shrinking-erase
+    \include qlist.qdoc iterator-invalidation-erase
+
+    \sa insert(), remove()
+*/
+
+/*! \fn template <typename T> QList<T>::iterator QList<T>::erase(const_iterator begin, const_iterator end)
+
+    \overload
+
+    Removes all the items from \a begin up to (but not including) \a
+    end. Returns an iterator to the same item that \a end referred to
+    before the call.
+
+    \include qlist.qdoc shrinking-erase
+    \include qlist.qdoc iterator-invalidation-erase
+*/
+
+/*! \fn template <typename T> T& QList<T>::first()
+
+    Returns a reference to the first item in the list. This
+    function assumes that the list isn't empty.
+
+    \sa last(), isEmpty(), constFirst()
+*/
+
+/*! \fn template <typename T> const T& QList<T>::first() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> const T& QList<T>::constFirst() const
+    \since 5.6
+
+    Returns a const reference to the first item in the list. This
+    function assumes that the list isn't empty.
+
+    \sa constLast(), isEmpty(), first()
+*/
+
+/*! \fn template <typename T> T& QList<T>::last()
+
+    Returns a reference to the last item in the list. This function
+    assumes that the list isn't empty.
+
+    \sa first(), isEmpty(), constLast()
+*/
+
+/*! \fn template <typename T> const T& QList<T>::last() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> const T& QList<T>::constLast() const
+    \since 5.6
+
+    Returns a const reference to the last item in the list. This function
+    assumes that the list isn't empty.
+
+    \sa constFirst(), isEmpty(), last()
+*/
+
+/*! \fn template <typename T> T QList<T>::value(qsizetype i) const
+
+    Returns the value at index position \a i in the list.
+
+    If the index \a i is out of bounds, the function returns a
+    \l{default-constructed value}. If you are certain that \a i is within
+    bounds, you can use at() instead, which is slightly faster.
+
+    \sa at(), operator[]()
+*/
+
+/*! \fn template <typename T> T QList<T>::value(qsizetype i, parameter_type defaultValue) const
+
+    \overload
+
+    If the index \a i is out of bounds, the function returns \a defaultValue.
+*/
+
+/*! \fn template <typename T> void QList<T>::push_back(parameter_type value)
+
+    This function is provided for STL compatibility. It is equivalent
+    to append(\a value).
+*/
+
+/*! \fn template <typename T> void QList<T>::push_back(rvalue_ref value)
+    \since 5.6
+    \overload
+*/
+
+/*!
+    \fn template <typename T> void QList<T>::push_front(parameter_type value)
+    \fn template <typename T> void QList<T>::push_front(rvalue_ref value)
+
+    This function is provided for STL compatibility. It is equivalent
+    to prepend(\a value).
+*/
+
+/*! \fn template <typename T> void QList<T>::pop_front()
+
+    This function is provided for STL compatibility. It is equivalent
+    to removeFirst().
+*/
+
+/*! \fn template <typename T> void QList<T>::pop_back()
+
+    This function is provided for STL compatibility. It is equivalent
+    to removeLast().
+*/
+
+/*! \fn template <typename T> T& QList<T>::front()
+
+    This function is provided for STL compatibility. It is equivalent
+    to first().
+*/
+
+/*! \fn template <typename T> QList<T>::const_reference QList<T>::front() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> QList<T>::reference QList<T>::back()
+
+    This function is provided for STL compatibility. It is equivalent
+    to last().
+*/
+
+/*! \fn template <typename T> QList<T>::const_reference QList<T>::back() const
+
+    \overload
+*/
+
+/*! \fn template <typename T> void QList<T>::shrink_to_fit()
+    \since 5.10
+
+    This function is provided for STL compatibility. It is equivalent
+    to squeeze().
+*/
+
+/*! \fn template <typename T> bool QList<T>::empty() const
+
+    This function is provided for STL compatibility. It is equivalent
+    to isEmpty(), returning \c true if the list is empty; otherwise
+    returns \c false.
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator+=(const QList<T> &other)
+
+    Appends the items of the \a other list to this list and
+    returns a reference to this list.
+
+    \sa operator+(), append()
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator+=(QList<T> &&other)
+    \since 6.0
+
+    \overload
+
+    \sa operator+(), append()
+*/
+
+/*! \fn template <typename T> void QList<T>::operator+=(parameter_type value)
+
+    \overload
+
+    Appends \a value to the list.
+
+    \sa append(), operator<<()
+*/
+
+/*! \fn template <typename T> void QList<T>::operator+=(rvalue_ref value)
+    \since 5.11
+
+    \overload
+
+    \sa append(), operator<<()
+*/
+
+/*!
+    \fn template <typename T> QList<T> QList<T>::operator+(const QList<T> &other) const &
+    \fn template <typename T> QList<T> QList<T>::operator+(const QList<T> &other) &&
+    \fn template <typename T> QList<T> QList<T>::operator+(QList<T> &&other) const &
+    \fn template <typename T> QList<T> QList<T>::operator+(QList<T> &&other) &&
+
+    Returns a list that contains all the items in this list
+    followed by all the items in the \a other list.
+
+    \sa operator+=()
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator<<(parameter_type value)
+
+    Appends \a value to the list and returns a reference to this list.
+
+    \sa append(), operator+=()
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator<<(rvalue_ref value)
+    \since 5.11
+
+    \overload
+
+    \sa append(), operator+=()
+*/
+
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator<<(const QList<T> &other)
+
+    Appends \a other to the list and returns a reference to the list.
+*/
+
+/*! \fn template <typename T> QList<T> &QList<T>::operator<<(QList<T> &&other)
+    \since 6.0
+
+    \overload
+*/
+
+/*! \class QList::iterator
+    \inmodule QtCore
+    \brief Provides an STL-style non-const iterator for QList and QStack.
+
+    QList provides both \l{STL-style iterators} and \l{Java-style
+    iterators}.
+
+//! [iterator-invalidation-class-desc]
+    \warning Iterators on implicitly shared containers do not work
+    exactly like STL-iterators. You should avoid copying a container
+    while iterators are active on that container. For more information,
+    read \l{Implicit sharing iterator problem}.
+
+    \warning Iterators are invalidated when QList is modified. Consider that all
+    iterators are invalidated by default. Exceptions to this rule are explicitly
+    documented.
+//! [iterator-invalidation-class-desc]
+
+    \sa QList::begin(), QList::end(), QList::const_iterator, QMutableListIterator
+*/
+
+/*! \class QList::const_iterator
+    \inmodule QtCore
+    \brief Provides an STL-style const iterator for QList and QStack.
+
+    QList provides both \l{STL-style iterators} and \l{Java-style
+    iterators}.
+
+    \include qlist.qdoc iterator-invalidation-class-desc
+
+    \sa QList::constBegin(), QList::constEnd(), QList::iterator, QListIterator
+*/
+
+/*! \typedef QList::reverse_iterator
+    \since 5.6
+
+    The QList::reverse_iterator typedef provides an STL-style non-const
+    reverse iterator for QList.
+
+    \include qlist.qdoc iterator-invalidation-class-desc
+
+    \sa QList::rbegin(), QList::rend(), QList::const_reverse_iterator, QList::iterator
+*/
+
+/*! \typedef QList::const_reverse_iterator
+    \since 5.6
+
+    The QList::const_reverse_iterator typedef provides an STL-style const
+    reverse iterator for QList.
+
+    \include qlist.qdoc iterator-invalidation-class-desc
+
+    \sa QList::rbegin(), QList::rend(), QList::reverse_iterator, QList::const_iterator
+*/
+
+/*! \typedef QList::Iterator
+
+    Qt-style synonym for QList::iterator.
+*/
+
+/*! \typedef QList::ConstIterator
+
+    Qt-style synonym for QList::const_iterator.
+*/
+
+/*! \typedef QList::const_pointer
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::const_reference
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::difference_type
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::pointer
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::reference
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::size_type
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::value_type
+
+    Provided for STL compatibility.
+*/
+
+/*! \typedef QList::parameter_type
+
+*/
+
+/*! \typedef QList::rvalue_ref
+
+*/
+
+/*! \fn template <typename T> QList<T> QList<T>::toList() const
+    \fn template <typename T> QList<T> QList<T>::toVector() const
+    \deprecated
+
+    A no-op in Qt 6. Provided for backwards compatibility with
+    Qt 5, where QList and QVector where two different types.
+
+    Returns this list.
+*/
+
+/*! \fn template <typename T> QList<T> QList<T>::fromList(const QList<T> &list)
+    \fn template <typename T> QList<T> QList<T>::fromVector(const QList<T> &list)
+    \deprecated
+
+    A no-op in Qt 6. Provided for backwards compatibility with
+    Qt 5, where QList and QVector were two different types.
+
+    Returns this list.
+*/
+
+/*! \fn template <typename T> QDataStream &operator<<(QDataStream &out, const QList<T> &list)
+    \relates QList
+
+    Writes the list \a list to stream \a out.
+
+    This function requires the value type to implement \c operator<<().
+
+    \sa{Serializing Qt Data Types}{Format of the QDataStream operators}
+*/
+
+/*! \fn template <typename T> QDataStream &operator>>(QDataStream &in, QList<T> &list)
+    \relates QList
+
+    Reads a list from stream \a in into \a list.
+
+    This function requires the value type to implement \c operator>>().
+
+    \sa{Serializing Qt Data Types}{Format of the QDataStream operators}
+*/
+
+/*! \fn template <typename T, typename AT> qsizetype erase(QList<T> &list, const AT &t)
+    \relates QList
+    \since 6.1
+
+    Removes all elements that compare equal to \a t from the
+    list \a list. Returns the number of elements removed, if any.
+
+    \note Unlike QList::removeAll, \a t is not allowed to be a
+    reference to an element inside \a list. If you cannot be sure that
+    this is not the case, take a copy of \a t and call this function
+    with the copy.
+
+    \sa QList::removeAll(), erase_if
+*/
+
+/*! \fn template <typename T, typename Predicate> qsizetype erase_if(QList<T> &list, Predicate pred)
+    \relates QList
+    \since 6.1
+
+    Removes all elements for which the predicate \a pred returns true
+    from the list \a list. Returns the number of elements removed, if
+    any.
+
+    \sa erase
+*/

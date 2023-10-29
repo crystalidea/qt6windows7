@@ -1,0 +1,34 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtCore
+    \title Qt Core C++ Classes
+    \ingroup modules
+    \qtcmakepackage Core
+    \qtvariable core
+
+    \brief Provides core non-GUI functionality.
+
+    All other Qt modules rely on this module.
+
+    The \l{Qt Core} page contains information about how to use the module.
+*/
+
+/*!
+    \module QtCorePrivate
+    \title Qt Core Private C++ Classes
+    \qtvariable core-private
+    \preliminary
+    \brief Provides private core functionality.
+
+//! [qtcoreprivate-usage]
+    When building with CMake, use the following commands to use
+    private Qt Core APIs:
+
+    \badcode
+    find_package(Qt6 REQUIRED COMPONENTS Core)
+    target_link_libraries(mytarget PRIVATE Qt6::CorePrivate)
+    \endcode
+//! [qtcoreprivate-usage]
+*/

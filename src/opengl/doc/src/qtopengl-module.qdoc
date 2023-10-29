@@ -1,0 +1,31 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \module QtOpenGL
+    \title Qt OpenGL C++ Classes
+    \ingroup modules
+    \qtcmakepackage OpenGL
+    \qtvariable opengl
+
+    \brief The Qt OpenGL module offers classes that make it easy to
+    use OpenGL in Qt applications.
+
+    The \l{Qt OpenGL} page contains information about how to use the module.
+
+    A separate \l{Qt OpenGL Widgets C++ Classes}{Qt OpenGL Widgets} library
+    provides a C++ widget class for rendering OpenGL graphics into widgets UIs.
+
+    \generatelist classesbymodule QtOpenGLWidgets
+*/
+
+/*
+    This "module" only exists so that classes in that separate library have
+    the correct build system documentation.
+*/
+/*!
+    \module QtOpenGLWidgets
+    \title Qt OpenGL Widgets C++ Classes
+    \qtcmakepackage OpenGLWidgets
+    \qtvariable openglwidgets
+*/
