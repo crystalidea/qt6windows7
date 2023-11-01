@@ -80,7 +80,11 @@ private slots:
 
     void QTBUG93305();
 
+    void testSignalsDisconnection();
+    void destroyModel();
+
 private:
+    static void messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg);
     QAbstractItemModel *model;
     QItemSelectionModel *selection;
 };
@@ -2915,6 +2919,54 @@ void tst_QItemSelectionModel::QTBUG93305()
     model->insertRows(0, 6, QModelIndex());
     QVERIFY(selection->hasSelection());
     QCOMPARE(spy.size(), 4);
+}
+
+static void (*oldMessageHandler)(QtMsgType, const QMessageLogContext&, const QString&);
+static bool signalError = false;
+
+// detect disconnect warning:
+// qt.core.qobject.connect: QObject::disconnect: No such signal
+void tst_QItemSelectionModel::messageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    Q_ASSERT(oldMessageHandler);
+
+    if (type == QtWarningMsg
+            && QString(context.category) == "qt.core.qobject.connect"
+            && msg.contains("No such")) {
+        signalError = true;
+    }
+
+    return oldMessageHandler(type, context, msg);
+}
+
+void tst_QItemSelectionModel::testSignalsDisconnection()
+{
+    oldMessageHandler = qInstallMessageHandler(messageHandler);
+    auto resetMessageHandler = qScopeGuard([] { qInstallMessageHandler(oldMessageHandler); });
+    auto *newModel = new QStandardItemModel(model);
+    selection->setModel(newModel);
+    QSignalSpy spy(newModel, &QObject::destroyed);
+    delete newModel;
+    QTRY_COMPARE(spy.count(), 1);
+    qDebug() << spy;
+    selection->setModel(nullptr);
+    QVERIFY(!signalError);
+}
+
+void tst_QItemSelectionModel::destroyModel()
+{
+    auto itemModel = std::make_unique<QStandardItemModel>(5, 5);
+    auto selectionModel = std::make_unique<QItemSelectionModel>();
+    selectionModel->setModel(itemModel.get());
+    selectionModel->select(itemModel->index(0, 0), QItemSelectionModel::Select);
+    QVERIFY(!selectionModel->selection().isEmpty());
+    selectionModel->setCurrentIndex(itemModel->index(1, 0), QItemSelectionModel::Select);
+    QVERIFY(selectionModel->currentIndex().isValid());
+
+    QTest::failOnWarning(QRegularExpression(".*"));
+    itemModel.reset();
+    QVERIFY(!selectionModel->currentIndex().isValid());
+    QVERIFY(selectionModel->selection().isEmpty());
 }
 
 QTEST_MAIN(tst_QItemSelectionModel)

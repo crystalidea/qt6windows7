@@ -671,7 +671,11 @@ void QMdiAreaPrivate::_q_deactivateAllWindows(QMdiSubWindow *aboutToActivate)
         aboutToBecomeActive = aboutToActivate;
     Q_ASSERT(aboutToBecomeActive);
 
-    foreach (QMdiSubWindow *child, childWindows) {
+    // Take a copy because child->showNormal() could indirectly call
+    // QCoreApplication::sendEvent(), which could call unknown code that e.g.
+    // recurses into the class modifying childWindows.
+    const auto subWindows = childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::deactivateAllWindows") || aboutToBecomeActive == child)
             continue;
         // We don't want to handle signals caused by child->showNormal().
@@ -846,7 +850,7 @@ void QMdiAreaPrivate::place(Placer *placer, QMdiSubWindow *child)
     QList<QRect> rects;
     rects.reserve(childWindows.size());
     QRect parentRect = q->rect();
-    foreach (QMdiSubWindow *window, childWindows) {
+    for (QMdiSubWindow *window : std::as_const(childWindows)) {
         if (!sanityCheck(window, "QMdiArea::place") || window == child || !window->isVisibleTo(q)
                 || !window->testAttribute(Qt::WA_Moved)) {
             continue;
@@ -888,7 +892,7 @@ void QMdiAreaPrivate::rearrange(Rearranger *rearranger)
     const bool reverseList = rearranger->type() == Rearranger::RegularTiler;
     const QList<QMdiSubWindow *> subWindows = subWindowList(activationOrder, reverseList);
     QSize minSubWindowSize;
-    foreach (QMdiSubWindow *child, subWindows) {
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::rearrange") || !child->isVisible())
             continue;
         if (rearranger->type() == Rearranger::IconTiler) {
@@ -1302,7 +1306,7 @@ bool QMdiAreaPrivate::lastWindowAboutToBeDestroyed() const
 */
 void QMdiAreaPrivate::setChildActivationEnabled(bool enable, bool onlyNextActivationEvent) const
 {
-    foreach (QMdiSubWindow *subWindow, childWindows) {
+    for (QMdiSubWindow *subWindow : childWindows) {
         if (!subWindow || !subWindow->isVisible())
             continue;
         if (onlyNextActivationEvent)
@@ -1324,7 +1328,11 @@ void QMdiAreaPrivate::scrollBarPolicyChanged(Qt::Orientation orientation, Qt::Sc
     const QMdiSubWindow::SubWindowOption option = orientation == Qt::Horizontal ?
         QMdiSubWindow::AllowOutsideAreaHorizontally : QMdiSubWindow::AllowOutsideAreaVertically;
     const bool enable = policy != Qt::ScrollBarAlwaysOff;
-    foreach (QMdiSubWindow *child, childWindows) {
+    // Take a copy because child->setOption() may indirectly call QCoreApplication::sendEvent(),
+    // the latter could call unknown code that could e.g. recurse into the class
+    // modifying childWindows.
+    const auto subWindows = childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::scrollBarPolicyChanged"))
             continue;
         child->setOption(option, enable);
@@ -1340,7 +1348,7 @@ QMdiAreaPrivate::subWindowList(QMdiArea::WindowOrder order, bool reversed) const
         return list;
 
     if (order == QMdiArea::CreationOrder) {
-        foreach (QMdiSubWindow *child, childWindows) {
+        for (QMdiSubWindow *child : childWindows) {
             if (!child)
                 continue;
             if (!reversed)
@@ -1526,7 +1534,12 @@ void QMdiAreaPrivate::setViewMode(QMdiArea::ViewMode mode)
 
         isSubWindowsTiled = false;
 
-        foreach (QMdiSubWindow *subWindow, childWindows)
+        // Take a copy as tabBar->addTab() will (indirectly) create a connection between
+        // the tab close button clicked() signal and the _q_closeTab() slot, which may
+        // indirectly call QCoreApplication::sendEvent(), the latter could result in
+        // invoking unknown code that could e.g. recurse into the class modifying childWindows.
+        const auto subWindows = childWindows;
+        for (QMdiSubWindow *subWindow : subWindows)
             tabBar->addTab(subWindow->windowIcon(), tabTextFor(subWindow));
 
         QMdiSubWindow *current = q->currentSubWindow();
@@ -1848,7 +1861,11 @@ void QMdiArea::closeAllSubWindows()
         return;
 
     d->isSubWindowsTiled = false;
-    foreach (QMdiSubWindow *child, d->childWindows) {
+    // Take a copy because the child->close() call below may end up indirectly calling
+    // QCoreApplication::send{Spontaneous}Event(), which may call unknown code that
+    // could e.g. recurse into the class modifying d->childWindows.
+    const auto subWindows = d->childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::closeAllSubWindows"))
             continue;
         child->close();
@@ -1987,7 +2004,11 @@ void QMdiArea::removeSubWindow(QWidget *widget)
     }
 
     bool found = false;
-    foreach (QMdiSubWindow *child, d->childWindows) {
+    // Take a copy because child->setWidget(nullptr) will indirectly
+    // QCoreApplication::sendEvent(); the latter could call unknown code that could
+    // e.g. recurse into the class modifying d->childWindows.
+    const auto subWindows = d->childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::removeSubWindow"))
             continue;
         if (child->widget() == widget) {
@@ -2268,7 +2289,11 @@ void QMdiArea::resizeEvent(QResizeEvent *resizeEvent)
 
     // Resize maximized views.
     bool hasMaximizedSubWindow = false;
-    foreach (QMdiSubWindow *child, d->childWindows) {
+    // Take a copy because child->resize() may call QCoreApplication::sendEvent()
+    // which may invoke unknown code, that could e.g. recurse into the class
+    // modifying d->childWindows.
+    const auto subWindows = d->childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (sanityCheck(child, "QMdiArea::resizeEvent") && child->isMaximized()
                 && child->size() != resizeEvent->size()) {
             auto realSize = resizeEvent->size();
@@ -2327,7 +2352,9 @@ void QMdiArea::showEvent(QShowEvent *showEvent)
     Q_D(QMdiArea);
     if (!d->pendingRearrangements.isEmpty()) {
         bool skipPlacement = false;
-        foreach (Rearranger *rearranger, d->pendingRearrangements) {
+        // Take a copy because d->rearrange() may modify d->pendingRearrangements
+        const auto pendingRearrange = d->pendingRearrangements;
+        for (Rearranger *rearranger : pendingRearrange) {
             // If this is the case, we don't have to lay out pending child windows
             // since the rearranger will find a placement for them.
             if (rearranger->type() != Rearranger::IconTiler && !skipPlacement)
@@ -2341,7 +2368,12 @@ void QMdiArea::showEvent(QShowEvent *showEvent)
     }
 
     if (!d->pendingPlacements.isEmpty()) {
-        foreach (QMdiSubWindow *window, d->pendingPlacements) {
+        // Nothing obvious in the loop body changes the container (in this code path)
+        // during iteration, this is calling into a non-const method that does change
+        // the container when called from other places. So take a copy anyway for good
+        // measure.
+        const auto copy = d->pendingPlacements;
+        for (QMdiSubWindow *window : copy) {
             if (!window)
                 continue;
             if (!window->testAttribute(Qt::WA_Resized)) {
@@ -2477,12 +2509,16 @@ bool QMdiArea::event(QEvent *event)
             d->isSubWindowsTiled = true;
         }
         break;
-    case QEvent::WindowIconChange:
-        foreach (QMdiSubWindow *window, d->childWindows) {
+    case QEvent::WindowIconChange: {
+        // Take a copy because QCoreApplication::sendEvent() may call unknown code,
+        // that may cause recursing into the class
+        const auto subWindows = d->childWindows;
+        for (QMdiSubWindow *window : subWindows) {
             if (sanityCheck(window, "QMdiArea::WindowIconChange"))
                 QCoreApplication::sendEvent(window, event);
         }
         break;
+    }
     case QEvent::Hide:
         d->setActive(d->active, false, false);
         d->setChildActivationEnabled(false);
@@ -2637,7 +2673,10 @@ void QMdiArea::setupViewport(QWidget *viewport)
     Q_D(QMdiArea);
     if (viewport)
         viewport->setAttribute(Qt::WA_OpaquePaintEvent, d->background.isOpaque());
-    foreach (QMdiSubWindow *child, d->childWindows) {
+    // Take a copy because the child->setParent() call below may call QCoreApplication::sendEvent()
+    // which may call unknown code that could e.g. recurse into the class modifying d->childWindows.
+    const auto subWindows = d->childWindows;
+    for (QMdiSubWindow *child : subWindows) {
         if (!sanityCheck(child, "QMdiArea::setupViewport"))
             continue;
         child->setParent(viewport, child->windowFlags());

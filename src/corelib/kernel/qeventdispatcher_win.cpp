@@ -354,15 +354,10 @@ void QEventDispatcherWin32Private::registerTimer(WinTimerInfo *t)
         ok = t->fastTimerId;
     }
 
-    typedef BOOL (WINAPI *SetCoalescableTimerFunc) (HWND, UINT_PTR, UINT, TIMERPROC, ULONG);
-    static SetCoalescableTimerFunc mySetCoalescableTimerFunc = 
-        (SetCoalescableTimerFunc)::GetProcAddress(::GetModuleHandle(L"User32"), "SetCoalescableTimer");
-
-    if (!ok && mySetCoalescableTimerFunc) {
+    if (!ok) {
         // user normal timers for (Very)CoarseTimers, or if no more multimedia timers available
-        ok = mySetCoalescableTimerFunc(internalHwnd, t->timerId, interval, nullptr, tolerance);
+        ok = SetCoalescableTimer(internalHwnd, t->timerId, interval, nullptr, tolerance);
     }
-    
     if (!ok)
         ok = SetTimer(internalHwnd, t->timerId, interval, nullptr);
 

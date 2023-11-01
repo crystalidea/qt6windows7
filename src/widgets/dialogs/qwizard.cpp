@@ -693,8 +693,9 @@ void QWizardPrivate::reset()
     if (current != -1) {
         q->currentPage()->hide();
         cleanupPagesNotInHistory();
-        for (int i = history.size() - 1; i >= 0; --i)
-            q->cleanupPage(history.at(i));
+        const auto end = history.crend();
+        for (auto it = history.crbegin(); it != end; ++it)
+            q->cleanupPage(*it);
         history.clear();
         for (QWizardPage *page : std::as_const(pageMap))
             page->d_func()->initialized = false;
@@ -1422,10 +1423,9 @@ void QWizardPrivate::updateButtonTexts()
 void QWizardPrivate::updateButtonLayout()
 {
     if (buttonsHaveCustomLayout) {
-        QVarLengthArray<QWizard::WizardButton, QWizard::NButtons> array(buttonsCustomLayout.size());
-        for (int i = 0; i < buttonsCustomLayout.size(); ++i)
-            array[i] = buttonsCustomLayout.at(i);
-        setButtonLayout(array.constData(), array.size());
+        QVarLengthArray<QWizard::WizardButton, QWizard::NButtons> array{
+                buttonsCustomLayout.cbegin(), buttonsCustomLayout.cend()};
+        setButtonLayout(array.constData(), int(array.size()));
     } else {
         // Positions:
         //     Help Stretch Custom1 Custom2 Custom3 Cancel Back Next Commit Finish Cancel Help
@@ -1786,9 +1786,8 @@ void QWizardAntiFlickerWidget::paintEvent(QPaintEvent *)
     \section1 A Trivial Example
 
     The following example illustrates how to create wizard pages and
-    add them to a wizard. For more advanced examples, see
-    \l{dialogs/classwizard}{Class Wizard} and \l{dialogs/licensewizard}{License
-    Wizard}.
+    add them to a wizard. For more advanced examples, see the
+    \l{dialogs/licensewizard}{License Wizard}.
 
     \snippet dialogs/trivialwizard/trivialwizard.cpp 1
     \snippet dialogs/trivialwizard/trivialwizard.cpp 3
@@ -1917,12 +1916,7 @@ void QWizardAntiFlickerWidget::paintEvent(QPaintEvent *)
     To register a field, call QWizardPage::registerField() field.
     For example:
 
-    \snippet dialogs/classwizard/classwizard.cpp 8
-    \dots
-    \snippet dialogs/classwizard/classwizard.cpp 10
-    \snippet dialogs/classwizard/classwizard.cpp 11
-    \dots
-    \snippet dialogs/classwizard/classwizard.cpp 13
+    \snippet dialogs/licensewizard/licensewizard.cpp 21
 
     The above code registers three fields, \c className, \c
     baseClass, and \c qobjectMacro, which are associated with three
@@ -1933,11 +1927,11 @@ void QWizardAntiFlickerWidget::paintEvent(QPaintEvent *)
     The fields of any page are accessible from any other page. For
     example:
 
-    \snippet dialogs/classwizard/classwizard.cpp 17
+    \snippet dialogs/licensewizard/licensewizard.cpp 27
 
     Here, we call QWizardPage::field() to access the contents of the
-    \c className field (which was defined in the \c ClassInfoPage)
-    and use it to initialize the \c OutputFilePage. The field's
+    \c details.email field (which was defined in the \c DetailsPage)
+    and use it to initialize the \c ConclusionPage. The field's
     contents is returned as a QVariant.
 
     When we create a field using QWizardPage::registerField(), we
@@ -1980,15 +1974,13 @@ void QWizardAntiFlickerWidget::paintEvent(QPaintEvent *)
     \section1 Creating Linear Wizards
 
     Most wizards have a linear structure, with page 1 followed by
-    page 2 and so on until the last page. The \l{dialogs/classwizard}{Class
-    Wizard} example is such a wizard. With QWizard, linear wizards
+    page 2 and so on until the last page. The \l{dialogs/trivialwizard}
+    {Trivial Wizard} example is such a wizard. With QWizard, linear wizards
     are created by instantiating the \l{QWizardPage}s and inserting
     them using addPage(). By default, the pages are shown in the
     order in which they were added. For example:
 
-    \snippet dialogs/classwizard/classwizard.cpp 0
-    \dots
-    \snippet dialogs/classwizard/classwizard.cpp 2
+    \snippet dialogs/trivialwizard/trivialwizard.cpp linearAddPage
 
     When a page is about to be shown, QWizard calls initializePage()
     (which in turn calls QWizardPage::initializePage()) to fill the
@@ -2058,7 +2050,7 @@ void QWizardAntiFlickerWidget::paintEvent(QPaintEvent *)
 
     \snippet dialogs/licensewizard/licensewizard.cpp 27
 
-    \sa QWizardPage, {Class Wizard Example}, {License Wizard Example}
+    \sa QWizardPage, {Trivial Wizard Example}, {License Wizard Example}
 */
 
 /*!
@@ -2221,8 +2213,8 @@ void QWizard::setPage(int theid, QWizardPage *page)
     page->setParent(d->pageFrame);
 
     QList<QWizardField> &pendingFields = page->d_func()->pendingFields;
-    for (int i = 0; i < pendingFields.size(); ++i)
-        d->addField(pendingFields.at(i));
+    for (const auto &field : std::as_const(pendingFields))
+        d->addField(field);
     pendingFields.clear();
 
     connect(page, SIGNAL(completeChanged()), this, SLOT(_q_updateButtonStates()));
@@ -3443,7 +3435,7 @@ int QWizard::nextId() const
     using registerField() and can be accessed at any time using
     field() and setField().
 
-    \sa QWizard, {Class Wizard Example}, {License Wizard Example}
+    \sa QWizard, {Trivial Wizard Example}, {License Wizard Example}
 */
 
 /*!
@@ -3586,7 +3578,7 @@ QPixmap QWizardPage::pixmap(QWizard::WizardPixmap which) const
     fields are properly initialized based on fields from previous
     pages. For example:
 
-    \snippet dialogs/classwizard/classwizard.cpp 17
+    \snippet dialogs/licensewizard/licensewizard.cpp 27
 
     The default implementation does nothing.
 
@@ -3663,8 +3655,9 @@ bool QWizardPage::isComplete() const
         return true;
 
     const QList<QWizardField> &wizardFields = d->wizard->d_func()->fields;
-    for (int i = wizardFields.size() - 1; i >= 0; --i) {
-        const QWizardField &field = wizardFields.at(i);
+    const auto end = wizardFields.crend();
+    for (auto it = wizardFields.crbegin(); it != end; ++it) {
+        const QWizardField &field = *it;
         if (field.page == this && field.mandatory) {
             QVariant value = field.object->property(field.property);
             if (value == field.initialValue)
@@ -3890,7 +3883,7 @@ void QWizardPage::setField(const QString &name, const QVariant &value)
 
     Example:
 
-    \snippet dialogs/classwizard/classwizard.cpp 17
+    \snippet dialogs/licensewizard/licensewizard.cpp accessField
 
     \sa QWizard::field(), setField(), registerField()
 */

@@ -259,29 +259,12 @@ public:
     bool _q_startupNotification();
     void _q_processDied();
 
-    QProcess::ProcessChannelMode processChannelMode = QProcess::SeparateChannels;
-    QProcess::InputChannelMode inputChannelMode = QProcess::ManagedInputChannel;
-    QProcess::ProcessError processError = QProcess::UnknownError;
-    QProcess::ProcessState processState = QProcess::NotRunning;
-    QString workingDirectory;
-#ifdef Q_OS_WIN
-    Q_PROCESS_INFORMATION *pid = nullptr;
-#else
-    qint64 pid = 0;
-#endif
-
-    bool emittedReadyRead = false;
-    bool emittedBytesWritten = false;
-
     Channel stdinChannel;
     Channel stdoutChannel;
     Channel stderrChannel;
     bool openChannels();
     bool openChannelsForDetached();
     bool openChannel(Channel &channel);
-#if defined(Q_OS_UNIX)
-    void commitChannels();
-#endif
     void closeChannel(Channel *channel);
     void closeWriteChannel();
     void closeChannels();
@@ -289,26 +272,39 @@ public:
 
     QString program;
     QStringList arguments;
+    QString workingDirectory;
+    QProcessEnvironment environment = QProcessEnvironment::InheritFromParent;
 #if defined(Q_OS_WIN)
     QString nativeArguments;
     QProcess::CreateProcessArgumentModifier modifyCreateProcessArgs;
-#else
-    std::function<void(void)> childProcessModifier;
-#endif
-    QProcessEnvironment environment = QProcessEnvironment::InheritFromParent;
-
-#ifdef Q_OS_UNIX
-    Q_PIPE childStartedPipe[2] = {INVALID_Q_PIPE, INVALID_Q_PIPE};
-    QSocketNotifier *stateNotifier = nullptr;
-    int forkfd = -1;
-#else
     QWinEventNotifier *processFinishedNotifier = nullptr;
+    Q_PROCESS_INFORMATION *pid = nullptr;
+#else
+
+    struct UnixExtras {
+        std::function<void(void)> childProcessModifier;
+    };
+    std::unique_ptr<UnixExtras> unixExtras;
+    QSocketNotifier *stateNotifier = nullptr;
+    Q_PIPE childStartedPipe[2] = {INVALID_Q_PIPE, INVALID_Q_PIPE};
+    pid_t pid = 0;
+    int forkfd = -1;
 #endif
+
+    int exitCode = 0;
+    quint8 processState = QProcess::NotRunning;
+    quint8 exitStatus = QProcess::NormalExit;
+    quint8 processError = QProcess::UnknownError;
+    quint8 processChannelMode = QProcess::SeparateChannels;
+    quint8 inputChannelMode = QProcess::ManagedInputChannel;
+    bool emittedReadyRead = false;
+    bool emittedBytesWritten = false;
 
     void start(QIODevice::OpenMode mode);
     void startProcess();
 #if defined(Q_OS_UNIX)
-    void execChild(const char *workingDirectory, char **argv, char **envp);
+    void commitChannels() const;
+    void execChild(int workingDirectory, char **argv, char **envp) const;
 #endif
     bool processStarted(QString *errorMessage = nullptr);
     void processFinished();
@@ -326,10 +322,6 @@ public:
 #endif
 
     bool startDetached(qint64 *pPid);
-
-    int exitCode = 0;
-    QProcess::ExitStatus exitStatus = QProcess::NormalExit;
-    bool crashed = false;
 
     bool waitForStarted(const QDeadlineTimer &deadline);
     bool waitForReadyRead(const QDeadlineTimer &deadline);

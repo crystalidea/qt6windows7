@@ -310,9 +310,12 @@ qt_internal_add_module(Core
         tools/qshareddata.cpp tools/qshareddata.h
         text/qlocale.cpp text/qlocale.h
         global/qglobal.cpp  # undef qFatal
-        global/qlogging.cpp # undef qFatal
+        global/qlogging.cpp # undef qFatal/qInfo/qDebug
+        global/qrandom.cpp # undef Q_ASSERT/_X
         text/qstringconverter.cpp # enum Data
         tools/qcryptographichash.cpp # KeccakNISTInterface/Final
+        io/qdebug.cpp # undef qDebug
+        io/qsettings.cpp # Space (also in qjsonparser.cpp)
     NO_PCH_SOURCES
         compat/removed_api.cpp
         global/qsimd.cpp
@@ -1118,6 +1121,8 @@ qt_internal_extend_target(Core CONDITION VXWORKS
 qt_internal_extend_target(Core CONDITION QT_FEATURE_cborstreamreader
     SOURCES
         serialization/qcborstreamreader.cpp serialization/qcborstreamreader.h
+    NO_UNITY_BUILD_SOURCES
+        serialization/qcborstreamreader.cpp # some problem with cbor_value_get_type etc
 )
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_cborstreamwriter
@@ -1386,3 +1391,22 @@ if(APPLE AND QT_FEATURE_framework AND QT_FEATURE_separate_debug_info)
         DESTINATION "${dsym_script_install_dir}"
     )
 endif()
+
+set(linker_script_contents "")
+if (QT_NAMESPACE STREQUAL "")
+    set(tag_symbol "qt_version_tag")
+else()
+    set(tag_symbol "qt_version_tag_${QT_NAMESPACE}")
+endif()
+foreach(minor_version RANGE ${PROJECT_VERSION_MINOR})
+    set(previous "${current}")
+    set(current "Qt_${PROJECT_VERSION_MAJOR}.${minor_version}")
+    if (minor_version EQUAL ${PROJECT_VERSION_MINOR})
+        string(APPEND linker_script_contents "${current} { ${tag_symbol}; } ${previous};\n")
+    else()
+        string(APPEND linker_script_contents "${current} {} ${previous};\n")
+    endif()
+endforeach()
+qt_internal_extend_target(Core
+    EXTRA_LINKER_SCRIPT_CONTENT "${linker_script_contents}"
+)

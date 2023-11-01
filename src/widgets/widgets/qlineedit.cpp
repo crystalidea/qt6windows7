@@ -1747,12 +1747,13 @@ void QLineEdit::keyPressEvent(QKeyEvent *event)
 /*!
     \reimp
 */
-void QLineEdit::keyReleaseEvent(QKeyEvent *)
+void QLineEdit::keyReleaseEvent(QKeyEvent *e)
 {
     Q_D(QLineEdit);
     if (!isReadOnly())
         d->handleSoftwareInputPanel();
     d->control->updateCursorBlinking();
+    QWidget::keyReleaseEvent(e);
 }
 
 /*!
@@ -2164,13 +2165,6 @@ void QLineEdit::contextMenuEvent(QContextMenuEvent *event)
         menu->setAttribute(Qt::WA_DeleteOnClose);
         menu->popup(event->globalPos());
     }
-}
-
-static inline void setActionIcon(QAction *action, const QString &name)
-{
-    const QIcon icon = QIcon::fromTheme(name);
-    if (!icon.isNull())
-        action->setIcon(icon);
 }
 
 /*!  This function creates the standard context menu which is shown

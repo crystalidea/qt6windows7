@@ -348,7 +348,7 @@ QWindowsOleDropSource::QueryContinueDrag(BOOL fEscapePressed, DWORD grfKeyState)
     } else {
         if (buttons && !m_currentButtons) {
             m_currentButtons = buttons;
-        } else if (!(m_currentButtons & buttons)) { // Button changed: Complete Drop operation.
+        } else if (m_currentButtons != buttons) { // Button changed: Complete Drop operation.
             result = DRAGDROP_S_DROP;
         }
     }
@@ -670,7 +670,7 @@ static HRESULT startDoDragDrop(LPDATAOBJECT pDataObj, LPDROPSOURCE pDropSource, 
                 const quint32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
 
                 POINTER_INFO pointerInfo{};
-                if (!QWindowsContext::user32dll.getPointerInfo || !QWindowsContext::user32dll.getPointerInfo(pointerId, &pointerInfo))
+                if (!GetPointerInfo(pointerId, &pointerInfo))
                     return E_FAIL;
 
                 if (pointerInfo.pointerFlags & POINTER_FLAG_PRIMARY) {

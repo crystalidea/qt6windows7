@@ -11,12 +11,14 @@
 
 #include <stdio.h>
 
-static QList<Converter *> *availableConverters;
+using namespace Qt::StringLiterals;
+
+static QList<const Converter *> *availableConverters;
 
 Converter::Converter()
 {
     if (!availableConverters)
-        availableConverters = new QList<Converter *>;
+        availableConverters = new QList<const Converter *>;
     availableConverters->append(this);
 }
 
@@ -31,64 +33,68 @@ int main(int argc, char *argv[])
 
     QStringList inputFormats;
     QStringList outputFormats;
-    for (Converter *conv : std::as_const(*availableConverters)) {
+    for (const Converter *conv : std::as_const(*availableConverters)) {
         auto direction = conv->directions();
         QString name = conv->name();
-        if (direction & Converter::In)
+        if (direction.testFlag(Converter::Direction::In))
             inputFormats << name;
-        if (direction & Converter::Out)
+        if (direction.testFlag(Converter::Direction::Out))
             outputFormats << name;
     }
     inputFormats.sort();
     outputFormats.sort();
-    inputFormats.prepend("auto");
-    outputFormats.prepend("auto");
+    inputFormats.prepend("auto"_L1);
+    outputFormats.prepend("auto"_L1);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Qt file format conversion tool"));
+    parser.setApplicationDescription("Qt file format conversion tool"_L1);
     parser.addHelpOption();
 
-    QCommandLineOption inputFormatOption(QStringList{"I", "input-format"});
-    inputFormatOption.setDescription(QLatin1String("Select the input format for the input file. Available formats: ") +
-                                     inputFormats.join(", "));
-    inputFormatOption.setValueName("format");
+    QCommandLineOption inputFormatOption(QStringList{ "I"_L1, "input-format"_L1 });
+    inputFormatOption.setDescription(
+            "Select the input format for the input file. Available formats: "_L1
+            + inputFormats.join(", "_L1));
+    inputFormatOption.setValueName("format"_L1);
     inputFormatOption.setDefaultValue(inputFormats.constFirst());
     parser.addOption(inputFormatOption);
 
-    QCommandLineOption outputFormatOption(QStringList{"O", "output-format"});
-    outputFormatOption.setDescription(QLatin1String("Select the output format for the output file. Available formats: ") +
-                                     outputFormats.join(", "));
-    outputFormatOption.setValueName("format");
+    QCommandLineOption outputFormatOption(QStringList{ "O"_L1, "output-format"_L1 });
+    outputFormatOption.setDescription(
+            "Select the output format for the output file. Available formats: "_L1
+            + outputFormats.join(", "_L1));
+    outputFormatOption.setValueName("format"_L1);
     outputFormatOption.setDefaultValue(outputFormats.constFirst());
     parser.addOption(outputFormatOption);
 
-    QCommandLineOption optionOption(QStringList{"o", "option"});
-    optionOption.setDescription(QStringLiteral("Format-specific options. Use --format-options to find out what options are available."));
-    optionOption.setValueName("options...");
+    QCommandLineOption optionOption(QStringList{ "o"_L1, "option"_L1 });
+    optionOption.setDescription(
+        "Format-specific options. Use --format-options to find out what options are available."_L1);
+    optionOption.setValueName("options..."_L1);
     optionOption.setDefaultValues({});
     parser.addOption(optionOption);
 
-    QCommandLineOption formatOptionsOption("format-options");
-    formatOptionsOption.setDescription(QStringLiteral("Prints the list of valid options for --option for the converter format <format>."));
-    formatOptionsOption.setValueName("format");
+    QCommandLineOption formatOptionsOption("format-options"_L1);
+    formatOptionsOption.setDescription(
+        "Prints the list of valid options for --option for the converter format <format>."_L1);
+    formatOptionsOption.setValueName("format"_L1);
     parser.addOption(formatOptionsOption);
 
-    parser.addPositionalArgument(QStringLiteral("[source]"),
-                                 QStringLiteral("File to read from (stdin if none)"));
-    parser.addPositionalArgument(QStringLiteral("[destination]"),
-                                 QStringLiteral("File to write to (stdout if none)"));
+    parser.addPositionalArgument("[source]"_L1, "File to read from (stdin if none)"_L1);
+    parser.addPositionalArgument("[destination]"_L1, "File to write to (stdout if none)"_L1);
 
     parser.process(app);
 
     if (parser.isSet(formatOptionsOption)) {
         QString format = parser.value(formatOptionsOption);
-        for (Converter *conv : std::as_const(*availableConverters)) {
+        for (const Converter *conv : std::as_const(*availableConverters)) {
             if (conv->name() == format) {
                 const char *help = conv->optionsHelp();
-                if (help)
-                    printf("The following options are available for format '%s':\n\n%s", qPrintable(format), help);
-                else
+                if (help) {
+                    printf("The following options are available for format '%s':\n\n%s",
+                           qPrintable(format), help);
+                } else {
                     printf("Format '%s' supports no options.\n", qPrintable(format));
+                }
                 return EXIT_SUCCESS;
             }
         }
@@ -97,10 +103,10 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    Converter *inconv = nullptr;
+    const Converter *inconv = nullptr;
     QString format = parser.value(inputFormatOption);
-    if (format != "auto") {
-        for (Converter *conv : std::as_const(*availableConverters)) {
+    if (format != "auto"_L1) {
+        for (const Converter *conv : std::as_const(*availableConverters)) {
             if (conv->name() == format) {
                 inconv = conv;
                 break;
@@ -113,10 +119,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    Converter *outconv = nullptr;
+    const Converter *outconv = nullptr;
     format = parser.value(outputFormatOption);
-    if (format != "auto") {
-        for (Converter *conv : std::as_const(*availableConverters)) {
+    if (format != "auto"_L1) {
+        for (const Converter *conv : std::as_const(*availableConverters)) {
             if (conv->name() == format) {
                 outconv = conv;
                 break;
@@ -155,8 +161,9 @@ int main(int argc, char *argv[])
 
     if (!inconv) {
         // probe the input to find a file format
-        for (Converter *conv : std::as_const(*availableConverters)) {
-            if (conv->directions() & Converter::In && conv->probeFile(&input)) {
+        for (const Converter *conv : std::as_const(*availableConverters)) {
+            if (conv->directions().testFlag(Converter::Direction::In)
+                && conv->probeFile(&input)) {
                 inconv = conv;
                 break;
             }
@@ -170,8 +177,9 @@ int main(int argc, char *argv[])
 
     if (!outconv) {
         // probe the output to find a file format
-        for (Converter *conv : std::as_const(*availableConverters)) {
-            if (conv->directions() & Converter::Out && conv->probeFile(&output)) {
+        for (const Converter *conv : std::as_const(*availableConverters)) {
+            if (conv->directions().testFlag(Converter::Direction::Out)
+                && conv->probeFile(&output)) {
                 outconv = conv;
                 break;
             }

@@ -12,6 +12,7 @@
 #include <qsize.h>
 #include <qmetaobject.h>
 #include <qendian.h>
+#include <qplatformdefs.h>
 #include "qctflib_p.h"
 #include <filesystem>
 
@@ -30,11 +31,20 @@ static const char traceMetadataTemplate[] =
 static const size_t traceMetadataSize = sizeof(traceMetadataTemplate);
 
 template <typename T>
-QByteArray &operator<<(QByteArray &arr, T val)
+static QByteArray &operator<<(QByteArray &arr, T val)
 {
     static_assert(std::is_arithmetic_v<T>);
-    arr.append((char *)&val, sizeof(val));
+    arr.append(reinterpret_cast<char *>(&val), sizeof(val));
     return arr;
+}
+
+static FILE *openFile(const QString &filename, const QString &mode)
+{
+#ifdef Q_OS_WINDOWS
+    return _wfopen(qUtf16Printable(filename), qUtf16Printable(mode));
+#else
+    return fopen(qPrintable(filename), qPrintable(mode));
+#endif
 }
 
 QCtfLibImpl *QCtfLibImpl::s_instance = nullptr;
@@ -48,57 +58,65 @@ QCtfLib *QCtfLibImpl::instance()
 
 void QCtfLibImpl::cleanup()
 {
-    if (s_instance)
-        delete s_instance;
+    delete s_instance;
     s_instance = nullptr;
 }
 
 QCtfLibImpl::QCtfLibImpl()
 {
-    QString location = QString::fromUtf8(qgetenv("QTRACE_LOCATION"));
+    QString location = qEnvironmentVariable("QTRACE_LOCATION");
     if (location.isEmpty()) {
-        qCInfo (lcDebugTrace) << "QTRACE_LOCATION not set";
+        qCInfo(lcDebugTrace) << "QTRACE_LOCATION not set";
         return;
     }
 
     // Check if the location is writable
-    FILE *file = nullptr;
-    file = fopen(qPrintable(location + "/metadata"_L1), "w+b");
-    if (!file) {
-        qCWarning (lcDebugTrace) << "Unable to write to location";
+    if (QT_ACCESS(qPrintable(location), W_OK) != 0) {
+        qCWarning(lcDebugTrace) << "Unable to write to location";
         return;
     }
-    fclose(file);
 
     const QString filename = location + QStringLiteral("/session.json");
-    file = fopen(qPrintable(filename), "rb");
+    FILE *file = openFile(qPrintable(filename), "rb"_L1);
     if (!file) {
-        qCWarning (lcDebugTrace) << "unable to open session file: " << filename;
+        qCWarning(lcDebugTrace) << "unable to open session file: "
+                                << filename << ", " << qt_error_string();
         m_location = location;
         m_session.tracepoints.append(QStringLiteral("all"));
         m_session.name = QStringLiteral("default");
     } else {
-        fseek(file, 0, SEEK_END);
-        long pos = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        QByteArray data(pos, Qt::Uninitialized);
-        long size = (long)fread(data.data(), pos, 1, file);
+        QT_STATBUF stat;
+        if (QT_FSTAT(QT_FILENO(file), &stat) != 0) {
+            qCWarning(lcDebugTrace) << "Unable to stat session file, " << qt_error_string();
+            return;
+        }
+        qsizetype filesize = qMin(stat.st_size, std::numeric_limits<qsizetype>::max());
+        QByteArray data(filesize, Qt::Uninitialized);
+        qsizetype size = static_cast<qsizetype>(fread(data.data(), 1, filesize, file));
         fclose(file);
-        if (size != 1)
+        if (size != filesize)
             return;
+
         QJsonDocument json(QJsonDocument::fromJson(data));
-
         QJsonObject obj = json.object();
-        QJsonValue value = *obj.begin();
-        if (value.isNull() || !value.isArray())
-            return;
-        m_session.name = obj.begin().key();
-        QJsonArray arr = value.toArray();
-        for (auto var : arr)
-            m_session.tracepoints.append(var.toString());
-
+        bool valid = false;
+        if (!obj.isEmpty()) {
+            const auto it = obj.begin();
+            if (it.value().isArray()) {
+                m_session.name = it.key();
+                for (auto var : it.value().toArray())
+                    m_session.tracepoints.append(var.toString());
+                valid = true;
+            }
+        }
+        if (!valid) {
+            qCWarning(lcDebugTrace) << "Session file is not valid";
+            m_session.tracepoints.append(QStringLiteral("all"));
+            m_session.name = QStringLiteral("default");
+        }
         m_location = location + QStringLiteral("/ust");
         std::filesystem::create_directory(qPrintable(m_location), qPrintable(location));
+        clearLocation();
     }
     m_session.all = m_session.tracepoints.contains(QStringLiteral("all"));
 
@@ -114,20 +132,40 @@ QCtfLibImpl::QCtfLibImpl()
     metadata.replace(QStringLiteral("$CLOCK_NAME"), m_timer.isMonotonic() ? QStringLiteral("monotonic") : QStringLiteral("system"));
     metadata.replace(QStringLiteral("$CLOCK_TYPE"), m_timer.isMonotonic() ? QStringLiteral("Monotonic clock") : QStringLiteral("System clock"));
     metadata.replace(QStringLiteral("$CLOCK_OFFSET"), QString::number(datetime.toMSecsSinceEpoch() * 1000000));
-#if Q_BYTE_ORDER == Q_BIG_ENDIAN
-    metadata.replace(QStringLiteral("$ENDIANNESS"), QStringLiteral("be"));
-#else
-    metadata.replace(QStringLiteral("$ENDIANNESS"), QStringLiteral("le"));
-#endif
+    metadata.replace(QStringLiteral("$ENDIANNESS"), QSysInfo::ByteOrder == QSysInfo::BigEndian ? u"be"_s : u"le"_s);
     writeMetadata(metadata, true);
 
     m_timer.start();
 }
 
+void QCtfLibImpl::clearLocation()
+{
+    const std::filesystem::path location{qUtf16Printable(m_location)};
+    for (auto const& dirEntry : std::filesystem::directory_iterator{location})
+    {
+        const auto path = dirEntry.path();
+#if __cplusplus > 201703L
+        if (dirEntry.is_regular_file()
+            && path.filename().wstring().starts_with(std::wstring_view(L"channel_"))
+            && !path.has_extension()) {
+#else
+        const auto strview = std::wstring_view(L"channel_");
+        const auto sub = path.filename().wstring().substr(0, strview.length());
+        if (dirEntry.is_regular_file() && sub.compare(strview) == 0
+            && !path.has_extension()) {
+#endif
+            if (!std::filesystem::remove(path)) {
+                qCInfo(lcDebugTrace) << "Unable to clear output location.";
+                break;
+            }
+        }
+    }
+}
+
 void QCtfLibImpl::writeMetadata(const QString &metadata, bool overwrite)
 {
     FILE *file = nullptr;
-    file = fopen(qPrintable(m_location + "/metadata"_L1), overwrite ? "w+b": "ab");
+    file = openFile(qPrintable(m_location + "/metadata"_L1), overwrite ? "w+b"_L1: "ab"_L1);
     if (!file)
         return;
 
@@ -143,17 +181,12 @@ void QCtfLibImpl::writeMetadata(const QString &metadata, bool overwrite)
 void QCtfLibImpl::writeCtfPacket(QCtfLibImpl::Channel &ch)
 {
     FILE *file = nullptr;
-    file = fopen(ch.channelName, "ab");
+    file = openFile(ch.channelName, "ab"_L1);
     if (file) {
         /*  Each packet contains header and context, which are defined in the metadata.txt */
         QByteArray packet;
         packet << s_CtfHeaderMagic;
-        /* Uuid is array of bytes hence implicitely big endian.  */
-        packet << qToBigEndian(s_TraceUuid.data1);
-        packet << qToBigEndian(s_TraceUuid.data2);
-        packet << qToBigEndian(s_TraceUuid.data3);
-        for (int i = 0; i < 8; i++)
-            packet << s_TraceUuid.data4[i];
+        packet.append(QByteArrayView(s_TraceUuid.toBytes()));
 
         packet << quint32(0);
         packet << ch.minTimestamp;
@@ -269,11 +302,6 @@ void QCtfLibImpl::doTracepoint(const QCtfTracePointEvent &point, const QByteArra
 
     if (ch.channelName[0] == 0) {
         m_threadIndices.insert(thread, m_threadIndices.size());
-        sprintf(ch.channelName, "%s/channel_%d", qPrintable(m_location), m_threadIndices[thread]);
-        FILE *f = nullptr;
-        f = fopen(ch.channelName, "wb");
-        if (f)
-            fclose(f);
         ch.minTimestamp = ch.maxTimestamp = timestamp;
         ch.thread = thread;
         ch.threadIndex = m_threadIndices[thread];

@@ -241,6 +241,7 @@ void QXcbConnection::xi2SetupSlavePointerDevice(void *info, bool removeExisting,
     const QByteArray nameRaw = QByteArray(xcb_input_xi_device_info_name(deviceInfo),
                                     xcb_input_xi_device_info_name_length(deviceInfo));
     const QString name = QString::fromUtf8(nameRaw);
+    m_xiSlavePointerIds.append(deviceInfo->deviceid);
     qCDebug(lcQpaXInputDevices) << "input device " << name << "ID" << deviceInfo->deviceid;
 #if QT_CONFIG(tabletevent)
     TabletData tabletData;
@@ -453,10 +454,6 @@ void QXcbConnection::xi2SetupSlavePointerDevice(void *info, bool removeExisting,
 */
 void QXcbConnection::xi2SetupDevices()
 {
-#if QT_CONFIG(tabletevent)
-    m_tabletData.clear();
-#endif
-    m_touchDevices.clear();
     m_xiMasterPointerIds.clear();
 
     auto reply = Q_XCB_REPLY(xcb_input_xi_query_device, xcb_connection(), XCB_INPUT_DEVICE_ALL);
@@ -468,14 +465,13 @@ void QXcbConnection::xi2SetupDevices()
     // Start with all known devices; remove the ones that still exist.
     // Afterwards, previousDevices will be the list of those that we should delete.
     QList<const QInputDevice *> previousDevices = QInputDevice::devices();
+    // Return true if the device with the given systemId is new;
+    // otherwise remove it from previousDevices and return false.
     auto newOrKeep = [&previousDevices](qint64 systemId) {
-        for (auto it = previousDevices.constBegin(); it != previousDevices.constEnd(); ++it) {
-            if ((*it)->systemId() == systemId) {
-                previousDevices.erase(it); // it's a keeper
-                return false; // not new
-            }
-        }
-        return true; // it's really new
+        // if nothing is removed from previousDevices, it's a new device
+        return !previousDevices.removeIf([systemId](const QInputDevice *dev) {
+            return dev->systemId() == systemId;
+        });
     };
 
     // XInput doesn't provide a way to identify "seats"; but each device has an attachment to another device.
@@ -540,6 +536,11 @@ void QXcbConnection::xi2SetupDevices()
 
     // previousDevices is now the list of those that are no longer found
     qCDebug(lcQpaXInputDevices) << "removed" << previousDevices;
+    for (auto it = previousDevices.constBegin(); it != previousDevices.constEnd(); ++it) {
+        const auto id = (*it)->systemId();
+        m_xiSlavePointerIds.removeAll(id);
+        m_touchDevices.remove(id);
+    }
     qDeleteAll(previousDevices);
 
     if (m_xiMasterPointerIds.size() > 1)
@@ -765,7 +766,7 @@ void QXcbConnection::xi2HandleEvent(xcb_ge_event_t *event)
     if (auto device = QPointingDevicePrivate::pointingDeviceById(sourceDeviceId))
         xi2HandleScrollEvent(event, device);
     else
-        qCWarning(lcQpaXInputEvents) << "scroll event from unregistered device" << Qt::hex << sourceDeviceId;
+        qCWarning(lcQpaXInputEvents) << "scroll event from unregistered device" << sourceDeviceId;
 
     if (xiDeviceEvent) {
         switch (xiDeviceEvent->event_type) {
@@ -1274,6 +1275,9 @@ void QXcbConnection::xi2HandleDeviceChangedEvent(void *event)
     auto *xiEvent = reinterpret_cast<xcb_input_device_changed_event_t *>(event);
     switch (xiEvent->reason) {
     case XCB_INPUT_CHANGE_REASON_DEVICE_CHANGE: {
+        // Don't call xi2SetupSlavePointerDevice() again for an already-known device, and never for a master.
+        if (m_xiMasterPointerIds.contains(xiEvent->deviceid) || m_xiSlavePointerIds.contains(xiEvent->deviceid))
+            return;
         auto reply = Q_XCB_REPLY(xcb_input_xi_query_device, xcb_connection(), xiEvent->sourceid);
         if (!reply || reply->num_infos <= 0)
             return;
@@ -1525,6 +1529,7 @@ bool QXcbConnection::xi2HandleTabletEvent(const void *event, TabletData *tabletD
                         if (!tool && ptr[_WACSER_TOOL_SERIAL])
                             tool = ptr[_WACSER_TOOL_SERIAL];
 
+                        QWindow *win = nullptr; // TODO QTBUG-111400 get the position somehow, then the window
                         // The property change event informs us which tool is in proximity or which one left proximity.
                         if (tool) {
                             const QPointingDevice *dev = tabletToolInstance(nullptr, tabletData->name,
@@ -1533,22 +1538,19 @@ bool QXcbConnection::xi2HandleTabletEvent(const void *event, TabletData *tabletD
                             tabletData->inProximity = true;
                             tabletData->tool = dev->type();
                             tabletData->serialId = qint64(ptr[_WACSER_TOOL_SERIAL]);
-                            QWindowSystemInterface::handleTabletEnterProximityEvent(ev->time,
-                                int(tabletData->tool), int(tabletData->pointerType), tabletData->serialId);
+                            QWindowSystemInterface::handleTabletEnterLeaveProximityEvent(win, ev->time, dev, true); // enter
                         } else {
                             tool = ptr[_WACSER_LAST_TOOL_ID];
                             // Workaround for http://sourceforge.net/p/linuxwacom/bugs/246/
                             // e.g. on Thinkpad Helix, tool ID will be 0 and serial will be 1
                             if (!tool)
                                 tool = ptr[_WACSER_LAST_TOOL_SERIAL];
-                            const QInputDevice *dev = QInputDevicePrivate::fromId(tabletData->deviceId);
+                            auto *dev = qobject_cast<const QPointingDevice *>(QInputDevicePrivate::fromId(tabletData->deviceId));
                             Q_ASSERT(dev);
                             tabletData->tool = dev->type();
                             tabletData->inProximity = false;
                             tabletData->serialId = qint64(ptr[_WACSER_LAST_TOOL_SERIAL]);
-                            // TODO why doesn't it just take QPointingDevice*
-                            QWindowSystemInterface::handleTabletLeaveProximityEvent(ev->time,
-                                int(tabletData->tool), int(tabletData->pointerType), tabletData->serialId);
+                            QWindowSystemInterface::handleTabletEnterLeaveProximityEvent(win, ev->time, dev, false); // leave
                         }
                         // TODO maybe have a hash of tabletData->deviceId to device data so we can
                         // look up the tablet name here, and distinguish multiple tablets

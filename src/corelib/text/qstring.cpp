@@ -2478,11 +2478,8 @@ QString::QString(const QChar *unicode, qsizetype size)
     if (!unicode) {
         d.clear();
     } else {
-        if (size < 0) {
-            size = 0;
-            while (!unicode[size].isNull())
-                ++size;
-        }
+        if (size < 0)
+            size = QtPrivate::qustrlen(reinterpret_cast<const char16_t *>(unicode));
         if (!size) {
             d = DataPointer::fromRawData(&_empty, 0);
         } else {
@@ -3060,6 +3057,10 @@ QString &QString::append(const QString &str)
     if (!str.isNull()) {
         if (isNull()) {
             operator=(str);
+            if (Q_UNLIKELY(!d.isMutable() && d.size > 0)) {
+                d.detach(); // fromRawData, so we do a deep copy
+                d.data()[d.size] = u'\0';
+            }
         } else if (str.size()) {
             append(str.constData(), str.size());
         }
@@ -10432,7 +10433,7 @@ QDataStream &operator>>(QDataStream &in, QString &str)
         quint32 bytes = 0;
         in >> bytes;                                  // read size of string
         if (bytes == 0xffffffff) {                    // null string
-            str.clear();
+            str = QString();
         } else if (bytes > 0) {                       // not empty
             if (bytes & 0x1) {
                 str.clear();

@@ -175,6 +175,10 @@ QT_BEGIN_NAMESPACE
 #define GL_DEPTH_COMPONENT32F             0x8CAC
 #endif
 
+#ifndef GL_UNSIGNED_INT_24_8
+#define GL_UNSIGNED_INT_24_8              0x84FA
+#endif
+
 #ifndef GL_STENCIL_INDEX
 #define GL_STENCIL_INDEX                  0x1901
 #endif
@@ -949,7 +953,8 @@ bool QRhiGles2::create(QRhi::Flags flags)
 
     if (!caps.gles) {
         f->glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
-        f->glEnable(GL_POINT_SPRITE);
+        if (!caps.coreProfile)
+            f->glEnable(GL_POINT_SPRITE);
     } // else (with gles) these are always on
 
     // Match D3D and others when it comes to seamless cubemap filtering.
@@ -1164,13 +1169,13 @@ static inline void toGlTextureFormat(QRhiTexture::Format format, const QRhiGles2
         *glintformat = GL_DEPTH_COMPONENT24;
         *glsizedintformat = *glintformat;
         *glformat = GL_DEPTH_COMPONENT;
-        *gltype = GL_UNSIGNED_SHORT;
+        *gltype = GL_UNSIGNED_INT;
         break;
     case QRhiTexture::D24S8:
         *glintformat = GL_DEPTH24_STENCIL8;
         *glsizedintformat = *glintformat;
         *glformat = GL_DEPTH_STENCIL;
-        *gltype = GL_UNSIGNED_SHORT;
+        *gltype = GL_UNSIGNED_INT_24_8;
         break;
     case QRhiTexture::D32F:
         *glintformat = GL_DEPTH_COMPONENT32F;
@@ -3353,7 +3358,7 @@ void QRhiGles2::executeCommandBuffer(QRhiCommandBuffer *cb)
             f->glBlitFramebuffer(0, 0, cmd.args.blitFromRb.w, cmd.args.blitFromRb.h,
                                  0, 0, cmd.args.blitFromRb.w, cmd.args.blitFromRb.h,
                                  GL_COLOR_BUFFER_BIT,
-                                 GL_LINEAR);
+                                 GL_NEAREST); // Qt 5 used Nearest when resolving samples, stick to that
             f->glBindFramebuffer(GL_FRAMEBUFFER, ctx->defaultFramebufferObject());
             f->glDeleteFramebuffers(2, fbo);
         }
@@ -5307,7 +5312,9 @@ QGles2Sampler::~QGles2Sampler()
 
 void QGles2Sampler::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiGles2);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QGles2Sampler::create()
@@ -5320,6 +5327,8 @@ bool QGles2Sampler::create()
     d.gltexcomparefunc = toGlTextureCompareFunc(m_compareOp);
 
     generation += 1;
+    QRHI_RES_RHI(QRhiGles2);
+    rhiD->registerResource(this, false);
     return true;
 }
 
@@ -5336,7 +5345,9 @@ QGles2RenderPassDescriptor::~QGles2RenderPassDescriptor()
 
 void QGles2RenderPassDescriptor::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiGles2);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QGles2RenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const
@@ -5347,7 +5358,10 @@ bool QGles2RenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *ot
 
 QRhiRenderPassDescriptor *QGles2RenderPassDescriptor::newCompatibleRenderPassDescriptor() const
 {
-    return new QGles2RenderPassDescriptor(m_rhi);
+    QGles2RenderPassDescriptor *rpD = new QGles2RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiGles2);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 QVector<quint32> QGles2RenderPassDescriptor::serializedFormat() const
@@ -5420,7 +5434,10 @@ void QGles2TextureRenderTarget::destroy()
 
 QRhiRenderPassDescriptor *QGles2TextureRenderTarget::newCompatibleRenderPassDescriptor()
 {
-    return new QGles2RenderPassDescriptor(m_rhi);
+    QGles2RenderPassDescriptor *rpD = new QGles2RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiGles2);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 bool QGles2TextureRenderTarget::create()
@@ -5567,7 +5584,9 @@ QGles2ShaderResourceBindings::~QGles2ShaderResourceBindings()
 
 void QGles2ShaderResourceBindings::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiGles2);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QGles2ShaderResourceBindings::create()
@@ -5590,6 +5609,7 @@ bool QGles2ShaderResourceBindings::create()
     rhiD->updateLayoutDesc(this);
 
     generation += 1;
+    rhiD->registerResource(this, false);
     return true;
 }
 
@@ -5954,7 +5974,10 @@ bool QGles2SwapChain::isFormatSupported(Format f)
 
 QRhiRenderPassDescriptor *QGles2SwapChain::newCompatibleRenderPassDescriptor()
 {
-    return new QGles2RenderPassDescriptor(m_rhi);
+    QGles2RenderPassDescriptor *rpD = new QGles2RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiGles2);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 void QGles2SwapChain::initSwapChainRenderTarget(QGles2SwapChainRenderTarget *rt)
@@ -6003,7 +6026,7 @@ bool QGles2SwapChain::createOrResize()
     // implement a safe destroy().
     if (needsRegistration) {
         QRHI_RES_RHI(QRhiGles2);
-        rhiD->registerResource(this);
+        rhiD->registerResource(this, false);
     }
 
     return true;

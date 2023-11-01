@@ -76,7 +76,7 @@ static const int groupBoxTopMargin       =  3;
 
 #if QT_CONFIG(imageformat_xpm)
 /* XPM */
-static const char * const dock_widget_close_xpm[] = {
+static const char * const fusion_dock_widget_close_xpm[] = {
     "11 13 7 1",
     "  c None",
     ". c #D5CFCB",
@@ -224,9 +224,10 @@ static void qt_fusion_draw_arrow(Qt::ArrowType type, QPainter *painter, const QS
     const int size = qMin(arrowMax, rectMax);
 
     QPixmap cachePixmap;
-    QString cacheKey = QStyleHelper::uniqueName("fusion-arrow"_L1, option, rect.size())
-            % HexString<uint>(type)
-            % HexString<uint>(color.rgba());
+    const QString cacheKey = QStyleHelper::uniqueName("fusion-arrow"_L1
+                                                          % HexString<uint>(type)
+                                                          % HexString<uint>(color.rgba()),
+                                                      option, rect.size());
     if (!QPixmapCache::find(cacheKey, &cachePixmap)) {
         cachePixmap = styleCachePixmap(rect.size());
         cachePixmap.fill(Qt::transparent);
@@ -240,8 +241,7 @@ static void qt_fusion_draw_arrow(Qt::ArrowType type, QPainter *painter, const QS
         arrowRect.moveTo((rect.width() - arrowRect.width()) / 2.0,
                          (rect.height() - arrowRect.height()) / 2.0);
 
-        QPolygonF triangle;
-        triangle.reserve(3);
+        QVarLengthArray<QPointF, 3> triangle;
         switch (type) {
         case Qt::DownArrow:
             triangle << arrowRect.topLeft() << arrowRect.topRight() << QPointF(arrowRect.center().x(), arrowRect.bottom());
@@ -260,7 +260,7 @@ static void qt_fusion_draw_arrow(Qt::ArrowType type, QPainter *painter, const QS
         cachePainter.setPen(Qt::NoPen);
         cachePainter.setBrush(color);
         cachePainter.setRenderHint(QPainter::Antialiasing);
-        cachePainter.drawPolygon(triangle);
+        cachePainter.drawPolygon(triangle.data(), int(triangle.size()));
 
         QPixmapCache::insert(cacheKey, cachePixmap);
     }
@@ -3731,7 +3731,7 @@ QIcon QFusionStyle::standardIcon(StandardPixmap standardIcon, const QStyleOption
         return QIcon(QPixmap(workspace_minimize));
     case SP_TitleBarCloseButton:
     case SP_DockWidgetCloseButton:
-        return QIcon(QPixmap(dock_widget_close_xpm));
+        return QIcon(QPixmap(fusion_dock_widget_close_xpm));
     default:
         break;
     }
@@ -3753,7 +3753,7 @@ QPixmap QFusionStyle::standardPixmap(StandardPixmap standardPixmap, const QStyle
         return QPixmap(workspace_minimize);
     case SP_TitleBarCloseButton:
     case SP_DockWidgetCloseButton:
-        return QPixmap(dock_widget_close_xpm);
+        return QPixmap(fusion_dock_widget_close_xpm);
 
     default:
         break;

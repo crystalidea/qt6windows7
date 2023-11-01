@@ -59,7 +59,7 @@
 #include <private/qstyleanimation_p.h>
 #endif
 #if QT_CONFIG(tabbar)
-#include <qtabbar.h>
+#include <private/qtabbar_p.h>
 #endif
 #include <QMetaProperty>
 #if QT_CONFIG(mainwindow)
@@ -137,8 +137,6 @@ class QStyleSheetStyleRecursionGuard
 #define RECURSION_GUARD(RETURN) \
     if (globalStyleSheetStyle != 0 && globalStyleSheetStyle != this) { RETURN; } \
     QStyleSheetStyleRecursionGuard recursion_guard(this);
-
-#define ceil(x) ((int)(x) + ((x) > 0 && (x) != (int)(x)))
 
 enum PseudoElement {
     PseudoElement_None,
@@ -1450,6 +1448,16 @@ void QRenderRule::configurePalette(QPalette *p, QPalette::ColorRole fr, QPalette
         p->setBrush(QPalette::AlternateBase, pal->alternateBackground);
 }
 
+void setDefault(QPalette *palette, QPalette::ColorGroup group, QPalette::ColorRole role,
+                const QBrush &defaultBrush, const QWidget *widget)
+{
+    const QPalette &widgetPalette = widget->palette();
+    if (widgetPalette.isBrushSet(group, role))
+        palette->setBrush(group, role, widgetPalette.brush(group, role));
+    else
+        palette->setBrush(group, role, defaultBrush);
+}
+
 void QRenderRule::configurePalette(QPalette *p, QPalette::ColorGroup cg, const QWidget *w, bool embedded)
 {
     if (bg && bg->brush.style() != Qt::NoBrush) {
@@ -1471,15 +1479,15 @@ void QRenderRule::configurePalette(QPalette *p, QPalette::ColorGroup cg, const Q
         return;
 
     if (pal->foreground.style() != Qt::NoBrush) {
-        p->setBrush(cg, QPalette::ButtonText, pal->foreground);
-        p->setBrush(cg, w->foregroundRole(), pal->foreground);
-        p->setBrush(cg, QPalette::WindowText, pal->foreground);
-        p->setBrush(cg, QPalette::Text, pal->foreground);
+        setDefault(p, cg, QPalette::ButtonText, pal->foreground, w);
+        setDefault(p, cg, w->foregroundRole(), pal->foreground, w);
+        setDefault(p, cg, QPalette::WindowText, pal->foreground, w);
+        setDefault(p, cg, QPalette::Text, pal->foreground, w);
         QColor phColor(pal->foreground.color());
         phColor.setAlpha((phColor.alpha() + 1) / 2);
         QBrush placeholder = pal->foreground;
         placeholder.setColor(phColor);
-        p->setBrush(cg, QPalette::PlaceholderText, placeholder);
+        setDefault(p, cg, QPalette::PlaceholderText, placeholder, w);
     }
     if (pal->selectionBackground.style() != Qt::NoBrush)
         p->setBrush(cg, QPalette::Highlight, pal->selectionBackground);
@@ -3049,16 +3057,6 @@ void QStyleSheetStyle::unpolish(QApplication *app)
     styleSheetCaches->styleSheetCache.remove(qApp);
 }
 
-#if QT_CONFIG(tabbar)
-inline static bool verticalTabs(QTabBar::Shape shape)
-{
-    return shape == QTabBar::RoundedWest
-           || shape == QTabBar::RoundedEast
-           || shape == QTabBar::TriangularWest
-           || shape == QTabBar::TriangularEast;
-}
-#endif // QT_CONFIG(tabbar)
-
 void QStyleSheetStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex *opt, QPainter *p,
                                           const QWidget *w) const
 {
@@ -4214,6 +4212,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                         --chunkCount;
                     };
                 } else if (chunkWidth > 0) {
+                    const auto ceil = [](qreal x) { return int(x) + (x > 0 && x != int(x)); };
                     const int chunkCount = ceil(qreal(fillWidth)/chunkWidth);
                     int x = reverse ? r.left() + r.width() - chunkWidth : r.x();
 
@@ -4365,6 +4364,11 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                     optIndicator.backgroundBrush = Qt::NoBrush; // no background
                     optIndicator.text.clear();
                     QWindowsStyle::drawControl(ce, &optIndicator, p, w);
+
+                    // If the indicator has an icon, it has been drawn now.
+                    // => don't draw it again.
+                    optCopy.icon = QIcon();
+
                     // Now draw text, background, and highlight, but not the indicator  with the
                     // base style. Since we can't turn off HasCheckIndicator to prevent the base
                     // style from drawing the check indicator again (it would change how the item

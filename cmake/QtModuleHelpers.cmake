@@ -37,7 +37,6 @@ macro(qt_internal_get_internal_add_module_keywords option_args single_args multi
         QMAKE_MODULE_CONFIG
         EXTRA_CMAKE_FILES
         EXTRA_CMAKE_INCLUDES
-        NO_PCH_SOURCES
         EXTERNAL_HEADERS
         POLICIES
         ${__default_private_args}
@@ -447,6 +446,8 @@ function(qt_internal_add_module target)
         # If EXTERNAL_HEADERS_DIR is set we install the specified directory and keep the structure
         # without taking into the account the CMake source tree and syncqt outputs.
         if(arg_EXTERNAL_HEADERS_DIR)
+            set_property(TARGET ${target}
+                PROPERTY _qt_external_headers_dir "${arg_EXTERNAL_HEADERS_DIR}")
             qt_install(DIRECTORY "${arg_EXTERNAL_HEADERS_DIR}/"
                 DESTINATION "${module_install_interface_include_dir}"
             )
@@ -1186,10 +1187,13 @@ function(qt_internal_collect_module_headers out_var target)
     get_target_property(target_type ${target} TYPE)
     if(target_type STREQUAL "INTERFACE_LIBRARY")
         set(source_dir "${CMAKE_CURRENT_SOURCE_DIR}")
+        set(binary_dir "${CMAKE_CURRENT_BINARY_DIR}")
     else()
         get_target_property(source_dir ${target} SOURCE_DIR)
+        get_target_property(binary_dir ${target} BINARY_DIR)
     endif()
     get_filename_component(source_dir "${source_dir}" ABSOLUTE)
+    get_filename_component(binary_dir "${binary_dir}" ABSOLUTE)
 
     get_target_property(is_3rdparty_library ${target} _qt_module_is_3rdparty_header_library)
 
@@ -1232,7 +1236,14 @@ function(qt_internal_collect_module_headers out_var target)
                 "\nCondition:\n    ${condition_string}")
         endif()
 
-        if(file_path MATCHES "3rdparty/.+" AND NOT is_3rdparty_library)
+        if(is_outside_module_source_dir)
+            set(base_dir "${binary_dir}")
+        else()
+            set(base_dir "${source_dir}")
+        endif()
+
+        file(RELATIVE_PATH file_path_rel "${base_dir}" "${file_path}")
+        if(file_path_rel MATCHES "3rdparty/.+" AND NOT is_3rdparty_library)
             set(is_3rdparty_header TRUE)
         else()
             set(is_3rdparty_header FALSE)

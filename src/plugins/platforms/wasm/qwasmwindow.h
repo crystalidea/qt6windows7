@@ -44,6 +44,8 @@ public:
                 QWasmBackingStore *backingStore);
     ~QWasmWindow() final;
 
+    QSurfaceFormat format() const override;
+
     void destroy();
     void paint();
     void setZOrder(int order);
@@ -92,9 +94,13 @@ public:
 
 private:
     friend class QWasmScreen;
+    static constexpr auto minSizeForRegularWindows = 100;
 
     void invalidate();
     bool hasFrame() const;
+    bool hasTitleBar() const;
+    bool hasBorder() const;
+    bool hasShadow() const;
     bool hasMaximizeButton() const;
     void applyWindowState();
 

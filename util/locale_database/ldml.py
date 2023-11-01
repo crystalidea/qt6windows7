@@ -166,10 +166,23 @@ class XmlScanner (object):
         return elts
 
 class Supplement (XmlScanner):
-    def find(self, xpath):
+    def find(self, xpath, exclude=()):
+        """Finds nodes by matching a specified xpath.
+
+        If exclude is passed, it should be a sequence of attribute names (its
+        default is empty). Any matches to the given xpath that also have any
+        attribute in this sequence will be excluded.
+
+        For each childless node matching the xpath, or child of a node matching
+        the xpath, this yields a twople (name, attrs) where name is the
+        nodeName and attrs is a dict mapping the node's attribute's names to
+        their values. For attribute values that are not simple strings, the
+        nodeValue of the attribute node is used."""
         elts = self.findNodes(xpath)
-        for elt in _iterateEach(e.dom.childNodes if e.dom.childNodes else (e.dom,)
-                                for e in elts):
+        for elt in _iterateEach(e.dom.childNodes or (e.dom,)
+                                for e in elts
+                                if not any(a in e.dom.attributes
+                                           for a in exclude)):
             if elt.attributes:
                 yield (elt.nodeName,
                        dict((k, v if isinstance(v, str) else v.nodeValue)
@@ -257,7 +270,13 @@ class LocaleScanner (object):
         stem = f'numbers/symbols[numberSystem={system}]/'
         decimal = self.find(f'{stem}decimal')
         group = self.find(f'{stem}group')
-        assert decimal != group, (self.name, system, decimal)
+        if decimal == group:
+            # mn_Mong_MN @v43 :-(
+            clean = Node.draftScore('approved')
+            decimal = self.find(f'{stem}decimal', draft=clean)
+            group = self.find(f'{stem}group', draft=clean)
+            assert decimal != group, (self.name, system, decimal)
+
         yield 'decimal', decimal
         yield 'group', group
         yield 'percent', self.find(f'{stem}percentSign')

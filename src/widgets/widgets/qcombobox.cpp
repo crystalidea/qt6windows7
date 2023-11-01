@@ -1726,6 +1726,8 @@ void QComboBoxPrivate::updateDelegate(bool force)
 
 QIcon QComboBoxPrivate::itemIcon(const QModelIndex &index) const
 {
+    if (!index.isValid())
+        return {};
     QVariant decoration = model->data(index, Qt::DecorationRole);
     if (decoration.userType() == QMetaType::QPixmap)
         return QIcon(qvariant_cast<QPixmap>(decoration));
@@ -2464,12 +2466,13 @@ void QComboBoxPrivate::cleanupNativePopup()
     if (!m_platformMenu)
         return;
 
+    m_platformMenu->setVisible(false);
     int count = int(m_platformMenu->tag());
     for (int i = 0; i < count; ++i)
         m_platformMenu->menuItemAt(i)->deleteLater();
 
     delete m_platformMenu;
-    m_platformMenu = 0;
+    m_platformMenu = nullptr;
 }
 
 /*!
@@ -2526,15 +2529,18 @@ bool QComboBoxPrivate::showNativePopup()
     else if (q->testAttribute(Qt::WA_MacMiniSize))
         offset = QPoint(-2, 6);
 
+    [[maybe_unused]] QPointer<QComboBox> guard(q);
     const QRect targetRect = QRect(tlw->mapFromGlobal(q->mapToGlobal(offset)), QSize());
     m_platformMenu->showPopup(tlw, QHighDpi::toNativePixels(targetRect, tlw), currentItem);
 
 #ifdef Q_OS_MACOS
-    // The Cocoa popup will swallow any mouse release event.
-    // We need to fake one here to un-press the button.
-    QMouseEvent mouseReleased(QEvent::MouseButtonRelease, q->pos(), q->mapToGlobal(QPoint(0, 0)),
-                              Qt::LeftButton, Qt::MouseButtons(Qt::LeftButton), {});
-    QCoreApplication::sendEvent(q, &mouseReleased);
+    if (guard) {
+        // The Cocoa popup will swallow any mouse release event.
+        // We need to fake one here to un-press the button.
+        QMouseEvent mouseReleased(QEvent::MouseButtonRelease, q->pos(), q->mapToGlobal(QPoint(0, 0)),
+                                Qt::LeftButton, Qt::MouseButtons(Qt::LeftButton), {});
+        QCoreApplication::sendEvent(q, &mouseReleased);
+    }
 #endif
 
     return true;
@@ -2674,7 +2680,13 @@ void QComboBox::showPopup()
         listRect.moveLeft(above.x());
 
         // Position vertically so the currently selected item lines up
-        // with the combo box.
+        // with the combo box. In order to do that, make sure that the item
+        // view is scrolled to the top first, otherwise calls to view()->visualRect()
+        // will return the geometry the selected item had the last time the popup
+        // was visible (and perhaps scrolled). And this will not match the geometry
+        // it will actually have when we resize the container to fit all the items
+        // further down in this function.
+        view()->scrollToTop();
         const QRect currentItemRect = view()->visualRect(view()->currentIndex());
         const int offset = listRect.top() - currentItemRect.top();
         listRect.moveTop(above.y() + offset - listRect.top());
@@ -3096,7 +3108,10 @@ void QComboBoxPrivate::showPopupFromMouseEvent(QMouseEvent *e)
             // viewContainer(), we avoid creating the QComboBoxPrivateContainer.
             viewContainer()->initialClickPosition = q->mapToGlobal(e->position().toPoint());
         }
+        QPointer<QComboBox> guard = q;
         q->showPopup();
+        if (!guard)
+            return;
         // The code below ensures that regular mousepress and pick item still works
         // If it was not called the viewContainer would ignore event since it didn't have
         // a mousePressEvent first.

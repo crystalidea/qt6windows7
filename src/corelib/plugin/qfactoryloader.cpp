@@ -32,6 +32,8 @@
 
 #include <qtcore_tracepoints_p.h>
 
+#include <vector>
+
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
@@ -98,6 +100,7 @@ QJsonObject QPluginParsedMetaData::toJson() const
 class QFactoryLoaderPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QFactoryLoader)
+    Q_DISABLE_COPY_MOVE(QFactoryLoaderPrivate)
 public:
     QFactoryLoaderPrivate() { }
     QByteArray iid;
@@ -105,7 +108,7 @@ public:
     ~QFactoryLoaderPrivate();
     mutable QMutex mutex;
     QDuplicateTracker<QString> loadedPaths;
-    QList<QLibraryPrivate*> libraryList;
+    std::vector<QLibraryPrivate::UniquePtr> libraries;
     QMap<QString,QLibraryPrivate*> keyMap;
     QString suffix;
     QString extraSearchPath;
@@ -133,10 +136,7 @@ struct QFactoryLoaderGlobals
 Q_GLOBAL_STATIC(QFactoryLoaderGlobals, qt_factoryloader_global)
 
 QFactoryLoaderPrivate::~QFactoryLoaderPrivate()
-{
-    for (QLibraryPrivate *library : std::as_const(libraryList))
-        library->release();
-}
+    = default;
 
 inline void QFactoryLoaderPrivate::updateSinglePath(const QString &path)
 {
@@ -184,7 +184,7 @@ inline void QFactoryLoaderPrivate::updateSinglePath(const QString &path)
 
         Q_TRACE(QFactoryLoader_update, fileName);
 
-        std::unique_ptr<QLibraryPrivate, LibraryReleaser> library;
+        QLibraryPrivate::UniquePtr library;
         library.reset(QLibraryPrivate::findOrCreate(QFileInfo(fileName).canonicalFilePath()));
         if (!library->isPlugin()) {
             qCDebug(lcFactoryLoader) << library->errorString << Qt::endl
@@ -229,7 +229,7 @@ inline void QFactoryLoaderPrivate::updateSinglePath(const QString &path)
         if (keyUsageCount || keys.isEmpty()) {
             library->setLoadHints(QLibrary::PreventUnloadHint); // once loaded, don't unload
             QMutexLocker locker(&mutex);
-            libraryList += library.release();
+            libraries.push_back(std::move(library));
         }
     };
 }
@@ -328,7 +328,7 @@ void QFactoryLoader::setExtraSearchPath(const QString &path)
     } else {
         // must re-scan everything
         d->loadedPaths.clear();
-        d->libraryList.clear();
+        d->libraries.clear();
         d->keyMap.clear();
         update();
     }
@@ -343,7 +343,7 @@ QFactoryLoader::MetaDataList QFactoryLoader::metaData() const
     QList<QPluginParsedMetaData> metaData;
 #if QT_CONFIG(library)
     QMutexLocker locker(&d->mutex);
-    for (QLibraryPrivate *library : std::as_const(d->libraryList))
+    for (const auto &library : d->libraries)
         metaData.append(library->metaData);
 #endif
 
@@ -356,6 +356,8 @@ QFactoryLoader::MetaDataList QFactoryLoader::metaData() const
             continue;
         metaData.append(std::move(parsed));
     }
+
+    Q_ASSERT(metaData.size() <= std::numeric_limits<int>::max());
     return metaData;
 }
 
@@ -367,8 +369,8 @@ QObject *QFactoryLoader::instance(int index) const
 
 #if QT_CONFIG(library)
     QMutexLocker lock(&d->mutex);
-    if (index < d->libraryList.size()) {
-        QLibraryPrivate *library = d->libraryList.at(index);
+    if (size_t(index) < d->libraries.size()) {
+        QLibraryPrivate *library = d->libraries[index].get();
         if (QObject *obj = library->pluginInstance()) {
             if (!obj->parent())
                 obj->moveToThread(QCoreApplicationPrivate::mainThread());
@@ -376,7 +378,8 @@ QObject *QFactoryLoader::instance(int index) const
         }
         return nullptr;
     }
-    index -= d->libraryList.size();
+    // we know d->libraries.size() <= index <= numeric_limits<decltype(index)>::max() → no overflow
+    index -= static_cast<int>(d->libraries.size());
     lock.unlock();
 #endif
 
@@ -400,7 +403,7 @@ QMultiMap<int, QString> QFactoryLoader::keyMap() const
 {
     QMultiMap<int, QString> result;
     const QList<QPluginParsedMetaData> metaDataList = metaData();
-    for (int i = 0; i < metaDataList.size(); ++i) {
+    for (int i = 0; i < int(metaDataList.size()); ++i) {
         const QCborMap metaData = metaDataList.at(i).value(QtPluginMetaDataKeys::MetaData).toMap();
         const QCborArray keys = metaData.value("Keys"_L1).toArray();
         for (QCborValueConstRef key : keys)
@@ -412,7 +415,7 @@ QMultiMap<int, QString> QFactoryLoader::keyMap() const
 int QFactoryLoader::indexOf(const QString &needle) const
 {
     const QList<QPluginParsedMetaData> metaDataList = metaData();
-    for (int i = 0; i < metaDataList.size(); ++i) {
+    for (int i = 0; i < int(metaDataList.size()); ++i) {
         const QCborMap metaData = metaDataList.at(i).value(QtPluginMetaDataKeys::MetaData).toMap();
         const QCborArray keys = metaData.value("Keys"_L1).toArray();
         for (QCborValueConstRef key : keys) {

@@ -223,7 +223,8 @@ Symbols Preprocessor::tokenize(const QByteArray& input, int lineNum, Preprocesso
                             ++data;
                             while (is_hex_char(*data) || *data == '\'')
                                 ++data;
-                        }
+                        } else if (*data == 'L') // TODO: handle other suffixes
+                            ++data;
                         break;
                     }
                     token = FLOATING_LITERAL;
@@ -400,7 +401,8 @@ Symbols Preprocessor::tokenize(const QByteArray& input, int lineNum, Preprocesso
                         ++data;
                         while (is_hex_char(*data) || *data == '\'')
                             ++data;
-                    }
+                    } else if (*data == 'L') // TODO: handle other suffixes
+                        ++data;
                     break;
                 }
                 token = PP_FLOATING_LITERAL;
@@ -510,7 +512,7 @@ Symbols Preprocessor::tokenize(const QByteArray& input, int lineNum, Preprocesso
     return symbols;
 }
 
-void Preprocessor::macroExpand(Symbols *into, Preprocessor *that, const Symbols &toExpand, int &index,
+void Preprocessor::macroExpand(Symbols *into, Preprocessor *that, const Symbols &toExpand, qsizetype &index,
                                   int lineNum, bool one, const QSet<QByteArray> &excludeSymbols)
 {
     SymbolStack symbols;
@@ -618,19 +620,22 @@ Symbols Preprocessor::macroExpandIdentifier(Preprocessor *that, SymbolStack &sym
             HashHash
         } mode = Normal;
 
-        for (int i = 0; i < macro.symbols.size(); ++i) {
-            const Symbol &s = macro.symbols.at(i);
+        const auto end = macro.symbols.cend();
+        auto it = macro.symbols.cbegin();
+        const auto lastSym = std::prev(macro.symbols.cend(), !macro.symbols.isEmpty() ? 1 : 0);
+        for (; it != end; ++it) {
+            const Symbol &s = *it;
             if (s.token == HASH || s.token == PP_HASHHASH) {
                 mode = (s.token == HASH ? Hash : HashHash);
                 continue;
             }
-            int index = macro.arguments.indexOf(s);
+            const qsizetype index = macro.arguments.indexOf(s);
             if (mode == Normal) {
                 if (index >= 0 && index < arguments.size()) {
                     // each argument undoergoes macro expansion if it's not used as part of a # or ##
-                    if (i == macro.symbols.size() - 1 || macro.symbols.at(i + 1).token != PP_HASHHASH) {
+                    if (it == lastSym || std::next(it)->token != PP_HASHHASH) {
                         Symbols arg = arguments.at(index);
-                        int idx = 1;
+                        qsizetype idx = 1;
                         macroExpand(&expansion, that, arg, idx, lineNum, false, symbols.excludeSymbols());
                     } else {
                         expansion += arguments.at(index);
@@ -927,7 +932,11 @@ int PP_Expression::primary_expression()
         test(PP_RPAREN);
     } else {
         next();
-        value = lexem().toInt(nullptr, 0);
+        const QByteArray &lex = lexem();
+        auto lexView = QByteArrayView(lex);
+        if (lex.endsWith('L'))
+            lexView.chop(1);
+        value = lexView.toInt(nullptr, 0);
     }
     return value;
 }
@@ -966,7 +975,7 @@ static void mergeStringLiterals(Symbols *_symbols)
     for (Symbols::iterator i = symbols.begin(); i != symbols.end(); ++i) {
         if (i->token == STRING_LITERAL) {
             Symbols::Iterator mergeSymbol = i;
-            int literalsLength = mergeSymbol->len;
+            qsizetype literalsLength = mergeSymbol->len;
             while (++i != symbols.end() && i->token == STRING_LITERAL)
                 literalsLength += i->len - 2; // no quotes
 
@@ -1003,7 +1012,7 @@ static QByteArray searchIncludePaths(const QList<Parser::IncludePath> &includepa
     for (int j = 0; j < includepaths.size() && !fi.exists(); ++j) {
         const Parser::IncludePath &p = includepaths.at(j);
         if (p.isFrameworkPath) {
-            const int slashPos = include.indexOf('/');
+            const qsizetype slashPos = include.indexOf('/');
             if (slashPos == -1)
                 continue;
             fi.setFile(QString::fromLocal8Bit(p.path + '/' + include.left(slashPos) + ".framework/Headers/"),
@@ -1099,7 +1108,7 @@ void Preprocessor::preprocess(const QByteArray &filename, Symbols &preprocessed)
                 continue;
 
             Symbols saveSymbols = symbols;
-            int saveIndex = index;
+            qsizetype saveIndex = index;
 
             // phase 1: get rid of backslash-newlines
             input = cleaned(input);
@@ -1134,14 +1143,14 @@ void Preprocessor::preprocess(const QByteArray &filename, Symbols &preprocessed)
             } else {
                 macro.isFunction = false;
             }
-            int start = index;
+            qsizetype start = index;
             until(PP_NEWLINE);
             macro.symbols.reserve(index - start - 1);
 
             // remove whitespace where there shouldn't be any:
             // Before and after the macro, after a # and around ##
             Token lastToken = HASH; // skip shitespace at the beginning
-            for (int i = start; i < index - 1; ++i) {
+            for (qsizetype i = start; i < index - 1; ++i) {
                 Token token = symbols.at(i).token;
                 if (token == WHITESPACE) {
                     if (lastToken == PP_HASH || lastToken == HASH ||

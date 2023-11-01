@@ -214,6 +214,7 @@ function(qt_internal_get_test_arg_definitions optional_args single_value_args mu
         MANUAL
         NO_BATCH
         NO_INSTALL
+        BUNDLE_ANDROID_OPENSSL_LIBS
         PARENT_SCOPE
     )
     set(${single_value_args}
@@ -526,6 +527,21 @@ function(qt_internal_add_test name)
     endif()
 
     if (ANDROID)
+        if(arg_BUNDLE_ANDROID_OPENSSL_LIBS)
+            if(NOT OPENSSL_ROOT_DIR)
+                message(WARNING "The argument BUNDLE_ANDROID_OPENSSL_LIBS is set "
+                "but OPENSSL_ROOT_DIR parameter is not set.")
+            else()
+                if(EXISTS "${OPENSSL_ROOT_DIR}/${CMAKE_ANDROID_ARCH_ABI}/libcrypto_3.so")
+                    set_property(TARGET ${name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS
+                        "${OPENSSL_ROOT_DIR}/${CMAKE_ANDROID_ARCH_ABI}/libcrypto_3.so"
+                        "${OPENSSL_ROOT_DIR}/${CMAKE_ANDROID_ARCH_ABI}/libssl_3.so")
+                else()
+                    message(STATUS "Test should bundle OpenSSL libraries but they are not found."
+                                    " This is fine if OpenSSL was built statically.")
+                endif()
+            endif()
+        endif()
         qt_internal_android_test_arguments("${name}" test_executable extra_test_args)
         set(test_working_dir "${CMAKE_CURRENT_BINARY_DIR}")
     elseif(QNX)

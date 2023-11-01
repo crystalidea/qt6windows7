@@ -14,6 +14,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+using namespace Qt::StringLiterals;
+
 /*
  * To regenerate:
  *  curl -O https://www.iana.org/assignments/cbor-tags/cbor-tags.xml
@@ -33,7 +35,7 @@
 struct CborTagDescription
 {
     QCborTag tag;
-    const char *description;    // with space and parentheses
+    const char *description; // with space and parentheses
 };
 
 // CBOR Tags
@@ -216,22 +218,18 @@ static const CborTagDescription tagDescriptions[] = {
 
 enum {
     // See RFC 7049 section 2.
-    SmallValueBitLength     = 5,
-    SmallValueMask          = (1 << SmallValueBitLength) - 1,      /* 0x1f */
-    Value8Bit               = 24,
-    Value16Bit              = 25,
-    Value32Bit              = 26,
-    Value64Bit              = 27
+    SmallValueBitLength = 5,
+    SmallValueMask = (1 << SmallValueBitLength) - 1, /* 0x1f */
+    Value8Bit = 24,
+    Value16Bit = 25,
+    Value32Bit = 26,
+    Value64Bit = 27
 };
 
 //! [0]
 struct CborDumper
 {
-    enum DumpOption {
-        ShowCompact             = 0x01,
-        ShowWidthIndicators     = 0x02,
-        ShowAnnotated           = 0x04
-    };
+    enum DumpOption { ShowCompact = 0x01, ShowWidthIndicators = 0x02, ShowAnnotated = 0x04 };
     Q_DECLARE_FLAGS(DumpOptions, DumpOption)
 
     CborDumper(QFile *f, DumpOptions opts_);
@@ -268,8 +266,7 @@ static int cborNumberSize(quint64 value)
     return normalSize;
 }
 
-CborDumper::CborDumper(QFile *f, DumpOptions opts_)
-    : opts(opts_)
+CborDumper::CborDumper(QFile *f, DumpOptions opts_) : opts(opts_)
 {
     // try to mmap the file, this is faster
     char *ptr = reinterpret_cast<char *>(f->map(0, f->size(), QFile::MapPrivateOption));
@@ -316,7 +313,8 @@ QCborError CborDumper::dump()
     return err;
 }
 
-template <typename T> static inline bool canConvertTo(double v)
+template<typename T>
+static inline bool canConvertTo(double v)
 {
     using TypeInfo = std::numeric_limits<T>;
     // The [conv.fpint] (7.10 Floating-integral conversions) section of the
@@ -337,31 +335,32 @@ template <typename T> static inline bool canConvertTo(double v)
     return v == floor(v);
 }
 
-static QString fpToString(double v, const char *suffix)
+static QString fpToString(double v, QLatin1StringView suffix = ""_L1)
 {
     if (qIsInf(v))
-        return v < 0 ? QStringLiteral("-inf") : QStringLiteral("inf");
+        return v < 0 ? "-inf"_L1 : "inf"_L1;
     if (qIsNaN(v))
-        return QStringLiteral("nan");
+        return "nan"_L1;
     if (canConvertTo<qint64>(v))
-        return QString::number(qint64(v)) + ".0" + suffix;
+        return QString::number(qint64(v)) + ".0"_L1 + suffix;
     if (canConvertTo<quint64>(v))
-        return QString::number(quint64(v)) + ".0" + suffix;
+        return QString::number(quint64(v)) + ".0"_L1 + suffix;
 
     QString s = QString::number(v, 'g', QLocale::FloatingPointShortest);
-    if (!s.contains('.') && !s.contains('e'))
-        s += '.';
-    s += suffix;
+    if (!s.contains(u'.') && !s.contains(u'e'))
+        s += u'.';
+    if (suffix.size())
+        s += suffix;
     return s;
 };
 
 void CborDumper::dumpOne(int nestingLevel)
 {
-    QString indent(1, QLatin1Char(' '));
+    QString indent(1, u' ');
     QString indented = indent;
     if (!opts.testFlag(ShowCompact)) {
-        indent = QLatin1Char('\n') + QString(4 * nestingLevel, QLatin1Char(' '));
-        indented = QLatin1Char('\n') + QString(4 + 4 * nestingLevel, QLatin1Char(' '));
+        indent = u'\n' + QString(4 * nestingLevel, u' ');
+        indented = u'\n' + QString(4 + 4 * nestingLevel, u' ');
     }
 
     switch (reader.type()) {
@@ -401,7 +400,7 @@ void CborDumper::dumpOne(int nestingLevel)
                 printStringWidthIndicator(r.data.size());
 
                 r = reader.readByteArray();
-                comma = QLatin1Char(',') + indented;
+                comma = u',' + indented;
             }
         } else {
             auto r = reader.readString();
@@ -410,7 +409,7 @@ void CborDumper::dumpOne(int nestingLevel)
                 printStringWidthIndicator(r.data.toUtf8().size());
 
                 r = reader.readString();
-                comma = QLatin1Char(',') + indented;
+                comma = u',' + indented;
             }
         }
 
@@ -466,7 +465,7 @@ void CborDumper::dumpOne(int nestingLevel)
         if (reader.next()) {
             printWidthIndicator(quint64(tag));
             printf("(");
-            dumpOne(nestingLevel);  // same level!
+            dumpOne(nestingLevel); // same level!
             printf(")");
         }
 
@@ -498,15 +497,15 @@ void CborDumper::dumpOne(int nestingLevel)
         break;
 
     case QCborStreamReader::Float16:
-        printf("%s", qPrintable(fpToString(reader.toFloat16(), "f16")));
+        printf("%s", qPrintable(fpToString(reader.toFloat16(), "f16"_L1)));
         reader.next();
         break;
     case QCborStreamReader::Float:
-        printf("%s", qPrintable(fpToString(reader.toFloat(), "f")));
+        printf("%s", qPrintable(fpToString(reader.toFloat(), "f"_L1)));
         reader.next();
         break;
     case QCborStreamReader::Double:
-        printf("%s", qPrintable(fpToString(reader.toDouble(), "")));
+        printf("%s", qPrintable(fpToString(reader.toDouble())));
         reader.next();
         break;
     case QCborStreamReader::Invalid:
@@ -559,7 +558,7 @@ void CborDumper::dumpOneDetailed(int nestingLevel)
     };
 
     auto printFp = [=](const char *descr, double d) {
-        QString s = fpToString(d, "");
+        QString s = fpToString(d);
         if (s.size() <= 6)
             return print(descr, "%s", qPrintable(s));
         return print(descr, "%a", d);
@@ -574,7 +573,7 @@ void CborDumper::dumpOneDetailed(int nestingLevel)
 
         qsizetype size = reader.currentStringChunkSize();
         if (size < 0)
-            return;         // error
+            return; // error
         if (size >= ChunkSizeLimit) {
             fprintf(stderr, "String length too big, %lli\n", qint64(size));
             exit(EXIT_FAILURE);
@@ -619,7 +618,7 @@ void CborDumper::dumpOneDetailed(int nestingLevel)
                 printf("  %s%s", indent.constData(), section.toHex(' ').constData());
 
                 // print the decode
-                QByteArray spaces(width > 0 ? width - section.size() * 3 + 1: 0, ' ');
+                QByteArray spaces(width > 0 ? width - section.size() * 3 + 1 : 0, ' ');
                 printf("%s # \"", spaces.constData());
                 auto ptr = reinterpret_cast<const uchar *>(section.constData());
                 for (int j = 0; j < section.size(); ++j)
@@ -631,7 +630,7 @@ void CborDumper::dumpOneDetailed(int nestingLevel)
             // get the next chunk
             size = reader.currentStringChunkSize();
             if (size < 0)
-                return;         // error
+                return; // error
             if (size >= ChunkSizeLimit) {
                 fprintf(stderr, "String length too big, %lli\n", qint64(size));
                 exit(EXIT_FAILURE);
@@ -770,7 +769,9 @@ void CborDumper::printByteArray(const QByteArray &ba)
         break;
 
     case quint8(QCborKnownTags::ExpectedBase64url):
-        printf("b64'%s'", ba.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals).constData());
+        printf("b64'%s'",
+               ba.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)
+                       .constData());
         break;
     }
 }
@@ -811,23 +812,20 @@ int main(int argc, char *argv[])
     setlocale(LC_ALL, "C");
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("CBOR Dumper tool"));
+    parser.setApplicationDescription("CBOR Dumper tool"_L1);
     parser.addHelpOption();
 
-    QCommandLineOption compact({QStringLiteral("c"), QStringLiteral("compact")},
-                               QStringLiteral("Use compact form (no line breaks)"));
+    QCommandLineOption compact({"c"_L1, "compact"_L1}, "Use compact form (no line breaks)"_L1);
     parser.addOption(compact);
 
-    QCommandLineOption showIndicators({QStringLiteral("i"), QStringLiteral("indicators")},
-                                      QStringLiteral("Show indicators for width of lengths and integrals"));
+    QCommandLineOption showIndicators({ "i"_L1, "indicators"_L1 },
+                                      "Show indicators for width of lengths and integrals"_L1);
     parser.addOption(showIndicators);
 
-    QCommandLineOption verbose({QStringLiteral("a"), QStringLiteral("annotated")},
-                               QStringLiteral("Show bytes and annotated decoding"));
+    QCommandLineOption verbose({"a"_L1, "annotated"_L1}, "Show bytes and annotated decoding"_L1);
     parser.addOption(verbose);
 
-    parser.addPositionalArgument(QStringLiteral("[source]"),
-                                 QStringLiteral("CBOR file to read from"));
+    parser.addPositionalArgument("[source]"_L1, "CBOR file to read from"_L1);
 
     parser.process(app);
 

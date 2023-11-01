@@ -11,7 +11,7 @@ static void removeOffsetRange(qsizetype begin, qsizetype end, QList<LineNumber> 
 {
     qsizetype count = end - begin;
     qsizetype i = 0;
-    DEBUGPRINTF2(printf("tracepointgen: removeOffsetRange: %d %d\n", begin, end));
+    DEBUGPRINTF2(printf("tracepointgen: removeOffsetRange: %llu %llu\n", begin, end));
     while (i < offsets.size()) {
         LineNumber &cur = offsets[i];
         if (begin > cur.end) {
@@ -21,7 +21,7 @@ static void removeOffsetRange(qsizetype begin, qsizetype end, QList<LineNumber> 
             i++;
         } else if (begin < cur.begin && end > cur.end) {
             offsets.remove(i);
-            DEBUGPRINTF2(printf("tracepointgen: removeOffsetRange: %d, %d, %d\n", cur.begin, cur.end, cur.line));
+            DEBUGPRINTF2(printf("tracepointgen: removeOffsetRange: %llu, %llu, %d\n", cur.begin, cur.end, cur.line));
         } else if (end >= cur.begin && end <= cur.end) {
             cur.begin = begin;
             cur.end -= count;
@@ -130,9 +130,9 @@ static QString preprocessMetadata(const QString &in)
 
 int Parser::lineNumber(qsizetype offset) const
 {
-    DEBUGPRINTF(printf("tracepointgen: lineNumber: offset %u, line count: %u\n", offset , m_offsets.size()));
+    DEBUGPRINTF(printf("tracepointgen: lineNumber: offset %llu, line count: %llu\n", offset , m_offsets.size()));
     for (const auto line : m_offsets) {
-        DEBUGPRINTF(printf("tracepointgen: lineNumber: %d %d %d\n", line.begin, line.end, line.line));
+        DEBUGPRINTF(printf("tracepointgen: lineNumber: %llu %llu %d\n", line.begin, line.end, line.line));
         if (offset >= line.begin && offset <= line.end)
             return line.line;
     }
@@ -147,7 +147,7 @@ void Parser::parseParamReplace(const QString &data, qsizetype offset, const QStr
     QString params = data.mid(beginBrace + 1, endBrace - beginBrace -1);
     int punc = params.indexOf(QLatin1Char(','));
     if (punc < 0)
-        panic("Syntax error in Q_TRACE_PARAM_REPLACE at file %s, line %d", qPrintable(name), lineNumber(offset));
+        panic("Syntax error in Q_TRACE_PARAM_REPLACE at file %s, line %llu", qPrintable(name), lineNumber(offset));
     rep.in = params.left(punc).simplified();
     rep.out = params.right(params.length() - punc - 1).simplified();
     if (rep.in.endsWith(QLatin1Char('*')) || rep.out.endsWith(QLatin1Char(']')))
@@ -307,10 +307,9 @@ QStringList Parser::findEnumValues(const QString &name, const QStringList &inclu
                             ret << trimmed;
                     }
 
-                    break;
+                    return ret;
                 }
             }
-            return ret;
         }
     }
     return ret;
@@ -354,8 +353,11 @@ static QList<EnumNameValue> enumsToValues(const QStringList &values)
                 }
             }
         } else {
-            r.name = value;
-            r.value = cur++;
+            if (value.endsWith(QLatin1Char(',')))
+                r.name = value.left(value.length() - 1);
+            else
+                r.name = value;
+            r.value = ++cur;
             ret << r;
         }
     }
@@ -385,7 +387,7 @@ void Parser::parseMetadata(const QString &data, qsizetype offset, const QStringL
     qsizetype prev = 0;
     while (i.hasNext()) {
         QRegularExpressionMatch match = i.next();
-        const QString values = match.captured(2).trimmed();
+        QString values = match.captured(2).trimmed();
         int cur = match.capturedStart();
         if (cur > prev)
             m_metadata.append(preprocessed.mid(prev, cur - prev));
@@ -393,7 +395,7 @@ void Parser::parseMetadata(const QString &data, qsizetype offset, const QStringL
         prev = match.capturedEnd() + 1;
         DEBUGPRINTF2(printf("values: %s\n", qPrintable(values)));
         if (values.isEmpty() || values.startsWith(QStringLiteral("AUTO"))) {
-
+            values.replace(QLatin1Char('\n'), QLatin1Char(' '));
             QStringList ranges;
             if (values.contains(QStringLiteral("RANGE"))) {
                 QRegularExpression rangeMacro(QStringLiteral("RANGE +([A-Za-z0-9_]*) +... +([A-Za-z0-9_]*)"));
@@ -422,16 +424,23 @@ void Parser::parseMetadata(const QString &data, qsizetype offset, const QStringL
                 auto moreValues = enumsToValues(values);
                 if (ranges.size()) {
                     for (int i = 0; i < ranges.size() / 2; i++) {
+                        bool rangeFound = false;
                         for (auto &v : moreValues) {
                             if (v.name == ranges[2 * i]) {
+                                rangeFound = true;
                                 QString rangeEnd = ranges[2 * i + 1];
                                 auto iter = std::find_if(moreValues.begin(), moreValues.end(), [&rangeEnd](const EnumNameValue &elem){
                                     return elem.name == rangeEnd;
                                 });
                                 if (iter != moreValues.end())
                                     v.valueStr = QStringLiteral("RANGE(%1, %2 ... %3)").arg(v.name).arg(v.value).arg(iter->value);
+                                else
+                                    panic("Unable to find range end: %s\n", qPrintable(rangeEnd));
+                                break;
                             }
                         }
+                        if (rangeFound == false)
+                            panic("Unable to find range begin: %s\n", qPrintable(ranges[2 * i]));
                     }
                 }
                 std::sort(moreValues.begin(), moreValues.end(), [](const EnumNameValue &a, const EnumNameValue &b) {

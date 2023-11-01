@@ -1836,8 +1836,6 @@ QByteArray::QByteArray(qsizetype size, char ch)
 }
 
 /*!
-    \internal
-
     Constructs a byte array of size \a size with uninitialized contents.
 */
 
@@ -3229,8 +3227,10 @@ QDataStream &operator>>(QDataStream &in, QByteArray &ba)
     ba.clear();
     quint32 len;
     in >> len;
-    if (len == 0xffffffff)
+    if (len == 0xffffffff) { // null byte-array
+        ba = QByteArray();
         return in;
+    }
 
     const quint32 Step = 1024 * 1024;
     quint32 allocated = 0;

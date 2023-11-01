@@ -149,25 +149,6 @@ void QDialogPrivate::close(int resultCode)
     resetModalitySetByOpen();
 }
 
-/*!
-    \internal
-
-    Emits finished() signal with \a resultCode. If the \a dialogCode
-    is equal to 0 emits rejected(), if the \a dialogCode is equal to
-    1 emits accepted().
- */
-void QDialogPrivate::finalize(int resultCode, int dialogCode)
-{
-    Q_Q(QDialog);
-
-    if (dialogCode == QDialog::Accepted)
-        emit q->accepted();
-    else if (dialogCode == QDialog::Rejected)
-        emit q->rejected();
-
-    emit q->finished(resultCode);
-}
-
 QWindow *QDialogPrivate::transientParentWindow() const
 {
     Q_Q(const QDialog);
@@ -299,7 +280,8 @@ QVariant QDialogPrivate::styleHint(QPlatformDialogHelper::StyleHint hint) const
     \section1 Escape Key
 
     If the user presses the Esc key in a dialog, QDialog::reject()
-    will be called. This will cause the window to close: The \l{QCloseEvent}{close event} cannot be \l{QEvent::ignore()}{ignored}.
+    will be called. This will cause the window to close:
+    The \l{QCloseEvent}{close event} cannot be \l{QEvent::ignore()}{ignored}.
 
     \section1 Extensibility
 
@@ -307,9 +289,8 @@ QVariant QDialogPrivate::styleHint(QPlatformDialogHelper::StyleHint hint) const
     partial dialog that shows the most commonly used options, and a
     full dialog that shows all the options. Typically an extensible
     dialog will initially appear as a partial dialog, but with a
-    \uicontrol More toggle button. If the user presses the \uicontrol More button down,
-    the dialog is expanded. The \l{Extension Example} shows how to achieve
-    extensible dialogs using Qt.
+    \uicontrol More toggle button. If the user presses the
+    \uicontrol More button down, the dialog is expanded.
 
     \target return
     \section1 Return Value (Modal Dialogs)
@@ -339,7 +320,11 @@ QVariant QDialogPrivate::styleHint(QPlatformDialogHelper::StyleHint hint) const
 
     \snippet dialogs/dialogs.cpp 0
 
-    \sa QDialogButtonBox, QTabWidget, QWidget, QProgressDialog, {Extension Example},
+    A dialog with an extension:
+
+    \snippet dialogs/dialogs.cpp extension
+
+    \sa QDialogButtonBox, QTabWidget, QWidget, QProgressDialog,
         {Standard Dialogs Example}
 */
 
@@ -612,9 +597,22 @@ int QDialog::exec()
 
 void QDialog::done(int r)
 {
+    QPointer<QDialog> guard(this);
+
     Q_D(QDialog);
     d->close(r);
-    d->finalize(r, r);
+
+    if (!guard)
+        return;
+
+    int dialogCode = d->dialogCode();
+    if (dialogCode == QDialog::Accepted)
+        emit accepted();
+    else if (dialogCode == QDialog::Rejected)
+        emit rejected();
+
+    if (guard)
+        emit finished(r);
 }
 
 /*!

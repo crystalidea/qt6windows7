@@ -592,7 +592,10 @@ void QWindowPrivate::setMinOrMaxSize(QSize *oldSizeMember, const QSize &size,
     // resize window if current size is outside of min and max limits
     if (minimumSize.width() <= maximumSize.width()
         || minimumSize.height() <= maximumSize.height()) {
-        q->resize(q->geometry().size().expandedTo(minimumSize).boundedTo(maximumSize));
+        const QSize currentSize = q->size();
+        const QSize boundedSize = currentSize.expandedTo(minimumSize).boundedTo(maximumSize);
+        if (currentSize != boundedSize)
+            q->resize(boundedSize);
     }
 }
 
@@ -681,6 +684,9 @@ void QWindow::create()
 /*!
     Returns the window's platform id.
 
+    \note This function will cause the platform window to be created if it is not already.
+    Returns 0, if the platform window creation failed.
+
     For platforms where this id might be useful, the value returned
     will uniquely represent the window inside the corresponding screen.
 
@@ -692,6 +698,9 @@ WId QWindow::winId() const
 
     if (!d->platformWindow)
         const_cast<QWindow *>(this)->create();
+
+    if (!d->platformWindow)
+        return 0;
 
     return d->platformWindow->winId();
 }

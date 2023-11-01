@@ -2,9 +2,6 @@
 // Copyright (C) 2020 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#ifdef QT_NO_CAST_FROM_ASCII
-# undef QT_NO_CAST_FROM_ASCII
-#endif
 #ifdef QT_NO_CAST_TO_ASCII
 # undef QT_NO_CAST_TO_ASCII
 #endif
@@ -407,18 +404,22 @@ private slots:
     void prepend_qcharstar_int_data() { prepend_data(EmptyIsNoop); }
     void prepend_qchar()              { prepend_impl<Reversed<QChar>, QString &(QString::*)(QChar)>(); }
     void prepend_qchar_data()         { prepend_data(EmptyIsNoop); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void prepend_qbytearray()         { prepend_impl<QByteArray>(); }
     void prepend_qbytearray_data()    { prepend_data(EmptyIsNoop); }
-#endif
-    void prepend_char()               { prepend_impl<Reversed<char>, QString &(QString::*)(QChar)>(); }
-    void prepend_char_data()          { prepend_data({EmptyIsNoop, Latin1Encoded}); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
     void prepend_charstar()           { prepend_impl<const char *, QString &(QString::*)(const char *)>(); }
     void prepend_charstar_data()      { prepend_data(EmptyIsNoop); }
     void prepend_bytearray_special_cases_data();
     void prepend_bytearray_special_cases();
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
+
+#if !defined(QT_NO_CAST_FROM_ASCII)
+    void prepend_char()               { prepend_impl<Reversed<char>, QString &(QString::*)(QChar)>(); }
+    void prepend_char_data()          { prepend_data({EmptyIsNoop, Latin1Encoded}); }
 #endif
+
+    void prependEventuallyProducesFreeSpaceAtBegin();
 
     void append_qstring()            { append_impl<QString>(); }
     void append_qstring_data()       { append_data(); }
@@ -432,21 +433,30 @@ private slots:
     void append_qcharstar_int_data() { append_data(EmptyIsNoop); }
     void append_qchar()              { append_impl<QChar, QString &(QString::*)(QChar)>(); }
     void append_qchar_data()         { append_data(EmptyIsNoop); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void append_qbytearray()         { append_impl<QByteArray>(); }
     void append_qbytearray_data()    { append_data(); }
 #endif
+
+#if !defined(QT_NO_CAST_FROM_ASCII)
     void append_char()               { append_impl<char, QString &(QString::*)(QChar)>(); }
     void append_char_data()          { append_data({EmptyIsNoop, Latin1Encoded}); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#endif
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void append_charstar()           { append_impl<const char *, QString &(QString::*)(const char *)>(); }
     void append_charstar_data()      { append_data(); }
 #endif
+
     void append_special_cases();
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void append_bytearray_special_cases_data();
     void append_bytearray_special_cases();
 #endif
+
+    void appendFromRawData();
 
     void operator_pluseq_qstring()            { operator_pluseq_impl<QString>(); }
     void operator_pluseq_qstring_data()       { operator_pluseq_data(); }
@@ -458,19 +468,21 @@ private slots:
     void operator_pluseq_qutf8stringview_data() { operator_pluseq_data(); }
     void operator_pluseq_qchar()              { operator_pluseq_impl<QChar, QString &(QString::*)(QChar)>(); }
     void operator_pluseq_qchar_data()         { operator_pluseq_data(EmptyIsNoop); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void operator_pluseq_qbytearray()         { operator_pluseq_impl<QByteArray>(); }
     void operator_pluseq_qbytearray_data()    { operator_pluseq_data(); }
     void operator_pluseq_charstar()           { operator_pluseq_impl<const char *, QString &(QString::*)(const char *)>(); }
     void operator_pluseq_charstar_data()      { operator_pluseq_data(); }
-#endif
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
+
     void operator_pluseq_special_cases();
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void operator_pluseq_bytearray_special_cases_data();
     void operator_pluseq_bytearray_special_cases();
 #endif
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void operator_eqeq_bytearray_data();
     void operator_eqeq_bytearray();
 #endif
@@ -489,16 +501,22 @@ private slots:
     void insert_qcharstar_int_data() { insert_data(EmptyIsNoop); }
     void insert_qchar()              { insert_impl<Reversed<QChar>, QString &(QString::*)(qsizetype, QChar)>(); }
     void insert_qchar_data()         { insert_data(EmptyIsNoop); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void insert_qbytearray()         { insert_impl<QByteArray>(); }
     void insert_qbytearray_data()    { insert_data(EmptyIsNoop); }
 #endif
+
+#ifndef QT_NO_CAST_FROM_ASCII
     void insert_char()               { insert_impl<Reversed<char>, QString &(QString::*)(qsizetype, QChar)>(); }
     void insert_char_data()          { insert_data({EmptyIsNoop, Latin1Encoded}); }
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#endif
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void insert_charstar()           { insert_impl<const char *, QString &(QString::*)(qsizetype, const char*) >(); }
     void insert_charstar_data()      { insert_data(EmptyIsNoop); }
 #endif
+
     void insert_special_cases();
 
     void simplified_data();
@@ -536,11 +554,13 @@ private slots:
     void truncate();
     void chop_data();
     void chop();
+
     void constructor();
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void constructorQByteArray_data();
     void constructorQByteArray();
 #endif
+
     void STL();
     void macTypes();
     void isEmpty();
@@ -636,7 +656,7 @@ private slots:
 #endif
     void literals();
     void userDefinedLiterals();
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     void eightBitLiterals_data();
     void eightBitLiterals();
 #endif
@@ -1158,13 +1178,16 @@ void tst_QString::nullness()
         QVERIFY(s.isNull());
     }
 #if defined(__cpp_char8_t) || !defined(QT_RESTRICTED_CAST_FROM_ASCII)
+#if !defined(QT_NO_CAST_FROM_ASCII)
     // we don't have QString(std::nullptr_t), so this uses QString(const char8_t*) in C++20:
     {
         QString s = nullptr;
         QVERIFY(s.isNull());
     }
 #endif
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#endif
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     {
         const char *ptr = nullptr;
         QString s = ptr;
@@ -1207,7 +1230,10 @@ void tst_QString::isEmpty()
     QVERIFY(a.isEmpty());
     QVERIFY(!a.isDetached());
 
-    QString c("Not empty");
+    QString b = QString::fromLatin1("Not empty");
+    QVERIFY(!b.isEmpty());
+
+    QString c = u"Not empty"_s;
     QVERIFY(!c.isEmpty());
 }
 
@@ -1260,7 +1286,7 @@ void tst_QString::constructor()
     QVERIFY(empty.isEmpty());
 }
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 void tst_QString::constructorQByteArray_data()
 {
     QTest::addColumn<QByteArray>("src" );
@@ -1319,7 +1345,7 @@ void tst_QString::constructorQByteArray()
         QCOMPARE(str1, expected.left(zero));
     }
 }
-#endif // QT_RESTRICTED_CAST_FROM_ASCII
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 
 void tst_QString::STL()
 {
@@ -1717,7 +1743,7 @@ void tst_QString::indexOf()
     QCOMPARE( haystack.indexOf(needle, startpos, cs), resultpos );
     QCOMPARE( haystack.indexOf(view, startpos, cs), resultpos );
     if (needleIsLatin) {
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && ! defined(QT_NO_CAST_FROM_ASCII)
         QCOMPARE( haystack.indexOf(needle.toLatin1(), startpos, cs), resultpos );
         QCOMPARE( haystack.indexOf(needle.toLatin1().data(), startpos, cs), resultpos );
 #endif
@@ -1750,7 +1776,7 @@ void tst_QString::indexOf()
         QCOMPARE( haystack.indexOf(needle, startpos), resultpos );
         QCOMPARE( haystack.indexOf(view, startpos), resultpos );
         if (needleIsLatin) {
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
             QCOMPARE( haystack.indexOf(needle.toLatin1(), startpos), resultpos );
             QCOMPARE( haystack.indexOf(needle.toLatin1().data(), startpos), resultpos );
 #endif
@@ -1759,7 +1785,7 @@ void tst_QString::indexOf()
             QCOMPARE( haystack.indexOf(needle), resultpos );
             QCOMPARE( haystack.indexOf(view), resultpos );
             if (needleIsLatin) {
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
                 QCOMPARE( haystack.indexOf(needle.toLatin1()), resultpos );
                 QCOMPARE( haystack.indexOf(needle.toLatin1().data()), resultpos );
 #endif
@@ -1941,7 +1967,7 @@ void tst_QString::lastIndexOf()
 
     QCOMPARE(haystack.lastIndexOf(needle, from, cs), expected);
     QCOMPARE(haystack.lastIndexOf(view, from, cs), expected);
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     QCOMPARE(haystack.lastIndexOf(needle.toLatin1(), from, cs), expected);
     QCOMPARE(haystack.lastIndexOf(needle.toLatin1().data(), from, cs), expected);
 #endif
@@ -1975,14 +2001,14 @@ void tst_QString::lastIndexOf()
     if (cs == Qt::CaseSensitive) {
         QCOMPARE(haystack.lastIndexOf(needle, from), expected);
         QCOMPARE(haystack.lastIndexOf(view, from), expected);
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
         QCOMPARE(haystack.lastIndexOf(needle.toLatin1(), from), expected);
         QCOMPARE(haystack.lastIndexOf(needle.toLatin1().data(), from), expected);
 #endif
         if (from == haystack.size()) {
             QCOMPARE(haystack.lastIndexOf(needle), expected);
             QCOMPARE(haystack.lastIndexOf(view), expected);
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
             QCOMPARE(haystack.lastIndexOf(needle.toLatin1()), expected);
             QCOMPARE(haystack.lastIndexOf(needle.toLatin1().data()), expected);
 #endif
@@ -2099,20 +2125,20 @@ void tst_QString::count()
     QCOMPARE(emptyStr.count(QRegularExpression(u"invalid regex\\"_s)), 0);
 #endif
 
-    QString nonBmpString = u8"\U00010000\U00010000abc\U00010000";
+    QString nonBmpString = u"\U00010000\U00010000abc\U00010000"_s;
     QCOMPARE(nonBmpString.count(u"\U00010000"), 3);
 #if QT_CONFIG(regularexpression)
-    QCOMPARE(nonBmpString.count(QRegularExpression(u8"\U00010000")), 3);
-    QCOMPARE(nonBmpString.count(QRegularExpression(u8"\U00010000a?")), 3);
-    QCOMPARE(nonBmpString.count(QRegularExpression(u8"\U00010000a")), 1);
-    QCOMPARE(nonBmpString.count(QRegularExpression(".")), 6);
+    QCOMPARE(nonBmpString.count(QRegularExpression(u"\U00010000"_s)), 3);
+    QCOMPARE(nonBmpString.count(QRegularExpression(u"\U00010000a?"_s)), 3);
+    QCOMPARE(nonBmpString.count(QRegularExpression(u"\U00010000a"_s)), 1);
+    QCOMPARE(nonBmpString.count(QRegularExpression(u"."_s)), 6);
 
     // can't search for unpaired surrogates
     QTest::ignoreMessage(QtWarningMsg, ignoreMessagePattern);
     QCOMPARE(nonBmpString.count(QRegularExpression(QChar(0xd800))), 0);
     QTest::ignoreMessage(QtWarningMsg, ignoreMessagePattern);
     QCOMPARE(nonBmpString.count(QRegularExpression(QChar(0xdc00))), 0);
-#endif
+#endif // QT_CONFIG(regularexpression)
 }
 
 void tst_QString::contains()
@@ -2961,14 +2987,35 @@ void tst_QString::insert_special_cases()
     QCOMPARE(a.insert(0, u'<'), u"<ABCABCABCABC");
     QCOMPARE(a.insert(1, u'>'), u"<>ABCABCABCABC");
 
-    a = u"Meal"_s;
     const QString montreal = QStringLiteral("Montreal");
-    QCOMPARE(a.insert(1, "ontr"_L1), montreal);
-    QCOMPARE(a.insert(4, ""_L1), montreal);
-    QCOMPARE(a.insert(3, ""_L1), montreal);
-    QCOMPARE(a.insert(3, QLatin1String(nullptr)), montreal);
-    QCOMPARE(a.insert(3, static_cast<const char *>(0)), montreal);
-    QCOMPARE(a.insert(0, u"a"_s), "aMontreal"_L1);
+    {
+        // Test when string is not shared
+        a = u"Meal"_s;
+        QCOMPARE(a.insert(1, "ontr"_L1), montreal);
+        QCOMPARE(a.insert(4, ""_L1), montreal);
+        QCOMPARE(a.insert(3, ""_L1), montreal);
+        QCOMPARE(a.insert(3, QLatin1String(nullptr)), montreal);
+#ifndef QT_NO_CAST_FROM_ASCII
+        QCOMPARE(a.insert(3, static_cast<const char *>(0)), montreal);
+#endif
+        QCOMPARE(a.insert(0, u"a"_s), "aMontreal"_L1);
+    }
+    {
+        // Test when string is shared
+        a = u"Meal"_s;
+        QString dummy_share = a;
+        QCOMPARE(a.insert(1, "ontr"_L1), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(4, ""_L1), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(3, ""_L1), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(3, QLatin1String(nullptr)), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(3, QLatin1String(static_cast<const char *>(0))), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(0, u"a"_s), "aMontreal"_L1);
+    }
 
     a = u"Mont"_s;
     QCOMPARE(a.insert(a.size(), "real"_L1), montreal);
@@ -3167,7 +3214,7 @@ void tst_QString::append_special_cases()
     }
 }
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 void tst_QString::append_bytearray_special_cases_data()
 {
     QTest::addColumn<QString>("str" );
@@ -3229,17 +3276,30 @@ void tst_QString::append_bytearray_special_cases()
         QTEST( str, "res" );
     }
 }
-#endif // QT_RESTRICTED_CAST_FROM_ASCII
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
+
+void tst_QString::appendFromRawData()
+{
+    const char16_t utf[] = u"Hello World!";
+    auto *rawData = reinterpret_cast<const QChar *>(utf);
+    QString str = QString::fromRawData(rawData, std::size(utf) - 1);
+
+    QString copy;
+    copy.append(str);
+    QCOMPARE(copy, str);
+    // We make an _actual_ copy, because appending a byte array
+    // created with fromRawData() might be optimized to copy the DataPointer,
+    // which means we may point to temporary stack data.
+    QCOMPARE_NE((void *)copy.constData(), (void *)str.constData());
+}
 
 void tst_QString::operator_pluseq_special_cases()
 {
-    {
-        QString a;
-        a += QChar::CarriageReturn;
-        a += '\r';
-        a += u'\x1111';
-        QCOMPARE(a, QStringView(u"\r\r\x1111"));
-    }
+    QString a;
+    a += QChar::CarriageReturn;
+    a += u'\r';
+    a += u'\x1111';
+    QCOMPARE(a, u"\r\r\x1111");
 }
 
 void tst_QString::operator_pluseq_data(DataOptions options)
@@ -3247,7 +3307,7 @@ void tst_QString::operator_pluseq_data(DataOptions options)
     append_data(options);
 }
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 void tst_QString::operator_pluseq_bytearray_special_cases_data()
 {
     append_bytearray_special_cases_data();
@@ -3299,7 +3359,7 @@ void tst_QString::operator_eqeq_bytearray()
         QVERIFY(!(expected != src.constData()));
     }
 }
-#endif // QT_RESTRICTED_CAST_FROM_ASCII
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 
 void tst_QString::swap()
 {
@@ -3402,7 +3462,7 @@ void tst_QString::prepend_data(DataOptions options)
     }
 }
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 void tst_QString::prepend_bytearray_special_cases_data()
 {
     QTest::addColumn<QString>("str" );
@@ -3457,7 +3517,15 @@ void tst_QString::prepend_bytearray_special_cases()
         QTEST( str, "res" );
     }
 }
-#endif // QT_RESTRICTED_CAST_FROM_ASCII
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
+
+void tst_QString::prependEventuallyProducesFreeSpaceAtBegin()
+{
+    QString s;
+    for (int i = 0; i < 100 && !s.data_ptr().freeSpaceAtBegin(); ++i)
+        s.prepend(u'd');
+    QCOMPARE_GT(s.data_ptr().freeSpaceAtBegin(), 1);
+}
 
 void tst_QString::replace_uint_uint()
 {
@@ -3479,9 +3547,19 @@ void tst_QString::replace_uint_uint()
         s3.replace( (uint) index, (uint) len, QChar(after[0]) );
         QTEST( s3, "result" );
 
+#if !defined(QT_NO_CAST_FROM_ASCII)
+        // Testing replace(qsizetype, qsizetype, QLatin1Char) calls aren't ambiguous
+
+        // Test when the string is shared
         QString s4 = string;
-        s4.replace( (uint) index, (uint) len, QChar(after[0]).toLatin1() );
-        QTEST( s4, "result" );
+        s4.replace((uint)index, (uint)len, QChar(after[0]).toLatin1());
+        QTEST(s4, "result");
+        // Test when it's not shared
+        s4 = string;
+        s4.detach();
+        s4.replace((uint)index, (uint)len, QChar(after[0]).toLatin1());
+        QTEST(s4, "result");
+#endif
     }
 }
 
@@ -3619,13 +3697,14 @@ void tst_QString::replace_string()
         s4.replace(ch, after, cs);
         QCOMPARE(s4, result);
 
-        // What is this one testing? it calls the same replace() overload
-        // as the previous two
+#if !defined(QT_NO_CAST_FROM_ASCII)
+        // Test replace(QLatin1Char, after, cs) calls aren't ambiguous
         if ( QChar(ch.toLatin1()) == ch ) {
             QString s2 = string;
             s2.replace( ch.toLatin1(), after, cs );
             QCOMPARE(s2, result);
         }
+#endif
     }
 
     QString s3 = string;
@@ -3671,7 +3750,7 @@ void tst_QString::replace_string_extra()
 void tst_QString::replace_regexp()
 {
     static const QRegularExpression ignoreMessagePattern(
-        "^QString::replace\\(\\): called on an invalid QRegularExpression object"
+        u"^QString::replace\\(\\): called on an invalid QRegularExpression object"_s
     );
 
     QFETCH( QString, string );
@@ -3765,13 +3844,14 @@ void tst_QString::remove_string()
             s4.remove( ch );
             QCOMPARE(s4, result);
 
-            // What is this one testing? it calls the same remove() overload
-            // as the previous two
+#ifndef QT_NO_CAST_FROM_ASCII
+            // Testing remove(QLatin1Char) isn't ambiguous
             if ( QChar(ch.toLatin1()) == ch ) {
                 QString s2 = string;
-                s2.remove( ch );
+                s2.remove(ch.toLatin1());
                 QCOMPARE(s2, result);
             }
+#endif
         }
 
         // Test when needsDetach() is true
@@ -3935,18 +4015,18 @@ void tst_QString::toNum_base_data()
     QTest::newRow("77") << u"77"_s << 8 << 63;
     QTest::newRow("077") << u"077"_s << 8 << 63;
 
-    QTest::newRow("0xFF") << u"0xFF"_s << 0 << 255;
-    QTest::newRow("077") << u"077"_s << 0 << 63;
-    QTest::newRow("255") << u"255"_s << 0 << 255;
+    QTest::newRow("0xFF - deduced base") << u"0xFF"_s << 0 << 255;
+    QTest::newRow("077 - deduced base") << u"077"_s << 0 << 63;
+    QTest::newRow("255 - deduced base") << u"255"_s << 0 << 255;
 
     QTest::newRow(" FF") << u" FF"_s << 16 << 255;
     QTest::newRow(" 0xFF") << u" 0xFF"_s << 16 << 255;
     QTest::newRow(" 77") << u" 77"_s << 8 << 63;
     QTest::newRow(" 077") << u" 077"_s << 8 << 63;
 
-    QTest::newRow(" 0xFF") << u" 0xFF"_s << 0 << 255;
-    QTest::newRow(" 077") << u" 077"_s << 0 << 63;
-    QTest::newRow(" 255") << u" 255"_s << 0 << 255;
+    QTest::newRow(" 0xFF - deduced base") << u" 0xFF"_s << 0 << 255;
+    QTest::newRow(" 077 - deduced base") << u" 077"_s << 0 << 63;
+    QTest::newRow(" 255 - deduced base") << u" 255"_s << 0 << 255;
 
     QTest::newRow("\tFF\t") << u"\tFF\t"_s << 16 << 255;
     QTest::newRow("\t0xFF  ") << u"\t0xFF  "_s << 16 << 255;
@@ -3997,9 +4077,9 @@ void tst_QString::toNum_base_neg_data()
     QTest::newRow("-77") << u"-77"_s << 8 << -63;
     QTest::newRow("-077") << u"-077"_s << 8 << -63;
 
-    QTest::newRow("-0xFE") << u"-0xFE"_s << 0 << -254;
-    QTest::newRow("-077") << u"-077"_s << 0 << -63;
-    QTest::newRow("-254") << u"-254"_s << 0 << -254;
+    QTest::newRow("-0xFE - deduced base") << u"-0xFE"_s << 0 << -254;
+    QTest::newRow("-077 - deduced base") << u"-077"_s << 0 << -63;
+    QTest::newRow("-254 - deduced base") << u"-254"_s << 0 << -254;
 }
 
 void tst_QString::toNum_base_neg()
@@ -4934,25 +5014,25 @@ void tst_QString::endsWith()
 {
     QString a;
 
-    QVERIFY(!a.endsWith('A'));
-    QVERIFY(!a.endsWith("AB"));
+    QVERIFY(!a.endsWith(u'A'));
+    QVERIFY(!a.endsWith(u"AB"_s));
     {
-        CREATE_VIEW("AB");
+        CREATE_VIEW(u"AB"_s);
         QVERIFY(!a.endsWith(view));
     }
     QVERIFY(!a.isDetached());
 
-    a = "AB";
-    QVERIFY( a.endsWith("B") );
-    QVERIFY( a.endsWith("AB") );
-    QVERIFY( !a.endsWith("C") );
-    QVERIFY( !a.endsWith("ABCDEF") );
-    QVERIFY( a.endsWith("") );
+    a = u"AB"_s;
+    QVERIFY( a.endsWith(u"B"_s) );
+    QVERIFY( a.endsWith(u"AB"_s) );
+    QVERIFY( !a.endsWith(u"C"_s) );
+    QVERIFY( !a.endsWith(u"ABCDEF"_s) );
+    QVERIFY( a.endsWith(u""_s) );
     QVERIFY( a.endsWith(QString()) );
-    QVERIFY( a.endsWith('B') );
+    QVERIFY( a.endsWith(u'B') );
     QVERIFY( a.endsWith(QLatin1Char('B')) );
-    QVERIFY( a.endsWith(QChar('B')) );
-    QVERIFY( !a.endsWith('C') );
+    QVERIFY( a.endsWith(QChar(u'B')) );
+    QVERIFY( !a.endsWith(u'C') );
     QVERIFY( !a.endsWith(QChar()) );
     QVERIFY( !a.endsWith(QLatin1Char(0)) );
 
@@ -4963,24 +5043,24 @@ void tst_QString::endsWith()
     QVERIFY( a.endsWith(QLatin1String("")) );
     QVERIFY( a.endsWith(QLatin1String(nullptr)) );
 
-    QVERIFY( a.endsWith("B", Qt::CaseSensitive) );
-    QVERIFY( a.endsWith("B", Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith("b", Qt::CaseSensitive) );
-    QVERIFY( a.endsWith("b", Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith("aB", Qt::CaseSensitive) );
-    QVERIFY( a.endsWith("aB", Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith("C", Qt::CaseSensitive) );
-    QVERIFY( !a.endsWith("C", Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith("c", Qt::CaseSensitive) );
-    QVERIFY( !a.endsWith("c", Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith("abcdef", Qt::CaseInsensitive) );
-    QVERIFY( a.endsWith("", Qt::CaseInsensitive) );
+    QVERIFY( a.endsWith(u"B"_s, Qt::CaseSensitive) );
+    QVERIFY( a.endsWith(u"B", Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u"b", Qt::CaseSensitive) );
+    QVERIFY( a.endsWith(u"b"_s, Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u"aB"_s, Qt::CaseSensitive) );
+    QVERIFY( a.endsWith(u"aB"_s, Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u"C"_s, Qt::CaseSensitive) );
+    QVERIFY( !a.endsWith(u"C"_s, Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u"c"_s, Qt::CaseSensitive) );
+    QVERIFY( !a.endsWith(u"c"_s, Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u"abcdef"_s, Qt::CaseInsensitive) );
+    QVERIFY( a.endsWith(u""_s, Qt::CaseInsensitive) );
     QVERIFY( a.endsWith(QString(), Qt::CaseInsensitive) );
-    QVERIFY( a.endsWith('b', Qt::CaseInsensitive) );
-    QVERIFY( a.endsWith('B', Qt::CaseInsensitive) );
+    QVERIFY( a.endsWith(u'b', Qt::CaseInsensitive) );
+    QVERIFY( a.endsWith(u'B', Qt::CaseInsensitive) );
     QVERIFY( a.endsWith(QLatin1Char('b'), Qt::CaseInsensitive) );
-    QVERIFY( a.endsWith(QChar('b'), Qt::CaseInsensitive) );
-    QVERIFY( !a.endsWith('c', Qt::CaseInsensitive) );
+    QVERIFY( a.endsWith(QChar(u'b'), Qt::CaseInsensitive) );
+    QVERIFY( !a.endsWith(u'c', Qt::CaseInsensitive) );
     QVERIFY( !a.endsWith(QChar(), Qt::CaseInsensitive) );
     QVERIFY( !a.endsWith(QLatin1Char(0), Qt::CaseInsensitive) );
 
@@ -4997,10 +5077,10 @@ void tst_QString::endsWith()
     QVERIFY( !a.endsWith(QLatin1String("abcdef"), Qt::CaseInsensitive) );
     QVERIFY( a.endsWith(QLatin1String(""), Qt::CaseInsensitive) );
     QVERIFY( a.endsWith(QLatin1String(nullptr), Qt::CaseInsensitive) );
-    QVERIFY( a.endsWith('B', Qt::CaseSensitive) );
+    QVERIFY( a.endsWith(u'B', Qt::CaseSensitive) );
     QVERIFY( a.endsWith(QLatin1Char('B'), Qt::CaseSensitive) );
-    QVERIFY( a.endsWith(QChar('B'), Qt::CaseSensitive) );
-    QVERIFY( !a.endsWith('b', Qt::CaseSensitive) );
+    QVERIFY( a.endsWith(QChar(u'B'), Qt::CaseSensitive) );
+    QVERIFY( !a.endsWith(u'b', Qt::CaseSensitive) );
     QVERIFY( !a.endsWith(QChar(), Qt::CaseSensitive) );
     QVERIFY( !a.endsWith(QLatin1Char(0), Qt::CaseSensitive) );
 
@@ -5013,10 +5093,10 @@ void tst_QString::endsWith()
     TEST_VIEW_ENDS_WITH(QLatin1String(nullptr), true);
 #undef TEST_VIEW_ENDS_WITH
 
-    a = "";
-    QVERIFY( a.endsWith("") );
+    a = u""_s;
+    QVERIFY( a.endsWith(u""_s) );
     QVERIFY( a.endsWith(QString()) );
-    QVERIFY( !a.endsWith("ABC") );
+    QVERIFY( !a.endsWith(u"ABC"_s) );
     QVERIFY( !a.endsWith(QLatin1Char(0)) );
     QVERIFY( !a.endsWith(QLatin1Char('x')) );
     QVERIFY( !a.endsWith(QChar()) );
@@ -5026,9 +5106,9 @@ void tst_QString::endsWith()
     QVERIFY( !a.endsWith(QLatin1String("ABC")) );
 
     a = QString();
-    QVERIFY( !a.endsWith("") );
+    QVERIFY( !a.endsWith(u""_s) );
     QVERIFY( a.endsWith(QString()) );
-    QVERIFY( !a.endsWith("ABC") );
+    QVERIFY( !a.endsWith(u"ABC"_s) );
 
     QVERIFY( !a.endsWith(QLatin1String("")) );
     QVERIFY( a.endsWith(QLatin1String(nullptr)) );
@@ -5039,12 +5119,12 @@ void tst_QString::endsWith()
     QVERIFY( !a.endsWith(QChar()) );
 
     // this test is independent of encoding
-    a = "\xc3\xa9";
-    QVERIFY( a.endsWith("\xc3\xa9") );
-    QVERIFY( !a.endsWith("\xc3\xa1") );
+    a = u'é';
+    QVERIFY(a.endsWith(u"é"_s));
+    QVERIFY(!a.endsWith(u"á"_s));
 
     // this one is dependent of encoding
-    QVERIFY( a.endsWith("\xc3\x89", Qt::CaseInsensitive) );
+    QVERIFY(a.endsWith(u"É"_s, Qt::CaseInsensitive));
 }
 
 void tst_QString::check_QDataStream()
@@ -5053,7 +5133,7 @@ void tst_QString::check_QDataStream()
     QByteArray ar;
     {
         QDataStream out(&ar,QIODevice::WriteOnly);
-        out << QString("COMPARE Text");
+        out << u"COMPARE Text"_s;
     }
     {
         QDataStream in(&ar,QIODevice::ReadOnly);
@@ -5068,7 +5148,7 @@ void tst_QString::check_QTextStream()
     QByteArray ar;
     {
         QTextStream out(&ar,QIODevice::WriteOnly);
-        out << QString("This is COMPARE Text");
+        out << u"This is COMPARE Text"_s;
     }
     {
         QTextStream in(&ar,QIODevice::ReadOnly);
@@ -5081,21 +5161,21 @@ void tst_QString::check_QTextIOStream()
 {
     QString a;
     {
-        a="";
+        a = u""_s;
         QTextStream ts(&a);
         // invalid Utf8
         ts << "pi \261= " << 3.125;
         QCOMPARE(a, QString::fromUtf16(u"pi \xfffd= 3.125"));
     }
     {
-        a="";
+        a = u""_s;
         QTextStream ts(&a);
         // valid Utf8
         ts << "pi ø= " << 3.125;
         QCOMPARE(a, QString::fromUtf16(u"pi ø= 3.125"));
     }
     {
-        a="123 456";
+        a = u"123 456"_s;
         int x,y;
         QTextStream(&a) >> x >> y;
         QCOMPARE(x,123);
@@ -5144,7 +5224,7 @@ void tst_QString::setRawData()
     QVERIFY(cstr.data_ptr() == csd);
 
     // This tests the discarding of the shared data object
-    cstr = "foo";
+    cstr = QString::fromUtf8("foo");
     QVERIFY(cstr.isDetached());
     QVERIFY(cstr.constData() != ptr2);
 
@@ -5171,7 +5251,7 @@ void tst_QString::setUnicode()
     QCOMPARE(str, QString(ptr, 1));
 
     // make sure that the string is resized, even if the data is nullptr
-    str = "test";
+    str = u"test"_s;
     QCOMPARE(str.size(), 4);
     str.setUnicode(nullptr, 1);
     QCOMPARE(str.size(), 1);
@@ -5183,7 +5263,7 @@ void tst_QString::fromStdString()
     QVERIFY(QString::fromStdString(std::string()).isEmpty());
     std::string stroustrup = "foo";
     QString eng = QString::fromStdString( stroustrup );
-    QCOMPARE( eng, QString("foo") );
+    QCOMPARE( eng, u"foo"_s );
     const char cnull[] = "Embedded\0null\0character!";
     std::string stdnull( cnull, sizeof(cnull)-1 );
     QString qtnull = QString::fromStdString( stdnull );
@@ -5196,23 +5276,25 @@ void tst_QString::toStdString()
     QVERIFY(nullStr.toStdString().empty());
     QVERIFY(!nullStr.isDetached());
 
-    QString emptyStr("");
+    QString emptyStr(u""_s);
     QVERIFY(emptyStr.toStdString().empty());
     QVERIFY(!emptyStr.isDetached());
 
-    QString nord = "foo";
+    QString nord = u"foo"_s;
     std::string stroustrup1 = nord.toStdString();
     QVERIFY( qstrcmp(stroustrup1.c_str(), "foo") == 0 );
+
     // For now, most QString constructors are also broken with respect
     // to embedded null characters, had to find one that works...
-    const QChar qcnull[] = {
-        'E', 'm', 'b', 'e', 'd', 'd', 'e', 'd', '\0',
-        'n', 'u', 'l', 'l', '\0',
-        'c', 'h', 'a', 'r', 'a', 'c', 't', 'e', 'r', '!'
-    };
-    QString qtnull( qcnull, sizeof(qcnull)/sizeof(QChar) );
+    const char16_t utf16[] = u"Embedded\0null\0character!";
+    const int size = std::size(utf16) - 1; // - 1, null terminator of the string literal
+    QString qtnull(reinterpret_cast<const QChar *>(utf16), size);
+
     std::string stdnull = qtnull.toStdString();
-    QCOMPARE( int(stdnull.size()), qtnull.size() );
+    QCOMPARE(int(stdnull.size()), qtnull.size());
+
+    std::u16string stdu16null = qtnull.toStdU16String();
+    QCOMPARE(int(stdu16null.size()), qtnull.size());
 }
 
 void tst_QString::utf8()
@@ -5362,7 +5444,7 @@ void tst_QString::fromLocal8Bit_data()
 
     for (int l=0;l<111;l++) {
         longQByteArray = longQByteArray + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        longQString += "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        longQString += u"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"_s;
     }
 
     //QTest::newRow("longString") << longQByteArray << -1 << longQString;
@@ -5631,7 +5713,7 @@ void tst_QString::toLatin1Roundtrip()
     QCOMPARE(std::move(s).toLatin1(), latin1);
 
     // and verify that the moved-from object can still be used
-    s = "foo";
+    s = u"foo"_s;
     s.clear();
 }
 
@@ -5694,13 +5776,13 @@ void tst_QString::fromUcs4()
 
     static const char32_t str1[] = U"Hello Unicode World";
     s = QString::fromUcs4(str1, sizeof(str1) / sizeof(str1[0]) - 1);
-    QCOMPARE(s, QString("Hello Unicode World"));
+    QCOMPARE(s, u"Hello Unicode World");
 
     s = QString::fromUcs4(str1);
-    QCOMPARE(s, QString("Hello Unicode World"));
+    QCOMPARE(s, u"Hello Unicode World");
 
     s = QString::fromUcs4(str1, 5);
-    QCOMPARE(s, QString("Hello"));
+    QCOMPARE(s, u"Hello");
 
     s = QString::fromUcs4(U"\u221212\U000020AC\U00010000");
     QCOMPARE(s, QString::fromUtf8("\342\210\222" "12" "\342\202\254" "\360\220\200\200"));
@@ -5857,23 +5939,24 @@ void tst_QString::arg()
 
     // ### Qt 7: clean this up, leave just the #else branch
 #if QT_VERSION < QT_VERSION_CHECK(6, 6, 0)
-    static const QRegularExpression nonAsciiArgWarning("QString::arg\\(\\): the replacement \".*\" contains non-ASCII digits");
+    static const QRegularExpression nonAsciiArgWarning(
+            u"QString::arg\\(\\): the replacement \".*\" contains non-ASCII digits"_s);
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%¹").arg("foo"), QString("foo") );
+    QCOMPARE(u"%¹"_s.arg(u"foo"), u"foo");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%¹%1").arg("foo"), QString("foofoo") );
+    QCOMPARE(u"%¹%1"_s.arg(u"foo"), u"foofoo");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%1²").arg("E=mc"), QString("E=mc") );
-    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%1²%2").arg("a").arg("b"), QString("ba") );
+    QCOMPARE(u"%1²"_s.arg(u"E=mc"), u"E=mc");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QCOMPARE(u"%1²%2"_s.arg(u"a").arg(u"b"), u"ba");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%¹%1²%2").arg("a").arg("b"), QString("a%1²b") );
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE( QString("%2²%1").arg("a").arg("b"), QString("ba") );
+    QCOMPARE(u"%¹%1²%2"_s.arg(u"a").arg(u"b"), u"a%1²b");
+    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QCOMPARE(u"%2²%1"_s.arg(u"a").arg(u"b"), u"ba");
 #else
     QTest::ignoreMessage(QtWarningMsg, "QString::arg: Argument missing: %¹, foo");
     QCOMPARE(u"%¹"_s.arg(foo), u"%¹");
@@ -6108,7 +6191,7 @@ void tst_QString::doubleOut()
     const QString expect(QStringLiteral("1e-06"));
     const double micro = 1e-6;
     QCOMPARE(QString::number(micro), expect);
-    QCOMPARE(QString("%1").arg(micro), expect);
+    QCOMPARE(u"%1"_s.arg(micro), expect);
     {
         QCOMPARE(QString::asprintf("%g", micro), expect);
     }
@@ -6333,31 +6416,31 @@ void tst_QString::operator_eqeq_nullstring()
     /* Some of these might not be all that logical but it's the behaviour we've had since 3.0.0
        so we should probably stick with it. */
 
-    QVERIFY( QString() == "" );
-    QVERIFY( "" == QString() );
+    QVERIFY( QString() == u""_s );
+    QVERIFY( u""_s == QString() );
 
-    QVERIFY( QString("") == "" );
-    QVERIFY( "" == QString("") );
+    QVERIFY( QString(u""_s) == u""_s );
+    QVERIFY( u""_s == QString(u""_s) );
 
     QVERIFY(QString() == nullptr);
     QVERIFY(nullptr == QString());
 
-    QVERIFY(QString("") == nullptr);
-    QVERIFY(nullptr == QString(""));
+    QVERIFY(QString(u""_s) == nullptr);
+    QVERIFY(nullptr == QString(u""_s));
 
     QVERIFY( QString().size() == 0 );
 
-    QVERIFY( QString("").size() == 0 );
+    QVERIFY(u""_s.size() == 0);
 
-    QVERIFY( QString() == QString("") );
-    QVERIFY( QString("") == QString() );
+    QVERIFY(QString() == u""_s);
+    QVERIFY( QString(u""_s) == QString() );
 }
 
 void tst_QString::operator_smaller()
 {
     QString null;
-    QString empty("");
-    QString foo("foo");
+    QString empty(u""_s);
+    QString foo(u"foo"_s);
     [[maybe_unused]]
     const char *nullC = nullptr;
     [[maybe_unused]]
@@ -6366,13 +6449,13 @@ void tst_QString::operator_smaller()
     QVERIFY( !(null < QString()) );
     QVERIFY( !(null > QString()) );
 
-    QVERIFY( !(empty < QString("")) );
-    QVERIFY( !(empty > QString("")) );
+    QVERIFY(!(empty < u""_s));
+    QVERIFY(!(empty > u""_s));
 
     QVERIFY( !(null < empty) );
     QVERIFY( !(null > empty) );
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     QVERIFY( !(nullC < empty) );
     QVERIFY( !(nullC > empty) );
 
@@ -6441,25 +6524,21 @@ void tst_QString::operator_smaller()
     QVERIFY( (QLatin1String("z") > foo));
 
     // operator< is not locale-aware (or shouldn't be)
-    QVERIFY( foo < QString("\xc3\xa9") );
+    QCOMPARE_LT(foo, QString::fromUtf8("\xc3\xa9"));
+
+#ifndef QT_NO_CAST_FROM_ASCII
     QVERIFY( foo < "\xc3\xa9" );
+#endif
 
-    QVERIFY(QString("a") < QString("b"));
-    QVERIFY(QString("a") <= QString("b"));
-    QVERIFY(QString("a") <= QString("a"));
-    QVERIFY(QString("a") == QString("a"));
-    QVERIFY(QString("a") >= QString("a"));
-    QVERIFY(QString("b") >= QString("a"));
-    QVERIFY(QString("b") > QString("a"));
+    QCOMPARE_LT(QString(u"a"_s), QString(u"b"_s));
+    QCOMPARE_LE(QString(u"a"_s), QString(u"b"_s));
+    QCOMPARE_LE(QString(u"a"_s), QString(u"a"_s));
+    QCOMPARE_EQ(QString(u"a"_s), QString(u"a"_s));
+    QCOMPARE_GE(QString(u"a"_s), QString(u"a"_s));
+    QCOMPARE_GE(QString(u"b"_s), QString(u"a"_s));
+    QCOMPARE_GT(QString(u"b"_s), QString(u"a"_s));
 
-    QVERIFY("a" < QString("b"));
-    QVERIFY("a" <= QString("b"));
-    QVERIFY("a" <= QString("a"));
-    QVERIFY("a" == QString("a"));
-    QVERIFY("a" >= QString("a"));
-    QVERIFY("b" >= QString("a"));
-    QVERIFY("b" > QString("a"));
-
+#ifndef QT_NO_CAST_FROM_ASCII
     QVERIFY(QString("a") < "b");
     QVERIFY(QString("a") <= "b");
     QVERIFY(QString("a") <= "a");
@@ -6468,7 +6547,16 @@ void tst_QString::operator_smaller()
     QVERIFY(QString("b") >= "a");
     QVERIFY(QString("b") > "a");
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+    QCOMPARE_LT("a", QString(u"b"_s));
+    QCOMPARE_LE("a", QString(u"b"_s));
+    QCOMPARE_LE("a", QString(u"a"_s));
+    QCOMPARE_EQ("a", QString(u"a"_s));
+    QCOMPARE_GE("a", QString(u"a"_s));
+    QCOMPARE_GE("b", QString(u"a"_s));
+    QCOMPARE_GT("b", QString(u"a"_s));
+#endif
+
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     QVERIFY(QString("a") < QByteArray("b"));
     QVERIFY(QString("a") <= QByteArray("b"));
     QVERIFY(QString("a") <= QByteArray("a"));
@@ -6478,23 +6566,23 @@ void tst_QString::operator_smaller()
     QVERIFY(QString("b") > QByteArray("a"));
 #endif
 
-    QVERIFY(QLatin1String("a") < QString("b"));
-    QVERIFY(QLatin1String("a") <= QString("b"));
-    QVERIFY(QLatin1String("a") <= QString("a"));
-    QVERIFY(QLatin1String("a") == QString("a"));
-    QVERIFY(QLatin1String("a") >= QString("a"));
-    QVERIFY(QLatin1String("b") >= QString("a"));
-    QVERIFY(QLatin1String("b") > QString("a"));
+    QVERIFY(QLatin1String("a") < QString(u"b"_s));
+    QVERIFY(QLatin1String("a") <= QString(u"b"_s));
+    QVERIFY(QLatin1String("a") <= QString(u"a"_s));
+    QVERIFY(QLatin1String("a") == QString(u"a"_s));
+    QVERIFY(QLatin1String("a") >= QString(u"a"_s));
+    QVERIFY(QLatin1String("b") >= QString(u"a"_s));
+    QVERIFY(QLatin1String("b") > QString(u"a"_s));
 
-    QVERIFY(QString("a") < QLatin1String("b"));
-    QVERIFY(QString("a") <= QLatin1String("b"));
-    QVERIFY(QString("a") <= QLatin1String("a"));
-    QVERIFY(QString("a") == QLatin1String("a"));
-    QVERIFY(QString("a") >= QLatin1String("a"));
-    QVERIFY(QString("b") >= QLatin1String("a"));
-    QVERIFY(QString("b") > QLatin1String("a"));
+    QVERIFY(QString(u"a"_s) < QLatin1String("b"));
+    QVERIFY(QString(u"a"_s) <= QLatin1String("b"));
+    QVERIFY(QString(u"a"_s) <= QLatin1String("a"));
+    QVERIFY(QString(u"a"_s) == QLatin1String("a"));
+    QVERIFY(QString(u"a"_s) >= QLatin1String("a"));
+    QVERIFY(QString(u"b"_s) >= QLatin1String("a"));
+    QVERIFY(QString(u"b"_s) > QLatin1String("a"));
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
     QVERIFY("a" < QLatin1String("b"));
     QVERIFY("a" <= QLatin1String("b"));
     QVERIFY("a" <= QLatin1String("a"));
@@ -6711,7 +6799,7 @@ void tst_QString::iterators()
     QVERIFY(!emptyStr.isDetached());
     QCOMPARE(emptyStr.begin(), emptyStr.end());
 
-    QString s = "0123456789";
+    QString s = u"0123456789"_s;
 
     auto it = s.begin();
     auto constIt = s.cbegin();
@@ -6752,7 +6840,7 @@ void tst_QString::reverseIterators()
     QVERIFY(!emptyStr.isDetached());
     QCOMPARE(emptyStr.rbegin(), emptyStr.rend());
 
-    QString s = "1234";
+    QString s(u"1234"_s);
     QString sr = s;
     std::reverse(sr.begin(), sr.end());
     const QString &csr = sr;
@@ -6853,7 +6941,7 @@ QT_WARNING_DISABLE_DEPRECATED
         QVERIFY(list == result);
     }
 
-    result.removeAll("");
+    result.removeAll(u""_s);
     list = str.split(sep, Qt::SkipEmptyParts);
     QVERIFY(list == result);
 #if QT_CONFIG(regularexpression)
@@ -6929,13 +7017,13 @@ void tst_QString::regularexpression_lifetime()
         return QString(QLatin1String("the quick brown fox jumps over the lazy dog"));
     };
 
-    QRegularExpression re("\\w{5}");
+    QRegularExpression re(u"\\w{5}"_s);
 
     {
         QString s = getString();
         QRegularExpressionMatch match;
         const bool contains = std::move(s).contains(re, &match);
-        s.fill('X'); // NOLINT(bugprone-use-after-move)
+        s.fill(u'X'); // NOLINT(bugprone-use-after-move)
         QVERIFY(contains);
         QCOMPARE(match.capturedView(), u"quick");
     }
@@ -6944,7 +7032,7 @@ void tst_QString::regularexpression_lifetime()
         QString s = getString();
         QRegularExpressionMatch match;
         const auto index = std::move(s).indexOf(re, 0, &match);
-        s.fill('X'); // NOLINT(bugprone-use-after-move)
+        s.fill(u'X'); // NOLINT(bugprone-use-after-move)
         QCOMPARE(index, 4);
         QCOMPARE(match.capturedView(), u"quick");
     }
@@ -6953,7 +7041,7 @@ void tst_QString::regularexpression_lifetime()
         QString s = getString();
         QRegularExpressionMatch match;
         const auto lastIndex = std::move(s).lastIndexOf(re, &match);
-        s.fill('X'); // NOLINT(bugprone-use-after-move)
+        s.fill(u'X'); // NOLINT(bugprone-use-after-move)
         QCOMPARE(lastIndex, 20);
         QCOMPARE(match.capturedView(), u"jumps");
     }
@@ -6996,7 +7084,7 @@ void tst_QString::unicodeStrings()
     QVERIFY(nullStr.toStdU32String().empty());
     QVERIFY(!nullStr.isDetached());
 
-    QString emptyStr("");
+    QString emptyStr(u""_s);
     QVERIFY(emptyStr.toStdU16String().empty());
     QVERIFY(emptyStr.toStdU32String().empty());
     QVERIFY(!emptyStr.isDetached());
@@ -7006,7 +7094,7 @@ void tst_QString::unicodeStrings()
     static const std::u32string u32str1(U"Hello Unicode World");
     s1 = QString::fromStdU16String(u16str1);
     s2 = QString::fromStdU32String(u32str1);
-    QCOMPARE(s1, QString("Hello Unicode World"));
+    QCOMPARE(s1, u"Hello Unicode World");
     QCOMPARE(s1, s2);
 
     QCOMPARE(s2.toStdU16String(), u16str1);
@@ -7018,7 +7106,7 @@ void tst_QString::unicodeStrings()
 
 void tst_QString::latin1String()
 {
-    QString s("Hello");
+    QString s(u"Hello"_s);
 
     QVERIFY(s == QLatin1String("Hello"));
     QVERIFY(s != QLatin1String("Hello World"));
@@ -7108,20 +7196,20 @@ void tst_QString::nanAndInf()
     bool ok;
     double d;
 
-    d = QString("-INF").toDouble(&ok);
+    d = u"-INF"_s.toDouble(&ok);
     QVERIFY(ok);
     QVERIFY(d == -qInf());
 
-    QString("INF").toLong(&ok);
+    u"INF"_s.toLong(&ok);
     QVERIFY(!ok);
 
-    QString("INF").toLong(&ok, 36);
+    u"INF"_s.toLong(&ok, 36);
     QVERIFY(ok);
 
-    QString("INF0").toLong(&ok, 36);
+    u"INF0"_s.toLong(&ok, 36);
     QVERIFY(ok);
 
-    QString("0INF0").toLong(&ok, 36);
+    u"0INF0"_s.toLong(&ok, 36);
     QVERIFY(ok);
 
     // Check that inf (float) => "inf" (QString) => inf (float).
@@ -7141,36 +7229,36 @@ void tst_QString::nanAndInf()
 
     // Check that .arg(inf-or-nan, wide, fmt, 3, '0') padds with zeros
     QString form = QStringLiteral("%1");
-    QCOMPARE(form.arg(qInf(), 5, 'f', 3, '0'), u"00inf");
-    QCOMPARE(form.arg(qInf(), -5, 'f', 3, '0'), u"inf00");
-    QCOMPARE(form.arg(-qInf(), 6, 'f', 3, '0'), u"00-inf");
-    QCOMPARE(form.arg(-qInf(), -6, 'f', 3, '0'), u"-inf00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'f', 3, '0'), u"nan00");
-    QCOMPARE(form.arg(qInf(), 5, 'F', 3, '0'), u"00INF");
-    QCOMPARE(form.arg(qInf(), -5, 'F', 3, '0'), u"INF00");
-    QCOMPARE(form.arg(-qInf(), 6, 'F', 3, '0'), u"00-INF");
-    QCOMPARE(form.arg(-qInf(), -6, 'F', 3, '0'), u"-INF00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'F', 3, '0'), u"NAN00");
-    QCOMPARE(form.arg(qInf(), 5, 'e', 3, '0'), u"00inf");
-    QCOMPARE(form.arg(qInf(), -5, 'e', 3, '0'), u"inf00");
-    QCOMPARE(form.arg(-qInf(), 6, 'e', 3, '0'), u"00-inf");
-    QCOMPARE(form.arg(-qInf(), -6, 'e', 3, '0'), u"-inf00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'e', 3, '0'), u"nan00");
-    QCOMPARE(form.arg(qInf(), 5, 'E', 3, '0'), u"00INF");
-    QCOMPARE(form.arg(qInf(), -5, 'E', 3, '0'), u"INF00");
-    QCOMPARE(form.arg(-qInf(), 6, 'E', 3, '0'), u"00-INF");
-    QCOMPARE(form.arg(-qInf(), -6, 'E', 3, '0'), u"-INF00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'E', 3, '0'), u"NAN00");
-    QCOMPARE(form.arg(qInf(), 5, 'g', 3, '0'), u"00inf");
-    QCOMPARE(form.arg(qInf(), -5, 'g', 3, '0'), u"inf00");
-    QCOMPARE(form.arg(-qInf(), 6, 'g', 3, '0'), u"00-inf");
-    QCOMPARE(form.arg(-qInf(), -6, 'g', 3, '0'), u"-inf00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'g', 3, '0'), u"nan00");
-    QCOMPARE(form.arg(qInf(), 5, 'G', 3, '0'), u"00INF");
-    QCOMPARE(form.arg(qInf(), -5, 'G', 3, '0'), u"INF00");
-    QCOMPARE(form.arg(-qInf(), 6, 'G', 3, '0'), u"00-INF");
-    QCOMPARE(form.arg(-qInf(), -6, 'G', 3, '0'), u"-INF00");
-    QCOMPARE(form.arg(qQNaN(), -5, 'G', 3, '0'), u"NAN00");
+    QCOMPARE(form.arg(qInf(), 5, 'f', 3, u'0'), u"00inf");
+    QCOMPARE(form.arg(qInf(), -5, 'f', 3, u'0'), u"inf00");
+    QCOMPARE(form.arg(-qInf(), 6, 'f', 3, u'0'), u"00-inf");
+    QCOMPARE(form.arg(-qInf(), -6, 'f', 3, u'0'), u"-inf00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'f', 3, u'0'), u"nan00");
+    QCOMPARE(form.arg(qInf(), 5, 'F', 3, u'0'), u"00INF");
+    QCOMPARE(form.arg(qInf(), -5, 'F', 3, u'0'), u"INF00");
+    QCOMPARE(form.arg(-qInf(), 6, 'F', 3, u'0'), u"00-INF");
+    QCOMPARE(form.arg(-qInf(), -6, 'F', 3, u'0'), u"-INF00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'F', 3, u'0'), u"NAN00");
+    QCOMPARE(form.arg(qInf(), 5, 'e', 3, u'0'), u"00inf");
+    QCOMPARE(form.arg(qInf(), -5, 'e', 3, u'0'), u"inf00");
+    QCOMPARE(form.arg(-qInf(), 6, 'e', 3, u'0'), u"00-inf");
+    QCOMPARE(form.arg(-qInf(), -6, 'e', 3, u'0'), u"-inf00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'e', 3, u'0'), u"nan00");
+    QCOMPARE(form.arg(qInf(), 5, 'E', 3, u'0'), u"00INF");
+    QCOMPARE(form.arg(qInf(), -5, 'E', 3, u'0'), u"INF00");
+    QCOMPARE(form.arg(-qInf(), 6, 'E', 3, u'0'), u"00-INF");
+    QCOMPARE(form.arg(-qInf(), -6, 'E', 3, u'0'), u"-INF00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'E', 3, u'0'), u"NAN00");
+    QCOMPARE(form.arg(qInf(), 5, 'g', 3, u'0'), u"00inf");
+    QCOMPARE(form.arg(qInf(), -5, 'g', 3, u'0'), u"inf00");
+    QCOMPARE(form.arg(-qInf(), 6, 'g', 3, u'0'), u"00-inf");
+    QCOMPARE(form.arg(-qInf(), -6, 'g', 3, u'0'), u"-inf00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'g', 3, u'0'), u"nan00");
+    QCOMPARE(form.arg(qInf(), 5, 'G', 3, u'0'), u"00INF");
+    QCOMPARE(form.arg(qInf(), -5, 'G', 3, u'0'), u"INF00");
+    QCOMPARE(form.arg(-qInf(), 6, 'G', 3, u'0'), u"00-INF");
+    QCOMPARE(form.arg(-qInf(), -6, 'G', 3, u'0'), u"-INF00");
+    QCOMPARE(form.arg(qQNaN(), -5, 'G', 3, u'0'), u"NAN00");
 }
 
 void tst_QString::arg_fillChar_data()
@@ -7455,7 +7543,7 @@ void tst_QString::compare()
 void tst_QString::resize()
 {
     QString s;
-    s.resize(11, ' ');
+    s.resize(11, u' ');
     QCOMPARE(s.size(), 11);
     QCOMPARE(s, QLatin1String("           "));
 
@@ -7475,7 +7563,7 @@ void tst_QString::resize()
 
 void tst_QString::resizeAfterFromRawData()
 {
-    QString buffer("hello world");
+    QString buffer(u"hello world"_s);
 
     QString array = QString::fromRawData(buffer.constData(), buffer.size());
     QVERIFY(array.constData() == buffer.constData());
@@ -7491,7 +7579,7 @@ void tst_QString::resizeAfterReserve()
     QString s;
     s.reserve(100);
 
-    s += "hello world";
+    s += u"hello world"_s;
 
     // resize should not affect capacity
     s.resize(s.size());
@@ -7507,12 +7595,12 @@ void tst_QString::resizeAfterReserve()
 
     // test resize(0) border case
     s.reserve(100);
-    s += "hello world";
+    s += u"hello world"_s;
     s.resize(0);
     QVERIFY(s.capacity() == 100);
 
     // reserve() can't be used to truncate data
-    s.fill('x', 100);
+    s.fill(u'x', 100);
     s.reserve(50);
     QVERIFY(s.capacity() == 100);
     QVERIFY(s.size() == 100);
@@ -7808,7 +7896,7 @@ void tst_QString::userDefinedLiterals()
 #endif // QT_DEPRECATED_SINCE(6, 8)
 }
 
-#ifndef QT_RESTRICTED_CAST_FROM_ASCII
+#if !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 void tst_QString::eightBitLiterals_data()
 {
     QTest::addColumn<QByteArray>("data");
@@ -7913,7 +8001,7 @@ void tst_QString::eightBitLiterals()
         QVERIFY(stringData >= data.constData());
     }
 }
-#endif
+#endif // !defined(QT_RESTRICTED_CAST_FROM_ASCII) && !defined(QT_NO_CAST_FROM_ASCII)
 
 void tst_QString::reserve()
 {
@@ -8127,7 +8215,7 @@ void tst_QString::assignQChar()
     QCOMPARE(s.capacity(), 1);
 
     // assign to empty QString:
-    s = QString("");
+    s = QString(u""_s);
     s.detach();
     QCOMPARE(s.capacity(), 0);
     s = sp;
@@ -8272,7 +8360,7 @@ void tst_QString::rawData()
     QCOMPARE(s.utf16(), reinterpret_cast<const ushort *>(constPtr));
     QVERIFY(!s.isDetached());
 
-    s = "abc"; // detached
+    s = QString::fromUtf8("abc"); // detached
     const QChar *dataConstPtr = s.constData();
     QVERIFY(dataConstPtr != constPtr);
 
@@ -8286,8 +8374,8 @@ void tst_QString::rawData()
     QVERIFY(s1Ptr != dataConstPtr);
     QVERIFY(s1.unicode() != s.unicode());
 
-    *s1Ptr = 'd';
-    QCOMPARE(s1, "dbc");
+    *s1Ptr = u'd';
+    QCOMPARE(s1, u"dbc");
 
     // utf pointer is valid while the string is not changed
     QCOMPARE(QString::fromUtf16(char16Ptr), s);
@@ -8300,7 +8388,7 @@ void tst_QString::clear()
     QVERIFY(s.isEmpty());
     QVERIFY(!s.isDetached());
 
-    s = "some tests string";
+    s = u"some tests string"_s;
     QVERIFY(!s.isEmpty());
 
     s.clear();
@@ -8315,7 +8403,7 @@ void tst_QString::sliced()
     QVERIFY(a.sliced(0, 0).isEmpty());
     QVERIFY(!a.isDetached());
 
-    a = "ABCDEFGHIEfGEFG"; // 15 chars
+    a = u"ABCDEFGHIEfGEFG"_s; // 15 chars
 
     QCOMPARE(a.sliced(5), u"FGHIEfGEFG");
     QCOMPARE(a.sliced(5, 3), u"FGH");
@@ -8328,7 +8416,7 @@ void tst_QString::chopped()
     QVERIFY(a.chopped(0).isEmpty());
     QVERIFY(!a.isDetached());
 
-    a = "ABCDEFGHIEfGEFG"; // 15 chars
+    a = u"ABCDEFGHIEfGEFG"_s; // 15 chars
 
     QCOMPARE(a.chopped(10), u"ABCDE");
 }
@@ -8343,9 +8431,28 @@ void tst_QString::removeIf()
     QVERIFY(a.isEmpty());
     QVERIFY(!a.isDetached());
 
-    a = "aABbcCDd";
+    // Test when the string is not shared
+    a = "aABbcCDd"_L1;
+    QVERIFY(!a.data_ptr()->needsDetach());
     a.removeIf(pred);
     QCOMPARE(a, u"ABCD");
+
+    // Test when the string is shared
+    a = "aABbcCDd"_L1;
+    QString b = a;
+    QVERIFY(a.data_ptr()->needsDetach());
+    a.removeIf(pred);
+    QCOMPARE(a, u"ABCD");
+    QCOMPARE(b, "aABbcCDd"_L1);
+
+    auto removeA = [](const QChar c) { return c == u'a' || c == u'A'; };
+
+    a = "aBcAbCa"_L1; // Not shared
+    QCOMPARE(a.removeIf(removeA), u"BcbC");
+
+    a = "aBcAbCa"_L1;
+    b = a; // Shared
+    QCOMPARE(a.removeIf(removeA), u"BcbC");
 }
 
 // QString's collation order is only supported during the lifetime as QCoreApplication

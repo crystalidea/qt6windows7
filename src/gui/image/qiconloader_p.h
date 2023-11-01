@@ -126,7 +126,7 @@ class QIconTheme
 public:
     QIconTheme(const QString &name);
     QIconTheme() : m_valid(false) {}
-    QStringList parents() { return m_parents; }
+    QStringList parents() const;
     QList<QIconDirInfo> keyList() { return m_keyList; }
     QStringList contentDirs() { return m_contentDirs; }
     bool isValid() { return m_valid; }
@@ -146,7 +146,7 @@ public:
     QThemeIconInfo loadIcon(const QString &iconName) const;
     uint themeKey() const { return m_themeKey; }
 
-    QString themeName() const { return m_userTheme.isEmpty() ? m_systemTheme : m_userTheme; }
+    QString themeName() const;
     void setThemeName(const QString &themeName);
     QString fallbackThemeName() const;
     void setFallbackThemeName(const QString &themeName);

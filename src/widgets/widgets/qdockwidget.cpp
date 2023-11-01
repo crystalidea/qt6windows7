@@ -1164,10 +1164,10 @@ void QDockWidgetPrivate::setWindowState(bool floating, bool unplug, const QRect 
             return; // this dockwidget can't be redocked
     }
 
-    bool wasFloating = q->isFloating();
+    const bool wasFloating = q->isFloating();
     if (wasFloating) // Prevent repetitive unplugging from nested invocations (QTBUG-42818)
         unplug = false;
-    bool hidden = q->isHidden();
+    const bool hidden = q->isHidden();
 
     if (q->isVisible())
         q->hide();
@@ -1262,7 +1262,7 @@ void QDockWidgetPrivate::setWindowState(bool floating, bool unplug, const QRect 
     possible to drag the dock widget when undocking. Starting the drag will undock
     the dock widget, but a second drag will be needed to move the dock widget itself.
 
-    \sa QMainWindow, {Dock Widgets Example}
+    \sa QMainWindow
 */
 
 /*!
@@ -1473,8 +1473,14 @@ void QDockWidget::changeEvent(QEvent *event)
     QDockWidgetLayout *layout = qobject_cast<QDockWidgetLayout*>(this->layout());
 
     switch (event->type()) {
-    case QEvent::ModifiedChange:
     case QEvent::WindowTitleChange:
+        if (isFloating() && windowHandle() && d->topData()) {
+            // From QWidget::setWindowTitle(): Propagate window title without signal emission
+            d->topData()->caption = windowHandle()->title();
+            d->setWindowTitle_helper(windowHandle()->title());
+        }
+        Q_FALLTHROUGH();
+    case QEvent::ModifiedChange:
         update(layout->titleArea());
 #ifndef QT_NO_ACTION
         d->fixedWindowTitle = qt_setWindowTitle_helperHelper(windowTitle(), this);
@@ -1691,6 +1697,10 @@ QAction * QDockWidget::toggleViewAction() const
     invisible). This happens when the widget is hidden or shown, as
     well as when it is docked in a tabbed dock area and its tab
     becomes selected or unselected.
+
+    \note The signal can differ from QWidget::isVisible(). This can be the case, if
+    a dock widget is minimized or tabified and associated to a non-selected or
+    inactive tab.
 */
 
 /*!

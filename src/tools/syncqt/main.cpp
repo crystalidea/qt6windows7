@@ -28,6 +28,7 @@
 #include <regex>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <array>
 
 enum ErrorCodes {
@@ -90,6 +91,33 @@ std::string asciiToUpper(std::string s)
     return s;
 }
 
+bool parseVersion(const std::string &version, int &major, int &minor)
+{
+    const size_t separatorPos = version.find('.');
+    if (separatorPos == std::string::npos || separatorPos == (version.size() - 1)
+        || separatorPos == 0)
+        return false;
+
+    try {
+        size_t pos = 0;
+        major = std::stoi(version.substr(0, separatorPos), &pos);
+        if (pos != separatorPos)
+            return false;
+
+        const size_t nextPart = separatorPos + 1;
+        pos = 0;
+        minor = std::stoi(version.substr(nextPart), &pos);
+        if (pos != (version.size() - nextPart))
+            return false;
+    } catch (const std::invalid_argument &) {
+        return false;
+    } catch (const std::out_of_range &) {
+        return false;
+    }
+
+    return true;
+}
+
 class DummyOutputStream : public std::ostream
 {
     struct : public std::streambuf
@@ -112,7 +140,29 @@ std::filesystem::path normilizedPath(const std::string &path)
 {
     return std::filesystem::path(std::filesystem::weakly_canonical(path).generic_string());
 }
+
+bool createDirectories(const std::string &path, std::string_view errorMsg, bool *exists = nullptr)
+{
+    bool result = true;
+    try {
+        if (!std::filesystem::exists(path)) {
+            if (exists)
+                *exists = false;
+            std::filesystem::create_directories(path);
+        } else {
+            if (exists)
+                *exists = true;
+        }
+    } catch (const std::filesystem::filesystem_error &fserr) {
+        result = false;
+        std::cerr << errorMsg << ": " << path << ".\n"
+                  << fserr.code().message() << "(" << fserr.code().value() << "):" << fserr.what()
+                  << std::endl;
+    }
+    return result;
 }
+
+} // namespace utils
 
 using FileStamp = std::filesystem::file_time_type;
 
@@ -373,6 +423,7 @@ private:
                     if (!parseArgument(argFromFile))
                         return false;
                 }
+                ifs.close();
                 continue;
             }
 
@@ -686,14 +737,31 @@ public:
                                                               bool skipCleanup = false)
     {
         bool result = true;
-        if (!std::filesystem::exists(outputDirectory)) {
-            std::filesystem::create_directories(outputDirectory);
-        } else if (!skipCleanup) {
+        bool outDirExists = false;
+        if (!utils::createDirectories(outputDirectory, "Unable to create staging directory",
+                                      &outDirExists))
+            return false;
+
+        if (outDirExists && !skipCleanup) {
             for (const auto &entry :
                  std::filesystem::recursive_directory_iterator(outputDirectory)) {
                 if (m_producedHeaders.find(entry.path().filename().generic_string())
                     == m_producedHeaders.end()) {
-                    std::filesystem::remove(entry.path());
+                    // Check if header file came from another module as result of the cross-module
+                    // deprecation before removing it.
+                    std::string firstLine;
+                    {
+                        std::ifstream input(entry.path(), std::ifstream::in);
+                        if (input.is_open()) {
+                            std::getline(input, firstLine);
+                            input.close();
+                        }
+                    }
+                    if (firstLine.find("#ifndef DEPRECATED_HEADER_"
+                                       + m_commandLineArgs->moduleName())
+                                == 0
+                        || firstLine.find("#ifndef DEPRECATED_HEADER_") != 0)
+                        std::filesystem::remove(entry.path());
                 }
             }
         }
@@ -732,7 +800,7 @@ public:
     [[nodiscard]] bool processHeader(const std::filesystem::path &headerFile)
     {
         // This regex filters any paths that contain the '3rdparty' directory.
-        static const std::regex ThirdPartyFolderRegex(".+/3rdparty/.+");
+        static const std::regex ThirdPartyFolderRegex("(^|.+/)3rdparty/.+");
 
         // This regex filters '-config.h' and '-config_p.h' header files.
         static const std::regex ConfigHeaderRegex("^(q|.+-)config(_p)?\\.h");
@@ -778,8 +846,8 @@ public:
         else if (isPrivate)
             outputDir = m_commandLineArgs->privateIncludeDir();
 
-        if (!std::filesystem::exists(outputDir))
-            std::filesystem::create_directories(outputDir);
+        if (!utils::createDirectories(outputDir, "Unable to create output directory"))
+            return false;
 
         bool headerFileExists = std::filesystem::exists(headerFile);
 
@@ -820,7 +888,14 @@ public:
         }
 
         bool isGenerated = isHeaderGenerated(m_currentFileString);
-        bool is3rdParty = std::regex_match(m_currentFileString, ThirdPartyFolderRegex);
+
+        // Make sure that we detect the '3rdparty' directory inside the source directory only,
+        // since full path to the Qt sources might contain '/3rdparty/' too.
+        bool is3rdParty = std::regex_match(
+                std::filesystem::relative(headerFile, m_commandLineArgs->sourceDir())
+                        .generic_string(),
+                ThirdPartyFolderRegex);
+
         // No processing of generated Qt config header files.
         if (!std::regex_match(m_currentFilename, ConfigHeaderRegex)) {
             unsigned int skipChecks = m_commandLineArgs->scanAllMode() ? AllChecks : NoChecks;
@@ -991,10 +1066,15 @@ public:
         //    - 'qt_class(<symbol>)' manually declares the 'symbol' that should be used to generate
         //      the CaMeL case header alias.
         //
-        //    - 'qt_deprecates(<deprecated header file>)' indicates that this header file replaces
-        //      the 'deprecated header file'. syncqt will create the deprecated header file' with
-        //      the special deprecation content. See the 'generateDeprecatedHeaders' function
-        //      for details.
+        //    - 'qt_deprecates([module/]<deprecated header file>[,<major.minor>])' indicates that
+        //      this header file replaces the 'deprecated header file'. syncqt will create the
+        //      deprecated header file' with the special deprecation content. Pragma optionally
+        //      accepts the Qt version where file should be removed. If the current Qt version is
+        //      higher than the deprecation version, syncqt displays deprecation warning and skips
+        //      generating the deprecated header. If the module is specified and is different from
+        //      the one this header file belongs to, syncqt attempts to generate header files
+        //      for the specified module. Cross-module deprecation only works within the same repo.
+        //      See the 'generateDeprecatedHeaders' function for details.
         //
         //    - 'qt_no_master_include' indicates that syncqt should avoid including this header
         //      files into the module master header file.
@@ -1078,6 +1158,8 @@ public:
             //    - start-end of class/structures
             // And avoid processing of the the data inside these blocks.
             for (std::size_t i = 0; i < line.size(); ++i) {
+                if (line[i] == '\r')
+                    continue;
                 if (bracesDepth == namespaceCount) {
                     if (line[i] == '/') {
                         if ((i + 1) < line.size()) {
@@ -1246,6 +1328,7 @@ public:
                 }
             }
         }
+        input.close();
 
         // Error out if namespace checks are failed.
         if (!(skipChecks & NamespaceChecks)) {
@@ -1418,13 +1501,53 @@ public:
     {
         static std::regex cIdentifierSymbolsRegex("[^a-zA-Z0-9_]");
         static std::string guard_base = "DEPRECATED_HEADER_" + m_commandLineArgs->moduleName();
+        bool result = true;
         for (auto it = m_deprecatedHeaders.begin(); it != m_deprecatedHeaders.end(); ++it) {
-            std::string &replacement = it->second;
+            const std::string &descriptor = it->first;
+            const std::string &replacement = it->second;
+
+            const auto separatorPos = descriptor.find(',');
+            std::string headerPath = descriptor.substr(0, separatorPos);
+            std::string versionDisclaimer;
+            if (separatorPos != std::string::npos) {
+                std::string version = descriptor.substr(separatorPos + 1);
+                versionDisclaimer = " and will be removed in Qt " + version;
+                int minor = 0;
+                int major = 0;
+                if (!utils::parseVersion(version, minor, major)) {
+                    std::cerr << ErrorMessagePreamble
+                              << "Invalid version format specified for the deprecated header file "
+                              << headerPath << ": '" << version
+                              << "'. Expected format: 'major.minor'.\n";
+                    result = false;
+                    continue;
+                }
+
+                if (QT_VERSION_MAJOR > major
+                    || (QT_VERSION_MAJOR == major && QT_VERSION_MINOR >= minor)) {
+                    std::cerr << WarningMessagePreamble << headerPath
+                              << " is marked as deprecated and will not be generated in Qt "
+                              << QT_VERSION_STR
+                              << ". The respective qt_deprecates pragma needs to be removed.\n";
+                    continue;
+                }
+            }
+
+            const auto moduleSeparatorPos = headerPath.find('/');
+            std::string headerName = moduleSeparatorPos != std::string::npos
+                    ? headerPath.substr(moduleSeparatorPos + 1)
+                    : headerPath;
+            const std::string moduleName = moduleSeparatorPos != std::string::npos
+                    ? headerPath.substr(0, moduleSeparatorPos)
+                    : m_commandLineArgs->moduleName();
+
+            bool isCrossModuleDeprecation = moduleName != m_commandLineArgs->moduleName();
+
             std::string qualifiedHeaderName =
-                    std::regex_replace(it->first, cIdentifierSymbolsRegex, "_");
+                    std::regex_replace(headerName, cIdentifierSymbolsRegex, "_");
             std::string guard = guard_base + "_" + qualifiedHeaderName;
-            std::string warningText = "Header <" + m_commandLineArgs->moduleName() + "/" + it->first
-                    + "> is deprecated. Please include <" + replacement + "> instead.";
+            std::string warningText = "Header <" + moduleName + "/" + headerName + "> is deprecated"
+                    + versionDisclaimer + ". Please include <" + replacement + "> instead.";
             std::stringstream buffer;
             buffer << "#ifndef " << guard << "\n"
                    << "#define " << guard << "\n"
@@ -1434,15 +1557,27 @@ public:
                    << "#  pragma message (\"" << warningText << "\")\n"
                    << "#endif\n"
                    << "#include <" << replacement << ">\n"
-                   << "#if 0\n"
-                   // TODO: Looks like qt_no_master_include is useless since deprecated headers are
-                   // generated by syncqt but are never scanned.
-                   << "#pragma qt_no_master_include\n"
-                   << "#endif\n"
                    << "#endif\n";
-            writeIfDifferent(m_commandLineArgs->includeDir() + '/' + it->first, buffer.str());
+
+            const std::string outputDir = isCrossModuleDeprecation
+                    ? m_commandLineArgs->includeDir() + "/../" + moduleName
+                    : m_commandLineArgs->includeDir();
+            writeIfDifferent(outputDir + '/' + headerName, buffer.str());
+
+            // Add header file to staging installation directory for cross-module deprecation case.
+            if (isCrossModuleDeprecation) {
+                const std::string stagingDir = outputDir + "/.syncqt_staging/";
+                writeIfDifferent(stagingDir + headerName, buffer.str());
+                if (m_commandLineArgs->isFramework()) {
+                    const std::string frameworkStagingDir = stagingDir + moduleName
+                            + ".framework/Versions/A/Headers/" QT_VERSION_STR "/"
+                            + moduleName.substr(2) + '/';
+                    writeIfDifferent(frameworkStagingDir + headerName, buffer.str());
+                }
+            }
+            m_producedHeaders.insert(headerName);
         }
-        return true;
+        return result;
     }
 
     [[nodiscard]] bool generateHeaderCheckExceptions()
@@ -1464,7 +1599,7 @@ public:
         return writeIfDifferent(m_commandLineArgs->versionScriptFile(), buffer.str());
     }
 
-    bool updateOrCopy(const std::filesystem::path &src, const std::filesystem::path &dst);
+    bool updateOrCopy(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept;
     void updateSymbolDescriptor(const std::string &symbol, const std::string &file,
                                 SymbolDescriptor::SourceType type);
 };
@@ -1490,7 +1625,8 @@ SyncScanner::makeHeaderAbsolute(const std::string &filename) const
     return utils::normilizedPath(filename);
 }
 
-bool SyncScanner::updateOrCopy(const std::filesystem::path &src, const std::filesystem::path &dst)
+bool SyncScanner::updateOrCopy(const std::filesystem::path &src,
+                               const std::filesystem::path &dst) noexcept
 {
     if (m_commandLineArgs->showOnly())
         return true;
@@ -1579,8 +1715,9 @@ bool SyncScanner::writeIfDifferent(const std::string &outputFile, const std::str
     std::filesystem::path outputFilePath(outputFile);
 
     std::string outputDirectory = outputFilePath.parent_path().string();
-    if (!std::filesystem::exists(outputDirectory))
-        std::filesystem::create_directories(outputDirectory);
+
+    if (!utils::createDirectories(outputDirectory, "Unable to create output directory"))
+        return false;
 
     auto expectedSize = buffer.size();
 #ifdef _WINDOWS
@@ -1594,6 +1731,10 @@ bool SyncScanner::writeIfDifferent(const std::string &outputFile, const std::str
         memset(rdBuffer, 0, bufferSize);
 
         std::ifstream ifs(outputFile, std::fstream::in);
+        if (!ifs.is_open()) {
+            std::cerr << "Unable to open " << outputFile << " for comparison." << std::endl;
+            return false;
+        }
         std::streamsize currentPos = 0;
 
         std::size_t bytesRead = 0;

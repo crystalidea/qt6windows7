@@ -17,9 +17,9 @@ int main(int argc, char *argv[])
 
     const QStringList args = QCoreApplication::arguments();
     const bool newGame
-            = args.size() <= 1 || QString::compare(args[1], "load"_L1, Qt::CaseInsensitive) == 0;
+            = args.size() <= 1 || QString::compare(args[1], "load"_L1, Qt::CaseInsensitive) != 0;
     const bool json
-            = args.size() <= 2 || QString::compare(args[2], "binary"_L1, Qt::CaseInsensitive) == 0;
+            = args.size() <= 2 || QString::compare(args[2], "binary"_L1, Qt::CaseInsensitive) != 0;
 
     Game game;
     if (newGame)
@@ -29,8 +29,9 @@ int main(int argc, char *argv[])
     // Game is played; changes are made...
 //! [0]
 //! [1]
-    QTextStream(stdout) << "Game ended in the following state:\n";
-    game.print();
+    QTextStream s(stdout);
+    s << "Game ended in the following state:\n";
+    game.print(s);
     if (!game.saveGame(json ? Game::Json : Game::Binary))
         return 1;
 

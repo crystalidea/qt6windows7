@@ -10,13 +10,13 @@
 #include <QJsonObject>
 #include <QList>
 
+QT_FORWARD_DECLARE_CLASS(QTextStream)
+
 //! [0]
 class Game
 {
 public:
-    enum SaveFormat {
-        Json, Binary
-    };
+    enum SaveFormat { Json, Binary };
 
     Character player() const;
     QList<Level> levels() const;
@@ -26,9 +26,10 @@ public:
     bool saveGame(SaveFormat saveFormat) const;
 
     void read(const QJsonObject &json);
-    void write(QJsonObject &json) const;
+    QJsonObject toJson() const;
 
-    void print(int indentation = 0) const;
+    void print(QTextStream &s, int indentation = 0) const;
+
 private:
     Character mPlayer;
     QList<Level> mLevels;

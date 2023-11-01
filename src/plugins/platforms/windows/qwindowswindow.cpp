@@ -468,14 +468,21 @@ static bool shouldShowMaximizeButton(const QWindow *w, Qt::WindowFlags flags)
         w->maximumSize() == QSize(QWINDOWSIZE_MAX, QWINDOWSIZE_MAX);
 }
 
+bool QWindowsWindow::hasNoNativeFrame(HWND hwnd, Qt::WindowFlags flags)
+{
+    const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+    return (style & WS_CHILD) || (flags & Qt::FramelessWindowHint);
+}
+
 // Set the WS_EX_LAYERED flag on a HWND if required. This is required for
 // translucent backgrounds, not fully opaque windows and for
 // Qt::WindowTransparentForInput (in combination with WS_EX_TRANSPARENT).
 bool QWindowsWindow::setWindowLayered(HWND hwnd, Qt::WindowFlags flags, bool hasAlpha, qreal opacity)
 {
     const LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    // Native children are frameless by nature, so check for that as well.
     const bool needsLayered = (flags & Qt::WindowTransparentForInput)
-        || (hasAlpha && (flags & Qt::FramelessWindowHint)) || opacity < 1.0;
+        || (hasAlpha && hasNoNativeFrame(hwnd, flags)) || opacity < 1.0;
     const bool isLayered = (exStyle & WS_EX_LAYERED);
     if (needsLayered != isLayered) {
         if (needsLayered) {
@@ -491,7 +498,7 @@ static void setWindowOpacity(HWND hwnd, Qt::WindowFlags flags, bool hasAlpha, bo
 {
     if (QWindowsWindow::setWindowLayered(hwnd, flags, hasAlpha, level)) {
         const BYTE alpha = BYTE(qRound(255.0 * level));
-        if (hasAlpha && !accelerated && (flags & Qt::FramelessWindowHint)) {
+        if (hasAlpha && !accelerated && QWindowsWindow::hasNoNativeFrame(hwnd, flags)) {
             // Non-GL windows with alpha: Use blend function to update.
             BLENDFUNCTION blend = {AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA};
             UpdateLayeredWindow(hwnd, nullptr, nullptr, nullptr, nullptr, nullptr, 0, &blend, ULW_ALPHA);
@@ -516,14 +523,11 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
 
 [[nodiscard]] static inline int getResizeBorderThickness(const UINT dpi)
 {
-    if (QWindowsContext::user32dll.getSystemMetricsForDpi) {
-        // The width of the padded border will always be 0 if DWM composition is
-        // disabled, but since it will always be enabled and can't be programtically
-        // disabled from Windows 8, we are safe to go.
-        return QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
-               + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    }
-    return 0;
+    // The width of the padded border will always be 0 if DWM composition is
+    // disabled, but since it will always be enabled and can't be programtically
+    // disabled from Windows 8, we are safe to go.
+    return GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
+           + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 /*!
@@ -533,17 +537,13 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
 
 static QMargins invisibleMargins(QPoint screenPoint)
 {
-    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10) {
-        POINT pt = {screenPoint.x(), screenPoint.y()};
-        if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
-            if (QWindowsContext::shcoredll.isValid()) {
-                UINT dpiX;
-                UINT dpiY;
-                if (SUCCEEDED(QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
-                    const int gap = getResizeBorderThickness(dpiX);
-                    return QMargins(gap, 0, gap, gap);
-                }
-            }
+    POINT pt = {screenPoint.x(), screenPoint.y()};
+    if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
+        UINT dpiX;
+        UINT dpiY;
+        if (SUCCEEDED(GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+            const int gap = getResizeBorderThickness(dpiX);
+            return QMargins(gap, 0, gap, gap);
         }
     }
     return QMargins();
@@ -551,12 +551,9 @@ static QMargins invisibleMargins(QPoint screenPoint)
 
 [[nodiscard]] static inline QMargins invisibleMargins(const HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow) {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const int gap = getResizeBorderThickness(dpi);
-        return QMargins(gap, 0, gap, gap);
-    }
-    return QMargins();
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const int gap = getResizeBorderThickness(dpi);
+    return QMargins(gap, 0, gap, gap);
 }
 
 /*!
@@ -950,6 +947,7 @@ QWindowsWindowData
 
     result.geometry = obtainedGeometry;
     result.restoreGeometry = frameGeometry(result.hwnd, topLevel);
+    result.preMoveGeometry = obtainedGeometry;
     result.fullFrameMargins = context->margins;
     result.embedded = embedded;
     result.hasFrame = hasFrame;
@@ -1040,8 +1038,7 @@ QMargins QWindowsGeometryHint::frameOnPrimaryScreen(const QWindow *w, DWORD styl
         return {};
     RECT rect = {0,0,0,0};
     style &= ~DWORD(WS_OVERLAPPED); // Not permitted, see docs.
-    if (QWindowsContext::user32dll.adjustWindowRectEx &&
-        QWindowsContext::user32dll.adjustWindowRectEx(&rect, style, FALSE, exStyle) == FALSE)
+    if (AdjustWindowRectEx(&rect, style, FALSE, exStyle) == FALSE)
         qErrnoWarning("%s: AdjustWindowRectEx failed", __FUNCTION__);
     const QMargins result(qAbs(rect.left), qAbs(rect.top),
                           qAbs(rect.right), qAbs(rect.bottom));
@@ -1065,8 +1062,7 @@ QMargins QWindowsGeometryHint::frame(const QWindow *w, DWORD style, DWORD exStyl
         return {};
     RECT rect = {0,0,0,0};
     style &= ~DWORD(WS_OVERLAPPED); // Not permitted, see docs.
-    if (QWindowsContext::user32dll.adjustWindowRectExForDpi &&
-        QWindowsContext::user32dll.adjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) {
+    if (AdjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) {
         qErrnoWarning("%s: AdjustWindowRectExForDpi failed", __FUNCTION__);
     }
     const QMargins result(qAbs(rect.left), qAbs(rect.top),
@@ -1560,8 +1556,7 @@ void QWindowsWindow::initialize()
             QWindowSystemInterface::handleGeometryChange<QWindowSystemInterface::SynchronousDelivery>(w, obtainedGeometry);
         }
     }
-    QWindowsWindow::setSavedDpi(QWindowsContext::user32dll.getDpiForWindow ?
-        QWindowsContext::user32dll.getDpiForWindow(handle()) : 96);
+    QWindowsWindow::setSavedDpi(GetDpiForWindow(handle()));
 }
 
 QSurfaceFormat QWindowsWindow::format() const
@@ -1974,6 +1969,12 @@ void QWindowsWindow::handleCompositionSettingsChanged()
     }
 }
 
+qreal QWindowsWindow::dpiRelativeScale(const UINT dpi) const
+{
+    return QHighDpiScaling::roundScaleFactor(qreal(dpi) / QWindowsScreen::baseDpi) /
+           QHighDpiScaling::roundScaleFactor(qreal(savedDpi()) / QWindowsScreen::baseDpi);
+}
+
 void QWindowsWindow::handleDpiScaledSize(WPARAM wParam, LPARAM lParam, LRESULT *result)
 {
     // We want to keep QWindow's device independent size constant across the
@@ -1981,10 +1982,9 @@ void QWindowsWindow::handleDpiScaledSize(WPARAM wParam, LPARAM lParam, LRESULT *
     // by the change of DPI (e.g. 120 -> 144 = 1.2), also taking any scale
     // factor rounding into account. The win32 window size includes the margins;
     // add the margins for the new DPI to the window size.
-    const int dpi = int(wParam);
-    const qreal scale = QHighDpiScaling::roundScaleFactor(qreal(dpi) / QWindowsScreen::baseDpi) /
-                        QHighDpiScaling::roundScaleFactor(qreal(savedDpi()) / QWindowsScreen::baseDpi);
-    const QMargins margins = QWindowsGeometryHint::frame(window(), style(), exStyle(), dpi);
+    const UINT dpi = UINT(wParam);
+    const qreal scale = dpiRelativeScale(dpi);
+    const QMargins margins = fullFrameMargins();
     if (!(m_data.flags & Qt::FramelessWindowHint)) {
         // We need to update the custom margins to match the current DPI, because
         // we don't want our users manually hook into this message just to set a
@@ -1993,12 +1993,8 @@ void QWindowsWindow::handleDpiScaledSize(WPARAM wParam, LPARAM lParam, LRESULT *
         // are currently doing.
         m_data.customMargins *= scale;
     }
-    if (!m_data.restoreGeometry.isEmpty()) {
-        m_data.restoreGeometry.setWidth(m_data.restoreGeometry.width() * scale);
-        m_data.restoreGeometry.setHeight(m_data.restoreGeometry.height() * scale);
-    }
 
-    const QSize windowSize = (geometry().size() * scale).grownBy(margins + customMargins());
+    const QSize windowSize = (geometry().size() * scale).grownBy((margins * scale) + customMargins());
     SIZE *size = reinterpret_cast<SIZE *>(lParam);
     size->cx = windowSize.width();
     size->cy = windowSize.height();
@@ -2007,64 +2003,62 @@ void QWindowsWindow::handleDpiScaledSize(WPARAM wParam, LPARAM lParam, LRESULT *
 
 void QWindowsWindow::handleDpiChanged(HWND hwnd, WPARAM wParam, LPARAM lParam)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow) {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const qreal scale = qreal(dpi) / qreal(savedDpi());
-        setSavedDpi(dpi);
+    const UINT dpi = HIWORD(wParam);
+    const qreal scale = dpiRelativeScale(dpi);
+    setSavedDpi(dpi);
+    // Send screen change first, so that the new screen is set during any following resize
+    checkForScreenChanged(QWindowsWindow::FromDpiChange);
 
-        // Send screen change first, so that the new screen is set during any following resize
-        checkForScreenChanged(QWindowsWindow::FromDpiChange);
+    if (!IsZoomed(hwnd))
+        m_data.restoreGeometry.setSize(m_data.restoreGeometry.size() * scale);
 
-        // We get WM_DPICHANGED in one of two situations:
-        //
-        // 1. The DPI change is a "spontaneous" DPI change as a result of e.g.
-        // the user dragging the window to a new screen. In this case Windows
-        // first sends WM_GETDPISCALEDSIZE, where we set the new window size,
-        // followed by this event where we apply the suggested window geometry
-        // to the native window. This will make sure the window tracks the mouse
-        // cursor during screen change, and also that the window size is scaled
-        // according to the DPI change.
-        //
-        // 2. The DPI change is a result of a setGeometry() call. In this case
-        // Qt has already scaled the window size for the new DPI. Further, Windows
-        // does not call WM_GETDPISCALEDSIZE, and also applies its own scaling
-        // to the already scaled window size. Since there is no need to set the
-        // window geometry again, and the provided geometry is incorrect, we omit
-        // making the SetWindowPos() call.
-        if (!m_inSetgeometry) {
-            updateFullFrameMargins();
-            const auto prcNewWindow = reinterpret_cast<RECT *>(lParam);
-            SetWindowPos(hwnd, nullptr, prcNewWindow->left, prcNewWindow->top,
-                         prcNewWindow->right - prcNewWindow->left,
-                         prcNewWindow->bottom - prcNewWindow->top, SWP_NOZORDER | SWP_NOACTIVATE);
-            // If the window does not have a frame, WM_MOVE and WM_SIZE won't be
-            // called which prevents the content from being scaled appropriately
-            // after a DPI change.
-            if (m_data.flags & Qt::FramelessWindowHint)
-                handleGeometryChange();
-        }
-
-        // Re-apply mask now that we have a new DPI, which have resulted in
-        // a new scale factor.
-        setMask(QHighDpi::toNativeLocalRegion(window()->mask(), window()));
+    // We get WM_DPICHANGED in one of two situations:
+    //
+    // 1. The DPI change is a "spontaneous" DPI change as a result of e.g.
+    // the user dragging the window to a new screen. In this case Windows
+    // first sends WM_GETDPISCALEDSIZE, where we set the new window size,
+    // followed by this event where we apply the suggested window geometry
+    // to the native window. This will make sure the window tracks the mouse
+    // cursor during screen change, and also that the window size is scaled
+    // according to the DPI change.
+    //
+    // 2. The DPI change is a result of a setGeometry() call. In this case
+    // Qt has already scaled the window size for the new DPI. Further, Windows
+    // does not call WM_GETDPISCALEDSIZE, and also applies its own scaling
+    // to the already scaled window size. Since there is no need to set the
+    // window geometry again, and the provided geometry is incorrect, we omit
+    // making the SetWindowPos() call.
+    if (!m_inSetgeometry) {
+        updateFullFrameMargins();
+        const auto prcNewWindow = reinterpret_cast<RECT *>(lParam);
+        SetWindowPos(hwnd, nullptr, prcNewWindow->left, prcNewWindow->top,
+                     prcNewWindow->right - prcNewWindow->left,
+                     prcNewWindow->bottom - prcNewWindow->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        // If the window does not have a frame, WM_MOVE and WM_SIZE won't be
+        // called which prevents the content from being scaled appropriately
+        // after a DPI change.
+        if (m_data.flags & Qt::FramelessWindowHint)
+            handleGeometryChange();
     }
+
+    // Re-apply mask now that we have a new DPI, which have resulted in
+    // a new scale factor.
+    setMask(QHighDpi::toNativeLocalRegion(window()->mask(), window()));
 }
 
 void QWindowsWindow::handleDpiChangedAfterParent(HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow) {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const qreal scale = qreal(dpi) / qreal(savedDpi());
-        setSavedDpi(dpi);
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const qreal scale = dpiRelativeScale(dpi);
+    setSavedDpi(dpi);
 
-        checkForScreenChanged(QWindowsWindow::FromDpiChange);
+    checkForScreenChanged(QWindowsWindow::FromDpiChange);
 
-        // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
-        // Windows about the new size, so we need to manually scale them.
-        QRect currentGeometry = geometry();
-        QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
-        setGeometry(scaledGeometry);
-    }
+    // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
+    // Windows about the new size, so we need to manually scale them.
+    QRect currentGeometry = geometry();
+    QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
+    setGeometry(scaledGeometry);
 }
 
 static QRect normalFrameGeometry(HWND hwnd)
@@ -2170,11 +2164,56 @@ void QWindowsWindow::setGeometry(const QRect &rectIn)
     }
 }
 
+QWindow *QWindowsWindow::topTransientOf(QWindow *w)
+{
+    while (QWindow *transientParent = w->transientParent())
+        w = transientParent;
+    return w;
+}
+
+void QWindowsWindow::moveTransientChildren()
+{
+    // We need the topmost Transient parent since it is the window that will initiate
+    // the chain of moves, and is the only one with an already up to date DPI, which we
+    // need for the scaling.
+    const QWindowsWindow *topTransient = QWindowsWindow::windowsWindowOf(topTransientOf(window()));
+
+    const QWindow *currentWindow = window();
+    const QWindowList allWindows = QGuiApplication::allWindows();
+    for (QWindow *w : allWindows) {
+        if (w->transientParent() == currentWindow && w != currentWindow && w->isVisible()) {
+            QWindowsWindow *transientChild = QWindowsWindow::windowsWindowOf(w);
+
+            RECT oldChildPos{};
+            GetWindowRect(transientChild->handle(), &oldChildPos);
+            const RECT oldParentPos = RECTfromQRect(preMoveRect());
+
+            const qreal scale =
+                    QHighDpiScaling::roundScaleFactor(qreal(topTransient->savedDpi()) / QWindowsScreen::baseDpi) /
+                    QHighDpiScaling::roundScaleFactor(qreal(transientChild->savedDpi()) / QWindowsScreen::baseDpi);
+
+            const RECT offset =
+                    RECTfromQRect(QRect(scale * (oldChildPos.left - oldParentPos.left),
+                                        scale * (oldChildPos.top - oldParentPos.top), 0, 0));
+            const RECT newParentPos = RECTfromQRect(m_data.geometry);
+            const RECT newChildPos { newParentPos.left + offset.left,
+                                     newParentPos.top + offset.top,
+                                     transientChild->geometry().width(),
+                                     transientChild->geometry().height() };
+
+            SetWindowPos(transientChild->handle(), nullptr, newChildPos.left, newChildPos.top,
+                         newChildPos.right, newChildPos.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+}
+
 void QWindowsWindow::handleMoved()
 {
+    setPreMoveRect(geometry());
     // Minimize/Set parent can send nonsensical move events.
     if (!IsIconic(m_data.hwnd) && !testFlag(WithinSetParent))
         handleGeometryChange();
+    moveTransientChildren();
 }
 
 void QWindowsWindow::handleResized(int wParam, LPARAM lParam)
@@ -2259,10 +2298,10 @@ void QWindowsWindow::checkForScreenChanged(ScreenChangeMode mode)
         return;
     // For screens with different DPI: postpone until WM_DPICHANGE
     // Check on currentScreen as it can be 0 when resuming a session (QTBUG-80436).
-    if (mode == FromGeometryChange && currentScreen != nullptr
-        && !equalDpi(currentScreen->logicalDpi(), newScreen->logicalDpi())) {
+    const bool changingDpi = !equalDpi(QDpi(savedDpi(), savedDpi()), newScreen->logicalDpi());
+    if (mode == FromGeometryChange && currentScreen != nullptr && changingDpi)
         return;
-    }
+
     qCDebug(lcQpaWindow).noquote().nospace() << __FUNCTION__
         << ' ' << window() << " \"" << (currentScreen ? currentScreen->name() : QString())
         << "\"->\"" << newScreen->name() << '"';
@@ -2274,6 +2313,7 @@ void QWindowsWindow::handleGeometryChange()
 {
     const QRect previousGeometry = m_data.geometry;
     m_data.geometry = geometry_sys();
+    updateFullFrameMargins();
     QWindowSystemInterface::handleGeometryChange(window(), m_data.geometry);
     // QTBUG-32121: OpenGL/normal windows (with exception of ANGLE
     // which we no longer support in Qt 6) do not receive expose
@@ -2290,6 +2330,9 @@ void QWindowsWindow::handleGeometryChange()
 
     if (testFlag(SynchronousGeometryChangeEvent))
         QWindowSystemInterface::flushWindowSystemEvents(QEventLoop::ExcludeUserInputEvents);
+
+    if (!testFlag(ResizeMoveActive))
+        updateRestoreGeometry();
 
     if (!wasSync)
         clearFlag(SynchronousGeometryChangeEvent);
@@ -2781,7 +2824,29 @@ void QWindowsWindow::calculateFullFrameMargins()
     const auto systemMargins = testFlag(DisableNonClientScaling)
         ? QWindowsGeometryHint::frameOnPrimaryScreen(window(), m_data.hwnd)
         : frameMargins_sys();
-    setFullFrameMargins(systemMargins + customMargins());
+
+    // QTBUG-113736: systemMargins depends on AdjustWindowRectExForDpi. This doesn't take into
+    // account possible external modifications to the titlebar, as with ExtendsContentIntoTitleBar()
+    // from the Windows App SDK. We can fix this by comparing the WindowRect (which includes the
+    // frame) to the ClientRect. If a 'typical' frame is detected, i.e. only the titlebar has been
+    // modified, we can safely adjust the frame by deducting the bottom margin to the total Y
+    // difference between the two rects, to get the actual size of the titlebar and prevent
+    // unwanted client area slicing.
+
+    RECT windowRect{};
+    RECT clientRect{};
+    GetWindowRect(handle(), &windowRect);
+    GetClientRect(handle(), &clientRect);
+    const int yDiff = (windowRect.bottom - windowRect.top) - clientRect.bottom;
+    const bool typicalFrame = (systemMargins.left() == systemMargins.right())
+            && (systemMargins.right() == systemMargins.bottom());
+
+    const QMargins adjustedMargins = typicalFrame ?
+          QMargins(systemMargins.left(), yDiff - systemMargins.bottom(),
+                   systemMargins.right(), systemMargins.bottom())
+            : systemMargins;
+
+    setFullFrameMargins(adjustedMargins + customMargins());
 }
 
 QMargins QWindowsWindow::frameMargins() const

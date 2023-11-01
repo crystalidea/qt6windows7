@@ -2070,7 +2070,7 @@ void QTextDocumentLayoutPrivate::drawBlock(const QPointF &offset, QPainter *pain
         const qreal width = blockFormat.lengthProperty(QTextFormat::BlockTrailingHorizontalRulerWidth).value(r.width());
         const auto color = blockFormat.hasProperty(QTextFormat::BackgroundBrush)
                          ? qvariant_cast<QBrush>(blockFormat.property(QTextFormat::BackgroundBrush)).color()
-                         : context.palette.color(QPalette::Dark);
+                         : context.palette.color(QPalette::Inactive, QPalette::WindowText);
         painter->setPen(color);
         qreal y = r.bottom();
         if (bl.length() == 1)
@@ -3111,7 +3111,7 @@ void QTextDocumentLayoutPrivate::layoutFlow(QTextFrame::Iterator it, QTextLayout
     QTextBlockFormat previousBlockFormat = previousIt.currentBlock().blockFormat();
 
     QFixed maximumBlockWidth = 0;
-    while (!it.atEnd()) {
+    while (!it.atEnd() && layoutStruct->absoluteY() < QFIXED_MAX) {
         QTextFrame *c = it.currentFrame();
 
         int docPos;
@@ -3361,7 +3361,7 @@ void QTextDocumentLayoutPrivate::layoutFlow(QTextFrame::Iterator it, QTextLayout
         if (!fd->floats.isEmpty())
             contentHasAlignment = true;
 
-        if (it.atEnd()) {
+        if (it.atEnd() || layoutStruct->absoluteY() >= QFIXED_MAX) {
             //qDebug("layout done!");
             currentLazyLayoutPosition = -1;
             QCheckPoint cp;
@@ -3547,6 +3547,11 @@ void QTextDocumentLayoutPrivate::layoutBlock(const QTextBlock &bl, int blockPosi
 
             while (layoutStruct->pageHeight > 0 && layoutStruct->absoluteY() + lineBreakHeight > layoutStruct->pageBottom &&
                 layoutStruct->contentHeight() >= lineBreakHeight) {
+                if (layoutStruct->pageHeight == QFIXED_MAX) {
+                    layoutStruct->y = QFIXED_MAX - layoutStruct->frameY;
+                    break;
+                }
+
                 layoutStruct->newPage();
 
                 floatMargins(layoutStruct->y, layoutStruct, &left, &right);

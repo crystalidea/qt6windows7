@@ -56,6 +56,19 @@ macro.endqdoc.HTML        = "*/"
 macro.borderedimage       = "\\div {class=\"border\"} \\image \1\n\\enddiv"
 macro.examplecategory     = "\\meta category {\1}\n\\ingroup category \1"
 
+macro.QDS                 = "Qt Design Studio"
+macro.QDV                 = "Qt Design Viewer"
+macro.QB                  = "Qt Bridge"
+macro.QBPS                = "Qt Bridge for Adobe Photoshop"
+macro.QBXD                = "Qt Bridge for Adobe XD"
+macro.QBSK                = "Qt Bridge for Sketch"
+macro.QBF                 = "Qt Bridge for Figma"
+macro.QMCU                = "Qt for MCUs"
+macro.QUL                 = "Qt Quick Ultralite"
+macro.QtAA                = "Qt for Android Automotive"
+macro.QOI                 = "Qt Online Installer"
+macro.QMT                 = "Qt Maintenance Tool"
+
 macro.beginfloatleft.HTML   = "<div style=\"float: left; margin-right: 2em\">"
 macro.beginfloatright.HTML  = "<div style=\"float: right; margin-left: 2em\">"
 macro.endfloat.HTML         = "</div>"
@@ -111,3 +124,8 @@ macro.cmakepropertywebassemblyonly = "\\note This property is used only if targe
 
 macro.cmakepropertyiosonly = "\\note This property is used only if targeting iOS."
 macro.cmakevariableiosonly = "\\note This variable is used only if targeting iOS."
+
+#Appends the tech preview link to the brief sentence and adds to tech_preview
+#group.
+#Must be placed directly under a \brief command
+macro.techpreview = "(Technical preview)\n\n\\meta status {Technical preview}\n\\ingroup tech_preview\n"

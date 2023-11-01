@@ -41,6 +41,8 @@ private slots:
     void cancelWhenReassigned();
     void cancelWhenDestroyedWithoutStarting();
     void cancelWhenDestroyedRunsContinuations();
+    void cancelWhenDestroyedWithFailureHandler();  // QTBUG-114606
+    void continuationsRunWhenFinished();
     void finishWhenSwapped();
     void cancelWhenMoved();
     void waitUntilResumed();
@@ -256,6 +258,10 @@ void tst_QPromise::setException()
                        std::make_exception_ptr(TestException()));
     RUN_TEST_FUNC(testExceptionCaught, QPromise<int>(),
                        std::make_exception_ptr(TestException()));
+    RUN_TEST_FUNC(testExceptionCaught, QPromise<CopyOnlyType>(),
+                       std::make_exception_ptr(TestException()));
+    RUN_TEST_FUNC(testExceptionCaught, QPromise<MoveOnlyType>(),
+                       std::make_exception_ptr(TestException()));
 }
 #endif
 
@@ -269,6 +275,8 @@ void tst_QPromise::cancel()
 
     testCancel(QPromise<void>());
     testCancel(QPromise<int>());
+    testCancel(QPromise<CopyOnlyType>());
+    testCancel(QPromise<MoveOnlyType>());
 }
 
 void tst_QPromise::progress()
@@ -296,6 +304,8 @@ void tst_QPromise::progress()
 
     RUN_TEST_FUNC(testProgress, QPromise<void>());
     RUN_TEST_FUNC(testProgress, QPromise<int>());
+    RUN_TEST_FUNC(testProgress, QPromise<CopyOnlyType>());
+    RUN_TEST_FUNC(testProgress, QPromise<MoveOnlyType>());
 }
 
 void tst_QPromise::addInThread()
@@ -421,6 +431,8 @@ void tst_QPromise::doNotCancelWhenFinished()
     RUN_TEST_FUNC(testFinishedPromise, QPromise<void>());
     RUN_TEST_FUNC(testFinishedPromise, QPromise<int>());
     RUN_TEST_FUNC(testFinishedPromise, QPromise<QString>());
+    RUN_TEST_FUNC(testFinishedPromise, QPromise<CopyOnlyType>());
+    RUN_TEST_FUNC(testFinishedPromise, QPromise<MoveOnlyType>());
 #endif
 }
 
@@ -482,11 +494,12 @@ void tst_QPromise::cancelWhenReassigned()
 #endif
 }
 
-void tst_QPromise::cancelWhenDestroyedWithoutStarting()
+template <typename T>
+static inline void testCancelWhenDestroyedWithoutStarting()
 {
-    QFuture<void> future;
+    QFuture<T> future;
     {
-        QPromise<void> promise;
+        QPromise<T> promise;
         future = promise.future();
     }
     future.waitForFinished();
@@ -495,23 +508,100 @@ void tst_QPromise::cancelWhenDestroyedWithoutStarting()
     QVERIFY(future.isFinished());
 }
 
-void tst_QPromise::cancelWhenDestroyedRunsContinuations()
+void tst_QPromise::cancelWhenDestroyedWithoutStarting()
 {
-    QFuture<void> future;
+    testCancelWhenDestroyedWithoutStarting<void>();
+    testCancelWhenDestroyedWithoutStarting<int>();
+    testCancelWhenDestroyedWithoutStarting<CopyOnlyType>();
+    testCancelWhenDestroyedWithoutStarting<MoveOnlyType>();
+}
+
+template <typename T>
+static inline void testCancelWhenDestroyedRunsContinuations()
+{
+    QFuture<T> future;
     bool onCanceledCalled = false;
     bool thenCalled = false;
     {
-        QPromise<void> promise;
+        QPromise<T> promise;
         future = promise.future();
-        future.then([&] {
+        future.then([&] (auto&&) {
             thenCalled = true;
-        }).onCanceled([&] {
+        }).onCanceled([&] () {
             onCanceledCalled = true;
         });
     }
     QVERIFY(future.isFinished());
     QVERIFY(!thenCalled);
     QVERIFY(onCanceledCalled);
+}
+
+void tst_QPromise::cancelWhenDestroyedRunsContinuations()
+{
+    testCancelWhenDestroyedRunsContinuations<void>();
+    testCancelWhenDestroyedRunsContinuations<int>();
+    testCancelWhenDestroyedRunsContinuations<CopyOnlyType>();
+    testCancelWhenDestroyedRunsContinuations<MoveOnlyType>();
+}
+
+template <typename T>
+static inline void testCancelWhenDestroyedWithFailureHandler()
+{
+    QFuture<T> future;
+    bool onFailedCalled = false;
+    bool thenCalled = false;
+    {
+        QPromise<T> promise;
+        future = promise.future();
+        future
+            .onFailed([&] () {
+                onFailedCalled = true;
+                if constexpr (!std::is_same_v<void, T>)
+                    return T{};
+            })
+            .then([&] (auto&&) {
+                thenCalled = true;
+            });
+    }
+    QVERIFY(future.isFinished());
+    QVERIFY(!onFailedCalled);
+    QVERIFY(!thenCalled);
+}
+
+void tst_QPromise::cancelWhenDestroyedWithFailureHandler()
+{
+    testCancelWhenDestroyedWithFailureHandler<void>();
+    testCancelWhenDestroyedWithFailureHandler<int>();
+    testCancelWhenDestroyedWithFailureHandler<CopyOnlyType>();
+    testCancelWhenDestroyedWithFailureHandler<MoveOnlyType>();
+}
+
+template <typename T>
+static inline void testContinuationsRunWhenFinished()
+{
+    QPromise<T> promise;
+    QFuture<T> future = promise.future();
+
+    bool thenCalled = false;
+    future.then([&] (auto&&) {
+        thenCalled = true;
+    });
+
+    promise.start();
+    if constexpr (!std::is_void_v<T>) {
+        promise.addResult(T{});
+    }
+    promise.finish();
+
+    QVERIFY(thenCalled);
+}
+
+void tst_QPromise::continuationsRunWhenFinished()
+{
+    testContinuationsRunWhenFinished<void>();
+    testContinuationsRunWhenFinished<int>();
+    testContinuationsRunWhenFinished<CopyOnlyType>();
+    testContinuationsRunWhenFinished<MoveOnlyType>();
 }
 
 void tst_QPromise::finishWhenSwapped()
@@ -556,16 +646,17 @@ void tst_QPromise::finishWhenSwapped()
 #endif
 }
 
-void tst_QPromise::cancelWhenMoved()
+template <typename T>
+void testCancelWhenMoved()
 {
 #if !QT_CONFIG(cxx11_future)
     QSKIP("This test requires QThread::create");
 #else
-    QPromise<int> promise1;
+    QPromise<T> promise1;
     auto f1 = promise1.future();
     promise1.start();
 
-    QPromise<int> promise2;
+    QPromise<T> promise2;
     auto f2 = promise2.future();
     promise2.start();
 
@@ -587,6 +678,14 @@ void tst_QPromise::cancelWhenMoved()
     QCOMPARE(f2.isFinished(), true);
     QCOMPARE(f2.isCanceled(), false);
 #endif
+}
+
+void tst_QPromise::cancelWhenMoved()
+{
+    testCancelWhenMoved<void>();
+    testCancelWhenMoved<int>();
+    testCancelWhenMoved<CopyOnlyType>();
+    testCancelWhenMoved<MoveOnlyType>();
 }
 
 void tst_QPromise::waitUntilResumed()

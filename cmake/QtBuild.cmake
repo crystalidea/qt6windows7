@@ -284,21 +284,21 @@ if(WIN32)
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         list(APPEND QT_DEFAULT_PLATFORM_DEFINITIONS WIN64 _WIN64)
     endif()
-    if(MSVC)
-        if (CLANG)
+
+    if(CLANG)
+        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR MSVC)
             set(QT_DEFAULT_MKSPEC win32-clang-msvc)
-        elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        elseif(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU" OR MINGW)
+            set(QT_DEFAULT_MKSPEC win32-clang-g++)
+        endif()
+    elseif(MSVC)
+        if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
             set(QT_DEFAULT_MKSPEC win32-arm64-msvc)
         else()
             set(QT_DEFAULT_MKSPEC win32-msvc)
         endif()
-    elseif(CLANG AND MINGW)
-        set(QT_DEFAULT_MKSPEC win32-clang-g++)
     elseif(MINGW)
         set(QT_DEFAULT_MKSPEC win32-g++)
-    endif()
-
-    if (MINGW)
         list(APPEND QT_DEFAULT_PLATFORM_DEFINITIONS MINGW_HAS_SECURE_API=1)
     endif()
 elseif(LINUX)
@@ -376,15 +376,23 @@ else()
     set(QT_QMAKE_HOST_MKSPEC "${QT_QMAKE_TARGET_MKSPEC}")
 endif()
 
-if(NOT EXISTS "${QT_MKSPECS_DIR}/${QT_QMAKE_TARGET_MKSPEC}")
+if(NOT QT_QMAKE_TARGET_MKSPEC OR NOT EXISTS "${QT_MKSPECS_DIR}/${QT_QMAKE_TARGET_MKSPEC}")
+    if(NOT QT_QMAKE_TARGET_MKSPEC)
+        set(reason "Platform is not detected. Please make sure your build environment is configured"
+            " properly or specify it manually using QT_QMAKE_TARGET_MKSPEC variable and one of the"
+            " known platforms.")
+    else()
+        set(reason "Unknown platform ${QT_QMAKE_TARGET_MKSPEC}")
+    endif()
+
     file(GLOB known_platforms
         LIST_DIRECTORIES true
         RELATIVE "${QT_MKSPECS_DIR}"
         "${QT_MKSPECS_DIR}/*"
     )
     list(JOIN known_platforms "\n    " known_platforms)
-    message(FATAL_ERROR "Unknown platform ${QT_QMAKE_TARGET_MKSPEC}\n\
-Known platforms:\n    ${known_platforms}")
+    message(FATAL_ERROR "${reason}\n"
+        "Known platforms:\n    ${known_platforms}")
 endif()
 
 if(NOT DEFINED QT_DEFAULT_PLATFORM_DEFINITIONS)
@@ -459,6 +467,7 @@ set(__default_private_args
     DISABLE_AUTOGEN_TOOLS
     ENABLE_AUTOGEN_TOOLS
     PLUGIN_TYPES
+    NO_PCH_SOURCES
     NO_UNITY_BUILD_SOURCES
 )
 set(__default_public_args

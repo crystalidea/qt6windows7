@@ -6018,9 +6018,8 @@ void QDomDocumentPrivate::saveDocument(QTextStream& s, const int indent, QDomNod
     \l{http://www.w3.org/TR/DOM-Level-2-Core/}{Level 2 Core}
     Specifications.
 
-    \sa {DOM Bookmarks Example}, {Simple DOM Model Example}
+    \sa {DOM Bookmarks Application}
 */
-
 
 /*!
     Constructs an empty document.
@@ -6105,6 +6104,7 @@ bool QDomDocument::setContent(const QString& text, bool namespaceProcessing,
 
 /*!
     \deprecated [6.8] Use the overload taking ParseOptions instead.
+    \overload
 
     This function parses the XML document from the byte array \a
     data and sets it as the content of the document. It tries to
@@ -6336,8 +6336,8 @@ QT_WARNING_POP
 /*!
     \fn QDomDocument::ParseResult::operator bool() const
 
-    Returns \c true if an error is found by QDomDocument::setContent();
-    otherwise returns \c false.
+    Returns \c false if any error is found by QDomDocument::setContent();
+    otherwise returns \c true.
 
     \sa QDomDocument::setContent()
 */

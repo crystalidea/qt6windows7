@@ -72,6 +72,7 @@ public:
         const void *data() const { return reinterpret_cast<const uchar *>(this) + offset; }
         void *data() { return reinterpret_cast<uchar *>(this) + offset; }
     };
+
     struct Private
     {
         static constexpr size_t MaxInternalSize = 3 * sizeof(void *);
@@ -449,7 +450,7 @@ public:
     {
         if (value.valueless_by_exception())
             return QVariant();
-        return std::visit([](const auto &arg) { return fromValue(arg); }, value);
+        return std::visit([](const auto &arg) { return QVariant::fromValue(arg); }, value);
     }
 
     template<typename T>

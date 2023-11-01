@@ -358,7 +358,7 @@ bool QProcessPrivate::openChannel(Channel &channel)
     }
 }
 
-void QProcessPrivate::commitChannels()
+void QProcessPrivate::commitChannels() const
 {
     // copy the stdin socket if asked to (without closing on exec)
     if (stdinChannel.pipe[0] != INVALID_Q_PIPE)
@@ -441,6 +441,16 @@ void QProcessPrivate::startProcess()
                          q, SLOT(_q_startupNotification()));
     }
 
+    int workingDirFd = -1;
+    if (!workingDirectory.isEmpty()) {
+        workingDirFd = qt_safe_open(QFile::encodeName(workingDirectory), QT_OPEN_RDONLY | O_DIRECTORY);
+        if (workingDirFd == -1) {
+            setErrorAndEmit(QProcess::FailedToStart, "chdir: "_L1 + qt_error_string());
+            cleanup();
+            return;
+        }
+    }
+
     // Start the process (platform dependent)
     q->setProcessState(QProcess::Starting);
 
@@ -448,17 +458,9 @@ void QProcessPrivate::startProcess()
     const CharPointerList argv(resolveExecutable(program), arguments);
     const CharPointerList envp(environment.d.constData());
 
-    // Encode the working directory if it's non-empty, otherwise just pass 0.
-    const char *workingDirPtr = nullptr;
-    QByteArray encodedWorkingDirectory;
-    if (!workingDirectory.isEmpty()) {
-        encodedWorkingDirectory = QFile::encodeName(workingDirectory);
-        workingDirPtr = encodedWorkingDirectory.constData();
-    }
-
     // Start the child.
-    auto execChild1 = [this, workingDirPtr, &argv, &envp]() {
-        execChild(workingDirPtr, argv.pointers.get(), envp.pointers.get());
+    auto execChild1 = [this, workingDirFd, &argv, &envp]() {
+        execChild(workingDirFd, argv.pointers.get(), envp.pointers.get());
     };
     auto execChild2 = [](void *lambda) {
         static_cast<decltype(execChild1) *>(lambda)->operator()();
@@ -467,14 +469,22 @@ void QProcessPrivate::startProcess()
 
     int ffdflags = FFD_CLOEXEC;
 
-    // QTBUG-86285
 #if defined(Q_OS_LINUX) && !QT_CONFIG(forkfd_pidfd)
+    // QTBUG-86285
     ffdflags |= FFD_USE_FORK;
 #endif
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
+    // ASan writes to global memory, so we mustn't use vfork().
+    ffdflags |= FFD_USE_FORK;
+#endif
+    if (unixExtras && unixExtras->childProcessModifier)
+        ffdflags |= FFD_USE_FORK;
 
-    pid_t childPid;
-    forkfd = ::vforkfd(ffdflags , &childPid, execChild2, &execChild1);
+    forkfd = ::vforkfd(ffdflags, &pid, execChild2, &execChild1);
     int lastForkErrno = errno;
+
+    if (workingDirFd != -1)
+        close(workingDirFd);
 
     if (forkfd == -1) {
         // Cleanup, report error and return
@@ -488,7 +498,6 @@ void QProcessPrivate::startProcess()
         return;
     }
 
-    pid = qint64(childPid);
     Q_ASSERT(pid > 0);
 
     // parent
@@ -520,7 +529,12 @@ void QProcessPrivate::startProcess()
         ::fcntl(stderrChannel.pipe[0], F_SETFL, ::fcntl(stderrChannel.pipe[0], F_GETFL) | O_NONBLOCK);
 }
 
-void QProcessPrivate::execChild(const char *workingDir, char **argv, char **envp)
+// IMPORTANT:
+//
+// This function is called in a vfork() context on some OSes (notably, Linux
+// with forkfd), so it MUST NOT modify any non-local variable because it's
+// still sharing memory with the parent process.
+void QProcessPrivate::execChild(int workingDir, char **argv, char **envp) const
 {
     ::signal(SIGPIPE, SIG_DFL);         // reset the signal that we ignored
 
@@ -533,14 +547,16 @@ void QProcessPrivate::execChild(const char *workingDir, char **argv, char **envp
     qt_safe_close(childStartedPipe[0]);
 
     // enter the working directory
-    if (workingDir && QT_CHDIR(workingDir) == -1) {
+    if (workingDir != -1 && fchdir(workingDir) == -1) {
         // failed, stop the process
-        strcpy(error.function, "chdir");
+        strcpy(error.function, "fchdir");
         goto report_errno;
     }
 
-    if (childProcessModifier)
-        childProcessModifier();
+    if (unixExtras) {
+        if (unixExtras->childProcessModifier)
+            unixExtras->childProcessModifier();
+    }
 
     // execute the process
     if (!envp) {
@@ -560,7 +576,6 @@ void QProcessPrivate::execChild(const char *workingDir, char **argv, char **envp
 report_errno:
     error.code = errno;
     qt_safe_write(childStartedPipe[1], &error, sizeof(error));
-    childStartedPipe[1] = -1;
 }
 
 bool QProcessPrivate::processStarted(QString *errorMessage)
@@ -716,7 +731,7 @@ void QProcessPrivate::terminateProcess()
     qDebug("QProcessPrivate::terminateProcess() pid=%jd", intmax_t(pid));
 #endif
     if (pid > 0)
-        ::kill(pid_t(pid), SIGTERM);
+        ::kill(pid, SIGTERM);
 }
 
 void QProcessPrivate::killProcess()
@@ -725,7 +740,7 @@ void QProcessPrivate::killProcess()
     qDebug("QProcessPrivate::killProcess() pid=%jd", intmax_t(pid));
 #endif
     if (pid > 0)
-        ::kill(pid_t(pid), SIGKILL);
+        ::kill(pid, SIGKILL);
 }
 
 bool QProcessPrivate::waitForStarted(const QDeadlineTimer &deadline)
@@ -892,7 +907,7 @@ void QProcessPrivate::waitForDeadChild()
     EINTR_LOOP(ret, forkfd_wait(forkfd, &info, nullptr));
 
     exitCode = info.status;
-    crashed = info.code != CLD_EXITED;
+    exitStatus = info.code == CLD_EXITED ? QProcess::NormalExit : QProcess::CrashExit;
 
     delete stateNotifier;
     stateNotifier = nullptr;
@@ -902,13 +917,12 @@ void QProcessPrivate::waitForDeadChild()
 
 #if defined QPROCESS_DEBUG
     qDebug() << "QProcessPrivate::waitForDeadChild() dead with exitCode"
-             << exitCode << ", crashed?" << crashed;
+             << exitCode << ", crashed?" << (info.code != CLD_EXITED);
 #endif
 }
 
 bool QProcessPrivate::startDetached(qint64 *pid)
 {
-    QByteArray encodedWorkingDirectory = QFile::encodeName(workingDirectory);
 
 #ifdef PIPE_BUF
     static_assert(PIPE_BUF >= sizeof(ChildError));
@@ -929,6 +943,15 @@ bool QProcessPrivate::startDetached(qint64 *pid)
         return false;
     }
 
+    int workingDirFd = -1;
+    if (!workingDirectory.isEmpty()) {
+        workingDirFd = qt_safe_open(QFile::encodeName(workingDirectory), QT_OPEN_RDONLY | O_DIRECTORY);
+        if (workingDirFd == -1) {
+            setErrorAndEmit(QProcess::FailedToStart, "chdir: "_L1 + qt_error_string(errno));
+            return false;
+        }
+    }
+
     const CharPointerList argv(resolveExecutable(program), arguments);
     const CharPointerList envp(environment.d.constData());
 
@@ -947,10 +970,8 @@ bool QProcessPrivate::startDetached(qint64 *pid)
             ::_exit(1);
         };
 
-        if (!encodedWorkingDirectory.isEmpty()) {
-            if (QT_CHDIR(encodedWorkingDirectory.constData()) < 0)
-                reportFailed("chdir: ");
-        }
+        if (workingDirFd != -1 && fchdir(workingDirFd) == -1)
+            reportFailed("fchdir: ");
 
         pid_t doubleForkPid = fork();
         if (doubleForkPid == 0) {
@@ -974,6 +995,8 @@ bool QProcessPrivate::startDetached(qint64 *pid)
 
     int savedErrno = errno;
     closeChannels();
+    if (workingDirFd != -1)
+        close(workingDirFd);
 
     if (childPid == -1) {
         setErrorAndEmit(QProcess::FailedToStart, "fork: "_L1 + qt_error_string(savedErrno));

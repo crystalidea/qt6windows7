@@ -496,8 +496,11 @@ void QApplicationPrivate::init()
 void qt_init_tooltip_palette()
 {
 #if QT_CONFIG(tooltip)
-    if (const QPalette *toolTipPalette = QGuiApplicationPrivate::platformTheme()->palette(QPlatformTheme::ToolTipPalette))
-        QToolTip::setPalette(*toolTipPalette);
+    if (const QPalette *toolTipPalette = QGuiApplicationPrivate::platformTheme()->palette(QPlatformTheme::ToolTipPalette)) {
+        QPalette toolTipPal = *toolTipPalette;
+        toolTipPal.setResolveMask(0);
+        QToolTip::setPalette(toolTipPal);
+    }
 #endif
 }
 
@@ -1774,7 +1777,7 @@ void QApplicationPrivate::notifyLayoutDirectionChange()
 
 /*!
     \fn void QApplication::setActiveWindow(QWidget* active)
-    \deprecated Use QWidget::activateWindow() instead.
+    \deprecated [6.5] Use QWidget::activateWindow() instead.
 
     Sets the active window to the \a active widget in response to a system
     event. The function is called from the platform specific event handlers.

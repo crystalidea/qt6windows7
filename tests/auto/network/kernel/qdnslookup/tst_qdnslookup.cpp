@@ -5,15 +5,22 @@
 
 #include <QTest>
 #include <QSignalSpy>
+#include <QtTest/private/qpropertytesthelper_p.h>
 
 #include <QtNetwork/QDnsLookup>
 #include <QtNetwork/QHostAddress>
 
+using namespace Qt::StringLiterals;
 static const int Timeout = 15000; // 15s
 
 class tst_QDnsLookup: public QObject
 {
     Q_OBJECT
+
+    const QString normalDomain = u".test.qt-project.org"_s;
+    const QString idnDomain = u".alqualondë.test.qt-project.org"_s;
+    bool usingIdnDomain = false;
+    bool dnsServersMustWork = false;
 
     QString domainName(const QString &input);
     QString domainNameList(const QString &input);
@@ -24,16 +31,19 @@ public slots:
 private slots:
     void lookup_data();
     void lookup();
+    void lookupIdn_data() { lookup_data(); }
+    void lookupIdn();
+
     void lookupReuse();
     void lookupAbortRetry();
     void bindingsAndProperties();
+    void automatedBindings();
 };
 
 void tst_QDnsLookup::initTestCase()
 {
-    QTest::addColumn<QString>("tld");
-    QTest::newRow("normal") << ".test.qt-project.org";
-    QTest::newRow("idn") << ".alqualond\xc3\xab.test.qt-project.org";
+    if (qgetenv("QTEST_ENVIRONMENT") == "ci")
+        dnsServersMustWork = true;
 }
 
 QString tst_QDnsLookup::domainName(const QString &input)
@@ -47,15 +57,16 @@ QString tst_QDnsLookup::domainName(const QString &input)
         return nodot;
     }
 
-    QFETCH_GLOBAL(QString, tld);
-    return input + tld;
+    if (usingIdnDomain)
+        return input + idnDomain;
+    return input + normalDomain;
 }
 
 QString tst_QDnsLookup::domainNameList(const QString &input)
 {
-    QStringList list = input.split(QLatin1Char(';'));
+    const QStringList list = input.split(QLatin1Char(';'));
     QString result;
-    foreach (const QString &s, list) {
+    for (const QString &s : list) {
         if (!result.isEmpty())
             result += ';';
         result += domainName(s);
@@ -140,38 +151,6 @@ void tst_QDnsLookup::lookup_data()
     QTest::newRow("txt-multi-multirr") << int(QDnsLookup::TXT) << "txt-multi-multirr" << int(QDnsLookup::NoError) << "" << "" << "" << "" << "" << "" << "Hello;World";
 }
 
-static QByteArray msgDnsLookup(QDnsLookup::Error actualError,
-                               int expectedError,
-                               const QString &domain,
-                               const QString &cname,
-                               const QString &host,
-                               const QString &srv,
-                               const QString &mx,
-                               const QString &ns,
-                               const QString &ptr,
-                               const QString &errorString)
-{
-    QString result;
-    QTextStream str(&result);
-    str << "Actual error: " << actualError;
-    if (!errorString.isEmpty())
-        str << " (" << errorString << ')';
-    str << ", expected: " << expectedError;
-    str << ", domain: " << domain;
-    if (!cname.isEmpty())
-        str << ", cname: " << cname;
-    str << ", host: " << host;
-    if (!srv.isEmpty())
-        str << " server: " << srv;
-    if (!mx.isEmpty())
-        str << " mx: " << mx;
-    if (!ns.isEmpty())
-        str << " ns: " << ns;
-    if (!ptr.isEmpty())
-        str << " ptr: " << ptr;
-    return result.toLocal8Bit();
-}
-
 void tst_QDnsLookup::lookup()
 {
     QFETCH(int, type);
@@ -207,8 +186,38 @@ void tst_QDnsLookup::lookup()
         QEXPECT_FAIL("", "Not yet supported on Android", Abort);
 #endif
 
-    QVERIFY2(int(lookup.error()) == error,
-             msgDnsLookup(lookup.error(), error, domain, cname, host, srv, mx, ns, ptr, lookup.errorString()));
+    auto extraErrorMsg = [&] () {
+        QString result;
+        QTextStream str(&result);
+        str << "Actual error: " << lookup.error();
+        if (QString errorString = lookup.errorString(); !errorString.isEmpty())
+            str << " (" << errorString << ')';
+        str << ", expected: " << error;
+        str << ", domain: " << domain;
+        if (!cname.isEmpty())
+            str << ", cname: " << cname;
+        str << ", host: " << host;
+        if (!srv.isEmpty())
+            str << " server: " << srv;
+        if (!mx.isEmpty())
+            str << " mx: " << mx;
+        if (!ns.isEmpty())
+            str << " ns: " << ns;
+        if (!ptr.isEmpty())
+            str << " ptr: " << ptr;
+        return result.toLocal8Bit();
+    };
+
+    if (!dnsServersMustWork && (lookup.error() == QDnsLookup::ServerFailureError
+                                || lookup.error() == QDnsLookup::ServerRefusedError)) {
+        // It's not a QDnsLookup problem if the server refuses to answer the query.
+        // This happens for queries of type ANY through Dnsmasq, for example.
+        qWarning("Server refused or was unable to answer query; %s", extraErrorMsg().constData());
+        return;
+    }
+
+    QVERIFY2(int(lookup.error()) == error, extraErrorMsg());
+
     if (error == QDnsLookup::NoError)
         QVERIFY(lookup.errorString().isEmpty());
     QCOMPARE(int(lookup.type()), type);
@@ -291,6 +300,13 @@ void tst_QDnsLookup::lookup()
     QCOMPARE(texts.join(';'), txt);
 }
 
+void tst_QDnsLookup::lookupIdn()
+{
+    usingIdnDomain = true;
+    lookup();
+    usingIdnDomain = false;
+}
+
 void tst_QDnsLookup::lookupReuse()
 {
     QDnsLookup lookup;
@@ -355,10 +371,6 @@ void tst_QDnsLookup::lookupAbortRetry()
 
 void tst_QDnsLookup::bindingsAndProperties()
 {
-    QFETCH_GLOBAL(const QString, tld);
-    if (tld == QStringLiteral("idn"))
-        return;
-
     QDnsLookup lookup;
 
     lookup.setType(QDnsLookup::A);
@@ -397,6 +409,31 @@ void tst_QDnsLookup::bindingsAndProperties()
     nameserverProp.setBinding(lookup.bindableNameserver().makeBinding());
     lookup.setNameserver(QHostAddress::Any);
     QCOMPARE(nameserverProp.value(), QHostAddress::Any);
+}
+
+void tst_QDnsLookup::automatedBindings()
+{
+    QDnsLookup lookup;
+
+    QTestPrivate::testReadWritePropertyBasics(lookup, u"aaaa"_s, u"txt"_s, "name");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed property test for QDnsLookup::name");
+        return;
+    }
+
+    QTestPrivate::testReadWritePropertyBasics(lookup, QDnsLookup::AAAA, QDnsLookup::TXT, "type");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed property test for QDnsLookup::type");
+        return;
+    }
+
+    QTestPrivate::testReadWritePropertyBasics(lookup, QHostAddress{QHostAddress::Any},
+                                              QHostAddress{QHostAddress::LocalHost},
+                                              "nameserver");
+    if (QTest::currentTestFailed()) {
+        qDebug("Failed property test for QDnsLookup::nameserver");
+        return;
+    }
 }
 
 QTEST_MAIN(tst_QDnsLookup)

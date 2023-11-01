@@ -118,7 +118,7 @@ struct PropertyDef
     bool required = false;
     int relativeIndex = -1; // property index in current metaobject
 
-    int location = -1; // token index, used for error reporting
+    qsizetype location = -1; // token index, used for error reporting
 
     QJsonObject toJson() const;
 };
@@ -148,8 +148,8 @@ struct BaseDef {
     QMap<QByteArray, bool> enumDeclarations;
     QList<EnumDef> enumList;
     QMap<QByteArray, QByteArray> flagAliases;
-    int begin = 0;
-    int end = 0;
+    qsizetype begin = 0;
+    qsizetype end = 0;
 };
 
 struct ClassDef : BaseDef {
@@ -229,6 +229,8 @@ public:
         return index > def->begin && index < def->end - 1;
     }
 
+    void prependNamespaces(BaseDef &def, const QList<NamespaceDef> &namespaceList) const;
+
     Type parseType();
 
     bool parseEnum(EnumDef *def);
@@ -271,6 +273,7 @@ public:
 
     void checkSuperClasses(ClassDef *def);
     void checkProperties(ClassDef* cdef);
+    bool testForFunctionModifiers(FunctionDef *def);
 };
 
 inline QByteArray noRef(const QByteArray &type)

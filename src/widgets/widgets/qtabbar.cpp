@@ -71,14 +71,6 @@ void QMovableTabWidget::paintEvent(QPaintEvent *e)
     p.drawPixmap(0, 0, m_pixmap);
 }
 
-inline static bool verticalTabs(QTabBar::Shape shape)
-{
-    return shape == QTabBar::RoundedWest
-           || shape == QTabBar::RoundedEast
-           || shape == QTabBar::TriangularWest
-           || shape == QTabBar::TriangularEast;
-}
-
 void QTabBarPrivate::updateMacBorderMetrics()
 {
 #if defined(Q_OS_MACOS)
@@ -1421,7 +1413,10 @@ void QTabBar::setCurrentIndex(int index)
         if (tabRect(index).size() != tabSizeHint(index))
             d->layoutTabs();
         update();
-        d->makeVisible(index);
+        if (!isVisible())
+            d->layoutDirty = true;
+        else
+            d->makeVisible(index);
         if (d->validIndex(oldIndex)) {
             tab->lastTab = oldIndex;
             d->layoutTab(oldIndex);
@@ -1656,6 +1651,8 @@ void QTabBar::showEvent(QShowEvent *)
         d->refresh();
     if (!d->validIndex(d->currentIndex))
         setCurrentIndex(0);
+    else
+        d->makeVisible(d->currentIndex);
     d->updateMacBorderMetrics();
 }
 

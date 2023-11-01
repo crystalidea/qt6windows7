@@ -25,7 +25,6 @@
 #include <qset.h>
 #include <qthreadstorage.h>
 #include <qthread.h>
-#include <qmutex.h>
 #include <qloggingcategory.h>
 
 QT_BEGIN_NAMESPACE
@@ -90,6 +89,7 @@ private:
     QHash<QString, QCtfTracePointPrivate *> m_eventPrivs;
     void updateMetadata(const QCtfTracePointEvent &point);
     void writeMetadata(const QString &metadata, bool overwrite = false);
+    void clearLocation();
     static void writeCtfPacket(Channel &ch);
 
     static constexpr QUuid s_TraceUuid = QUuid(0x3e589c95, 0xed11, 0xc159, 0x42, 0x02, 0x6a, 0x9b, 0x02, 0x00, 0x12, 0xac);

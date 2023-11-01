@@ -78,6 +78,7 @@ struct QWindowsWindowData
 {
     Qt::WindowFlags flags;
     QRect geometry;
+    QRect preMoveGeometry;
     QRect restoreGeometry;
     QMargins fullFrameMargins; // Do not use directly for windows, see FrameDirty.
     QMargins customMargins;    // User-defined, additional frame for NCCALCSIZE
@@ -222,6 +223,11 @@ public:
     QRect restoreGeometry() const { return m_data.restoreGeometry; }
     void updateRestoreGeometry();
 
+    static QWindow *topTransientOf(QWindow *w);
+    QRect preMoveRect() const { return m_data.preMoveGeometry; }
+    void setPreMoveRect(const QRect &rect) { m_data.preMoveGeometry = rect; }
+    void moveTransientChildren();
+
     void setVisible(bool visible) override;
     bool isVisible() const;
     bool isExposed() const override { return testFlag(Exposed); }
@@ -299,6 +305,7 @@ public:
     static inline void *userDataOf(HWND hwnd);
     static inline void setUserDataOf(HWND hwnd, void *ud);
 
+    static bool hasNoNativeFrame(HWND hwnd, Qt::WindowFlags flags);
     static bool setWindowLayered(HWND hwnd, Qt::WindowFlags flags, bool hasAlpha, qreal opacity);
     bool isLayered() const;
 
@@ -345,6 +352,7 @@ public:
 
     void setSavedDpi(int dpi) { m_savedDpi = dpi; }
     int savedDpi() const { return m_savedDpi; }
+    qreal dpiRelativeScale(const UINT dpi) const;
 
 private:
     inline void show_sys() const;

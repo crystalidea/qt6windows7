@@ -93,7 +93,9 @@ public:
         Q_D(QTornOffMenu);
         // make the torn-off menu a sibling of p (instead of a child)
         QWidget *parentWidget = d->causedStack.isEmpty() ? p : d->causedStack.constLast();
-        if (parentWidget->parentWidget())
+        if (!parentWidget && p)
+            parentWidget = p;
+        if (parentWidget && parentWidget->parentWidget())
             parentWidget = parentWidget->parentWidget();
         setParent(parentWidget, Qt::Window | Qt::Tool);
         setAttribute(Qt::WA_DeleteOnClose, true);
@@ -567,10 +569,16 @@ void QMenuPrivate::hideMenu(QMenu *menu)
     };
 
 #if QT_CONFIG(effects)
-    QSignalBlocker blocker(menu);
+    // If deleteLater has been called and the event loop spins, while waiting
+    // for visual effects to happen, menu might become stale.
+    // To prevent a QSignalBlocker from restoring a stale object, block and restore signals manually.
+    QPointer<QMenu> stillAlive(menu);
+    const bool signalsBlocked = menu->signalsBlocked();
+    menu->blockSignals(true);
+
     aboutToHide = true;
     // Flash item which is about to trigger (if any).
-    if (menu->style()->styleHint(QStyle::SH_Menu_FlashTriggeredItem)
+    if (menu && menu->style()->styleHint(QStyle::SH_Menu_FlashTriggeredItem)
         && currentAction && currentAction == actionAboutToTrigger
         && menu->actions().contains(currentAction)) {
         QEventLoop eventLoop;
@@ -581,6 +589,9 @@ void QMenuPrivate::hideMenu(QMenu *menu)
         QTimer::singleShot(60, &eventLoop, SLOT(quit()));
         eventLoop.exec();
 
+        if (!stillAlive)
+            return;
+
         // Select and wait 20 ms.
         menu->setActiveAction(activeAction);
         QTimer::singleShot(20, &eventLoop, SLOT(quit()));
@@ -588,10 +599,16 @@ void QMenuPrivate::hideMenu(QMenu *menu)
     }
 
     aboutToHide = false;
-    blocker.unblock();
+
+    if (stillAlive)
+        menu->blockSignals(signalsBlocked);
+    else
+        return;
+
 #endif // QT_CONFIG(effects)
     if (activeMenu == menu)
         activeMenu = nullptr;
+
     menu->d_func()->causedPopup.action = nullptr;
     menu->close();
     menu->d_func()->causedPopup.widget = nullptr;
@@ -1708,7 +1725,7 @@ void QMenu::initStyleOption(QStyleOptionMenuItem *option, const QAction *action)
     \b{Important inherited functions:} addAction(), removeAction(), clear(),
     addSeparator(), and addMenu().
 
-    \sa QMenuBar, {Qt Widgets - Application Example}, {Menus Example}
+    \sa QMenuBar, {Menus Example}
 */
 
 

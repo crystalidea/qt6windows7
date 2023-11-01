@@ -531,11 +531,29 @@ struct Data
         }
     };
 
+    static auto allocateSpans(size_t numBuckets)
+    {
+        struct R {
+            Span *spans;
+            size_t nSpans;
+        };
+
+        constexpr qptrdiff MaxSpanCount = (std::numeric_limits<qptrdiff>::max)() / sizeof(Span);
+        constexpr size_t MaxBucketCount = MaxSpanCount << SpanConstants::SpanShift;
+
+        if (numBuckets > MaxBucketCount) {
+            Q_CHECK_PTR(false);
+            Q_UNREACHABLE();    // no exceptions and no assertions -> no error reporting
+        }
+
+        size_t nSpans = numBuckets >> SpanConstants::SpanShift;
+        return R{ new Span[nSpans], nSpans };
+    }
+
     Data(size_t reserve = 0)
     {
         numBuckets = GrowthPolicy::bucketsForCapacity(reserve);
-        size_t nSpans = numBuckets >> SpanConstants::SpanShift;
-        spans = new Span[nSpans];
+        spans = allocateSpans(numBuckets).spans;
         seed = QHashSeed::globalSeed();
     }
 
@@ -557,15 +575,14 @@ struct Data
 
     Data(const Data &other) : size(other.size), numBuckets(other.numBuckets), seed(other.seed)
     {
-        size_t nSpans = numBuckets >> SpanConstants::SpanShift;
-        spans = new Span[nSpans];
-        reallocationHelper(other, nSpans, false);
+        auto r = allocateSpans(numBuckets);
+        spans = r.spans;
+        reallocationHelper(other, r.nSpans, false);
     }
     Data(const Data &other, size_t reserved) : size(other.size), seed(other.seed)
     {
         numBuckets = GrowthPolicy::bucketsForCapacity(qMax(size, reserved));
-        size_t nSpans = numBuckets >> SpanConstants::SpanShift;
-        spans = new Span[nSpans];
+        spans = allocateSpans(numBuckets).spans;
         size_t otherNSpans = other.numBuckets >> SpanConstants::SpanShift;
         reallocationHelper(other, otherNSpans, true);
     }
@@ -623,8 +640,7 @@ struct Data
 
         Span *oldSpans = spans;
         size_t oldBucketCount = numBuckets;
-        size_t nSpans = newBucketCount >> SpanConstants::SpanShift;
-        spans = new Span[nSpans];
+        spans = allocateSpans(newBucketCount).spans;
         numBuckets = newBucketCount;
         size_t oldNSpans = oldBucketCount >> SpanConstants::SpanShift;
 

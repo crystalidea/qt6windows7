@@ -50,7 +50,7 @@ static inline int panTouchPoints()
 #endif
 
 QGestureManager::QGestureManager(QObject *parent)
-    : QObject(parent), state(NotGesture), m_lastCustomGestureId(Qt::CustomGesture)
+    : QObject(parent), m_lastCustomGestureId(Qt::CustomGesture)
 {
     qRegisterMetaType<Qt::GestureState>();
 
@@ -110,8 +110,10 @@ void QGestureManager::unregisterGestureRecognizer(Qt::GestureType type)
         ObjectGesture objectGesture = iter.key();
         if (objectGesture.gesture == type) {
             foreach (QGesture *g, iter.value()) {
-                if (QGestureRecognizer *recognizer = m_gestureToRecognizer.value(g)) {
-                    m_gestureToRecognizer.remove(g);
+                auto it = m_gestureToRecognizer.constFind(g);
+                if (it != m_gestureToRecognizer.cend() && it.value()) {
+                    QGestureRecognizer *recognizer = it.value();
+                    m_gestureToRecognizer.erase(it);
                     m_obsoleteGestures[recognizer].insert(g);
                 }
             }

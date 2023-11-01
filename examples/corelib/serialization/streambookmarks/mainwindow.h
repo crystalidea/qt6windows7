@@ -22,13 +22,13 @@ public slots:
     void open();
     void saveAs();
     void about();
-#if !defined(QT_NO_CONTEXTMENU) && !defined(QT_NO_CLIPBOARD)
+#if QT_CONFIG(clipboard) && QT_CONFIG(contextmenu)
     void onCustomContextMenuRequested(const QPoint &pos);
 #endif
 private:
     void createMenus();
 
-    QTreeWidget *treeWidget;
+    QTreeWidget *const treeWidget;
 };
 //! [0]
 

@@ -308,24 +308,19 @@ function(qt_build_internals_add_toplevel_targets)
 endfunction()
 
 macro(qt_enable_cmake_languages)
-    include(CheckLanguage)
     set(__qt_required_language_list C CXX)
-    set(__qt_optional_language_list )
+    set(__qt_platform_required_language_list )
 
-    # https://gitlab.kitware.com/cmake/cmake/-/issues/20545
     if(APPLE)
-        list(APPEND __qt_optional_language_list OBJC OBJCXX)
+        list(APPEND __qt_platform_required_language_list OBJC OBJCXX)
     endif()
 
     foreach(__qt_lang ${__qt_required_language_list})
         enable_language(${__qt_lang})
     endforeach()
 
-    foreach(__qt_lang ${__qt_optional_language_list})
-        check_language(${__qt_lang})
-        if(CMAKE_${__qt_lang}_COMPILER)
-            enable_language(${__qt_lang})
-        endif()
+    foreach(__qt_lang ${__qt_platform_required_language_list})
+        enable_language(${__qt_lang})
     endforeach()
 
     # The qtbase call is handled in qtbase/CMakeLists.txt.
@@ -432,6 +427,12 @@ macro(qt_build_repo_begin)
 
     if(NOT TARGET sync_headers)
         add_custom_target(sync_headers)
+    endif()
+
+    # The special target that we use to sync 3rd-party headers before the gn run when building
+    # qtwebengine in top-level builds.
+    if(NOT TARGET thirdparty_sync_headers)
+        add_custom_target(thirdparty_sync_headers)
     endif()
 
     # Add global qt_plugins, qpa_plugins and qpa_default_plugins convenience custom targets.
@@ -562,7 +563,7 @@ macro(qt_build_repo_end)
     endif()
 
     if(NOT QT_SUPERBUILD)
-        qt_internal_save_previously_found_packages()
+        qt_internal_save_previously_visited_packages()
     endif()
 
     if(QT_INTERNAL_FRESH_REQUESTED)
@@ -1414,4 +1415,14 @@ function(qt_internal_run_common_config_tests)
     qt_internal_static_link_order_test()
     qt_internal_check_cmp0099_available()
     qt_configure_end_summary_section()
+endfunction()
+
+# It is used in QtWebEngine to replace the REALPATH with ABSOLUTE path, which is
+# useful for building Qt in Homebrew.
+function(qt_internal_get_filename_path_mode out_var)
+    set(mode REALPATH)
+    if(APPLE AND QT_ALLOW_SYMLINK_IN_PATHS)
+        set(mode ABSOLUTE)
+    endif()
+    set(${out_var} ${mode} PARENT_SCOPE)
 endfunction()

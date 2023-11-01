@@ -947,7 +947,17 @@ static void executeBlockWithoutAnimation(Block block)
         int cursorPosOnRelease = QPlatformInputContext::queryFocusObject(Qt::ImCursorPosition, touchPos).toInt();
 
         if (cursorPosOnRelease == _cursorPosOnPress) {
+            // We've recognized a gesture to open the menu, but we don't know
+            // whether the user tapped a control that was overlaid our input
+            // area, since we don't do any granular hit-testing in touchesBegan.
+            // To ensure that the gesture doesn't eat touch events that should
+            // have reached another UI control we report the gesture as failed
+            // here, and then manually show the menu at the next runloop pass.
             _menuShouldBeVisible = true;
+            self.state = UIGestureRecognizerStateFailed;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                QIOSTextInputOverlay::s_editMenu.visible = _menuShouldBeVisible;
+            });
         } else {
             // The menu is hidden, and the cursor will change position once
             // Qt receive the touch release. We therefore fail so that we
@@ -996,19 +1006,26 @@ QIOSTextInputOverlay::~QIOSTextInputOverlay()
 
 void QIOSTextInputOverlay::updateFocusObject()
 {
+    // Destroy old recognizers since they were created with
+    // dependencies to the old focus object (focus view).
     if (m_cursorRecognizer) {
-        // Destroy old recognizers since they were created with
-        // dependencies to the old focus object (focus view).
         m_cursorRecognizer.enabled = NO;
-        m_selectionRecognizer.enabled = NO;
-        m_openMenuOnTapRecognizer.enabled = NO;
         [m_cursorRecognizer release];
-        [m_selectionRecognizer release];
-        [m_openMenuOnTapRecognizer release];
-        [s_editMenu release];
         m_cursorRecognizer = nullptr;
+    }
+    if (m_selectionRecognizer) {
+        m_selectionRecognizer.enabled = NO;
+        [m_selectionRecognizer release];
         m_selectionRecognizer = nullptr;
+    }
+    if (m_openMenuOnTapRecognizer) {
+        m_openMenuOnTapRecognizer.enabled = NO;
+        [m_openMenuOnTapRecognizer release];
         m_openMenuOnTapRecognizer = nullptr;
+    }
+
+    if (s_editMenu) {
+        [s_editMenu release];
         s_editMenu = nullptr;
     }
 

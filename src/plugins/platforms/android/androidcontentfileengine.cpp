@@ -308,14 +308,14 @@ QString AndroidContentFileEngineIterator::currentFileName() const
 {
     if (m_index < 0 || m_index > m_files.size())
         return QString();
-    // Returns a full path since contstructing a content path from the file name
-    // and a tree URI only will not point to a valid file URI.
-    return m_files.at(m_index)->uri().toString();
+    return m_files.at(m_index)->name();
 }
 
 QString AndroidContentFileEngineIterator::currentFilePath() const
 {
-    return currentFileName();
+    if (m_index < 0 || m_index > m_files.size())
+        return QString();
+    return m_files.at(m_index)->uri().toString();
 }
 
 // Start of Cursor
@@ -593,15 +593,20 @@ DocumentFile::DocumentFile(const QJniObject &uri,
 
 QJniObject parseUri(const QString &uri)
 {
+    QString uriToParse = uri;
+    if (uriToParse.contains(' '))
+        uriToParse.replace(' ', QUrl::toPercentEncoding(" "));
+
     return QJniObject::callStaticMethod<QtJniTypes::UriType>(
                 QtJniTypes::className<QtJniTypes::Uri>(),
                 "parse",
-                QJniObject::fromString(uri).object<jstring>());
+                QJniObject::fromString(uriToParse).object<jstring>());
 }
 
 DocumentFilePtr DocumentFile::parseFromAnyUri(const QString &fileName)
 {
-    const QJniObject uri = parseUri(fileName);
+    const QString encodedUri = QUrl(fileName).toEncoded();
+    const QJniObject uri = parseUri(encodedUri);
 
     if (DocumentsContract::isDocumentUri(uri))
         return fromSingleUri(uri);
@@ -609,17 +614,17 @@ DocumentFilePtr DocumentFile::parseFromAnyUri(const QString &fileName)
     const QString documentType = "/document/"_L1;
     const QString treeType = "/tree/"_L1;
 
-    const int treeIndex = fileName.indexOf(treeType);
-    const int documentIndex = fileName.indexOf(documentType);
+    const int treeIndex = encodedUri.indexOf(treeType);
+    const int documentIndex = encodedUri.indexOf(documentType);
     const int index = fileName.lastIndexOf("/");
 
     if (index <= treeIndex + treeType.size() || index <= documentIndex + documentType.size())
         return fromTreeUri(uri);
 
-    const QString parentUrl = fileName.left(index);
+    const QString parentUrl = encodedUri.left(index);
     DocumentFilePtr parentDocFile = fromTreeUri(parseUri(parentUrl));
 
-    const QString baseName = fileName.mid(index);
+    const QString baseName = encodedUri.mid(index);
     const QString fileUrl = parentUrl + QUrl::toPercentEncoding(baseName);
 
     DocumentFilePtr docFile = std::make_shared<MakeableDocumentFile>(parseUri(fileUrl));

@@ -376,6 +376,10 @@ public:
         TokiPona = 334,
         Pijin = 335,
         Obolo = 336,
+        Baluchi = 337,
+        Ligurian = 338,
+        Rohingya = 339,
+        Torwali = 340,
 
         Afan = Oromo,
         Bengali = Bangla,
@@ -397,7 +401,7 @@ public:
         Uigur = Uyghur,
         Walamo = Wolaytta,
 
-        LastLanguage = Obolo
+        LastLanguage = Torwali
     };
 
     enum Script : ushort {
@@ -543,6 +547,7 @@ public:
         VaiScript = 139,
         VarangKshitiScript = 140,
         YiScript = 141,
+        HanifiScript = 142,
 
         BengaliScript = BanglaScript,
         MendeKikakuiScript = MendeScript,
@@ -550,7 +555,7 @@ public:
         SimplifiedChineseScript = SimplifiedHanScript,
         TraditionalChineseScript = TraditionalHanScript,
 
-        LastScript = YiScript
+        LastScript = HanifiScript
     };
 
     // ### Qt 7: Rename to Territory
@@ -885,6 +890,7 @@ public:
         CurrencySymbol,
         CurrencyDisplayName
     };
+    Q_ENUM(CurrencySymbolFormat)
 
     enum DataSizeFormat {
         // Single-bit values, for internal use.
@@ -1114,6 +1120,7 @@ public:
     NumberOptions numberOptions() const;
 
     enum QuotationStyle { StandardQuotation, AlternateQuotation };
+    Q_ENUM(QuotationStyle)
     QString quoteString(const QString &str, QuotationStyle style = StandardQuotation) const
     { return quoteString(QStringView(str), style); }
     QString quoteString(QStringView str, QuotationStyle style = StandardQuotation) const;

@@ -171,20 +171,20 @@ static std::optional<qlonglong> qConvertToNumber(const QVariant::Private *d, boo
     return std::nullopt;
 }
 
-static std::optional<qreal> qConvertToRealNumber(const QVariant::Private *d)
+static std::optional<double> qConvertToRealNumber(const QVariant::Private *d)
 {
     bool ok;
     switch (d->typeInterface()->typeId) {
     case QMetaType::QString:
         if (double r = d->get<QString>().toDouble(&ok); ok)
-            return qreal(r);
+            return r;
         return std::nullopt;
     case QMetaType::Double:
-        return qreal(d->get<double>());
+        return d->get<double>();
     case QMetaType::Float:
-        return qreal(d->get<float>());
+        return double(d->get<float>());
     case QMetaType::Float16:
-        return qreal(d->get<qfloat16>());
+        return double(d->get<qfloat16>());
     case QMetaType::ULongLong:
     case QMetaType::UInt:
     case QMetaType::UChar:
@@ -192,7 +192,7 @@ static std::optional<qreal> qConvertToRealNumber(const QVariant::Private *d)
     case QMetaType::Char32:
     case QMetaType::UShort:
     case QMetaType::ULong:
-        return qreal(qMetaTypeUNumber(d));
+        return double(qMetaTypeUNumber(d));
 #ifndef QT_BOOTSTRAPPED
     case QMetaType::QCborValue:
         return d->get<QCborValue>().toDouble();
@@ -202,7 +202,7 @@ static std::optional<qreal> qConvertToRealNumber(const QVariant::Private *d)
     default:
         // includes enum conversion as well as invalid types
         if (std::optional<qlonglong> l = qConvertToNumber(d))
-            return qreal(*l);
+            return double(*l);
         return std::nullopt;
     }
 }
@@ -566,16 +566,11 @@ void QVariant::create(QMetaType type, const void *copy)
     \fn QVariant::~QVariant()
 
     Destroys the QVariant and the contained object.
-
-    Note that subclasses that reimplement clear() should reimplement
-    the destructor to call clear(). This destructor calls clear(), but
-    because it is the destructor, QVariant::clear() is called rather
-    than a subclass's clear().
 */
 
 QVariant::~QVariant()
 {
-    if ((d.is_shared && !d.data.shared->ref.deref()) || (!d.is_shared))
+    if (!d.is_shared || !d.data.shared->ref.deref())
         customClear(&d);
 }
 
@@ -1066,7 +1061,7 @@ const char *QVariant::typeName() const
 */
 void QVariant::clear()
 {
-    if ((d.is_shared && !d.data.shared->ref.deref()) || (!d.is_shared))
+    if (!d.is_shared || !d.data.shared->ref.deref())
         customClear(&d);
     d = {};
 }
@@ -2303,15 +2298,15 @@ static QPartialOrdering numericCompare(const QVariant::Private *d1, const QVaria
     if (promotedType != QMetaType::QReal)
         return integralCompare(promotedType, d1, d2);
 
-    // qreal comparisons
-    std::optional<qreal> r1 = qConvertToRealNumber(d1);
-    std::optional<qreal> r2 = qConvertToRealNumber(d2);
+    // floating point comparison
+    const auto r1 = qConvertToRealNumber(d1);
+    const auto r2 = qConvertToRealNumber(d2);
     if (!r1 || !r2)
         return QPartialOrdering::Unordered;
     if (*r1 == *r2)
         return QPartialOrdering::Equivalent;
 
-    return spaceShip<qreal>(*r1, *r2);
+    return spaceShip(*r1, *r2);
 }
 
 #ifndef QT_BOOTSTRAPPED

@@ -4,7 +4,8 @@
 #include <QtCore>
 #include <QtTest>
 
-bool g_testDirectoryBuild = false; // toggle to keep build output for debugging.
+Q_LOGGING_CATEGORY(lcTests, "qt.tools.tests")
+
 QTemporaryDir *g_temporaryDirectory;
 QString g_macdeployqtBinary;
 QString g_qmakeBinary;
@@ -34,6 +35,24 @@ static bool runProcess(const QString &binary,
         process.setProcessEnvironment(env);
     if (!workingDir.isEmpty())
         process.setWorkingDirectory(workingDir);
+
+    const auto outputReader = qScopeGuard([&] {
+        QByteArray standardOutput = process.readAllStandardOutput();
+        if (!standardOutput.trimmed().isEmpty())
+            qCDebug(lcTests).nospace() << "Standard output:\n" << qUtf8Printable(standardOutput.trimmed());
+        if (stdOut)
+            *stdOut = standardOutput;
+        QByteArray standardError = process.readAllStandardError();
+        if (!standardError.trimmed().isEmpty())
+            qCDebug(lcTests).nospace() << "Standard error:\n" << qUtf8Printable(standardError.trimmed());
+        if (stdErr)
+            *stdErr = standardError;
+    });
+
+    qCDebug(lcTests).noquote() << "Running" << binary
+        << "with arguments" << arguments
+        << "in" << workingDir;
+
     process.start(binary, arguments, QIODevice::ReadOnly);
     if (!process.waitForStarted()) {
         *errorMessage = msgProcessError(process, "Failed to start");
@@ -46,10 +65,7 @@ static bool runProcess(const QString &binary,
             process.kill();
         return false;
     }
-    if (stdOut)
-        *stdOut = process.readAllStandardOutput();
-    if (stdErr)
-        *stdErr= process.readAllStandardError();
+
     if (process.exitStatus() != QProcess::NormalExit) {
         *errorMessage = msgProcessError(process, "Crashed");
         return false;
@@ -91,8 +107,6 @@ QString sourcePath(const QString &name)
 
 QString buildPath(const QString &name)
 {
-    if (g_testDirectoryBuild)
-        return "build_" + name;
     return g_temporaryDirectory->path() + "/build_" + name;
 }
 
@@ -148,24 +162,12 @@ bool deploy(const QString &name, const QStringList &options, QString *errorMessa
     QString bundle = name + ".app";
     QString path = buildPath(name);
     QStringList args = QStringList() << bundle << options;
+#if defined(QT_DEBUG)
+    args << "-use-debug-libs";
+#endif
+    if (lcTests().isDebugEnabled())
+        args << "-verbose=3";
     return runProcess(g_macdeployqtBinary, args, errorMessage, path);
-}
-
-bool debugDeploy(const QString &name, const QStringList &options, QString *errorMessage)
-{
-    QString bundle = name + ".app";
-    QString path = buildPath(name);
-    QStringList args = QStringList() << bundle << options << "-verbose=3";
-    QByteArray stdOut;
-    QByteArray stdErr;
-    bool exitOK = runProcess(g_macdeployqtBinary, args, errorMessage, path, QProcessEnvironment(),
-                              10000, &stdOut, &stdErr);
-
-    qDebug() << "macdeployqt exit OK" << exitOK;
-    qDebug() << qPrintable(stdOut);
-    qDebug() << qPrintable(stdErr);
-
-    return exitOK;
 }
 
 bool run(const QString &name, QString *errorMessage)
@@ -197,11 +199,11 @@ void runVerifyDeployment(const QString &name)
     const QList<QString> parts = QString::fromLocal8Bit(libraries).split("dyld: loaded:");
     const QString qtPath = QLibraryInfo::path(QLibraryInfo::PrefixPath);
     // Let assume Qt is not installed in system
-    foreach (QString part, parts) {
-        part = part.trimmed();
-        if (part.isEmpty())
+    for (const QString &part : parts) {
+        const auto trimmed = part.trimmed();
+        if (trimmed.isEmpty())
             continue;
-        QVERIFY(!parts.startsWith(qtPath));
+        QVERIFY(!trimmed.startsWith(qtPath));
     }
 }
 
@@ -224,6 +226,7 @@ void tst_macdeployqt::initTestCase()
 
     // Set up test-global unique temporary directory
     g_temporaryDirectory = new QTemporaryDir();
+    g_temporaryDirectory->setAutoRemove(!lcTests().isDebugEnabled());
     QVERIFY(g_temporaryDirectory->isValid());
 
     // Locate build and deployment tools

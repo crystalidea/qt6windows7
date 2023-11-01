@@ -869,8 +869,6 @@ QT_END_NAMESPACE
 // nothing
 #elif defined(Q_OS_MAC)
 #  include "qmutex_mac.cpp"
-#elif defined(Q_OS_WIN)
-#  include "qmutex_win.cpp"
 #else
 #  include "qmutex_unix.cpp"
 #endif
