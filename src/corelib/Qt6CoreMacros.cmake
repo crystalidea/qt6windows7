@@ -1095,6 +1095,7 @@ function(qt6_extract_metatypes target)
     add_custom_command(
         OUTPUT
             ${metatypes_file_gen}
+        BYPRODUCTS
             ${metatypes_file}
         DEPENDS ${QT_CMAKE_EXPORT_NAMESPACE}::moc ${automoc_dependencies} ${manual_dependencies}
         COMMAND ${QT_CMAKE_EXPORT_NAMESPACE}::moc
@@ -1106,6 +1107,17 @@ function(qt6_extract_metatypes target)
         COMMENT "Running moc --collect-json for target ${target}"
         VERBATIM
     )
+
+    if(CMAKE_GENERATOR MATCHES "Unix Makefiles")
+        # Work around https://gitlab.kitware.com/cmake/cmake/-/issues/19005 to trigger the command
+        # that generates ${metatypes_file}.
+        add_custom_command(
+            OUTPUT ${metatypes_file}
+            DEPENDS ${metatypes_file_gen}
+            COMMAND ${CMAKE_COMMAND} -E true
+            VERBATIM
+        )
+    endif()
 
     # We can't rely on policy CMP0118 since user project controls it
     set(scope_args)
@@ -2802,7 +2814,7 @@ macro(qt6_standard_project_setup)
                 set(__qt_qt_targets_folder QtInternalTargets)
                 set_property(GLOBAL PROPERTY QT_TARGETS_FOLDER ${__qt_qt_targets_folder})
             endif()
-            get_property(__qt_autogen_targets_folder GLOBAL PROPERTY AUTOGEN_TARGETS_FOLDERS)
+            get_property(__qt_autogen_targets_folder GLOBAL PROPERTY AUTOGEN_TARGETS_FOLDER)
             if("${__qt_autogen_targets_folder}" STREQUAL "")
                 set_property(GLOBAL PROPERTY AUTOGEN_TARGETS_FOLDER ${__qt_qt_targets_folder})
             endif()
@@ -2993,6 +3005,10 @@ function(qt6_generate_deploy_app_script)
         set(qt_build_type_string "static Qt libs")
     endif()
 
+    if(CMAKE_CROSSCOMPILING)
+        string(APPEND qt_build_type_string ", cross-compiled")
+    endif()
+
     set(generate_args
         TARGET ${arg_TARGET}
         OUTPUT_SCRIPT deploy_script
@@ -3038,7 +3054,8 @@ qt6_deploy_runtime_dependencies(
 ${common_deploy_args})
 ")
 
-    elseif(UNIX AND NOT APPLE AND NOT ANDROID AND QT6_IS_SHARED_LIBS_BUILD)
+    elseif(UNIX AND NOT APPLE AND NOT ANDROID AND QT6_IS_SHARED_LIBS_BUILD
+            AND NOT CMAKE_CROSSCOMPILING)
         qt6_generate_deploy_script(${generate_args}
             CONTENT "
 qt6_deploy_runtime_dependencies(

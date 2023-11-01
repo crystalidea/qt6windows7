@@ -14,6 +14,7 @@
 #define STRICT_TYPED_ITEMIDS
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <shellscalingapi.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -123,8 +124,8 @@ struct QWindowsShcoreDLL
     void init();
     inline bool isValid() const { return getProcessDpiAwareness && setProcessDpiAwareness && getDpiForMonitor; }
 
-    typedef HRESULT (WINAPI *GetProcessDpiAwareness)(HANDLE,int *);
-    typedef HRESULT (WINAPI *SetProcessDpiAwareness)(int);
+    typedef HRESULT (WINAPI *GetProcessDpiAwareness)(HANDLE,PROCESS_DPI_AWARENESS *);
+    typedef HRESULT (WINAPI *SetProcessDpiAwareness)(PROCESS_DPI_AWARENESS);
     typedef HRESULT (WINAPI *GetDpiForMonitor)(HMONITOR,int,UINT *,UINT *);
 
     GetProcessDpiAwareness getProcessDpiAwareness = nullptr;

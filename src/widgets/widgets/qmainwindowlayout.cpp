@@ -428,6 +428,25 @@ void QDockWidgetGroupWindow::destroyOrHideIfEmpty()
     deleteLater();
 }
 
+/*!
+   \internal
+   \return \c true if the group window has at least one visible QDockWidget child,
+   otherwise false.
+ */
+bool QDockWidgetGroupWindow::hasVisibleDockWidgets() const
+{
+    const auto &children = findChildren<QDockWidget *>(Qt::FindChildrenRecursively);
+    for (auto child : children) {
+        // WA_WState_Visible is set on the dock widget, associated to the active tab
+        // and unset on all others.
+        // WA_WState_Hidden is set if the dock widgets have been explicitly hidden.
+        // This is the relevant information to check (equivalent to !child->isHidden()).
+        if (!child->testAttribute(Qt::WA_WState_Hidden))
+            return true;
+    }
+    return false;
+}
+
 /*! \internal
     Sets the flags of this window in accordance to the capabilities of the dock widgets
  */
@@ -476,7 +495,7 @@ void QDockWidgetGroupWindow::adjustFlags()
             m_removedFrameSize = QSize();
         }
 
-        show(); // setWindowFlags hides the window
+        setVisible(hasVisibleDockWidgets());
     }
 
     QWidget *titleBarOf = top ? top : parentWidget();
@@ -537,8 +556,12 @@ bool QDockWidgetGroupWindow::hover(QLayoutItem *widgetItem, const QPoint &mouseP
 
     auto newGapPos = newState.gapIndex(mousePos, nestingEnabled, tabMode);
     Q_ASSERT(!newGapPos.isEmpty());
-    if (newGapPos == currentGapPos)
-        return false; // gap is already there
+
+    // Do not insert a new gap item, if the current position already is a gap,
+    // or if the group window contains one
+    if (newGapPos == currentGapPos || newState.hasGapItem(newGapPos))
+        return false;
+
     currentGapPos = newGapPos;
     newState.insertGap(currentGapPos, widgetItem);
     newState.fitItems();

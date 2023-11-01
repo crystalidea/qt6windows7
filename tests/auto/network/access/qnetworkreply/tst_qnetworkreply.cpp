@@ -526,6 +526,9 @@ private Q_SLOTS:
     void notFoundWithCompression_data();
     void notFoundWithCompression();
 
+    void qtbug68821proxyError_data();
+    void qtbug68821proxyError();
+
     // NOTE: This test must be last!
     void parentingRepliesToTheApp();
 private:
@@ -3852,7 +3855,6 @@ void tst_QNetworkReply::ioGetFromHttpWithSocksProxy()
         QVERIFY(reader.data.isEmpty());
 
         QVERIFY(int(reply->error()) > 0);
-        QEXPECT_FAIL("", "QTcpSocket doesn't return enough information yet", Continue);
         QCOMPARE(int(reply->error()), int(QNetworkReply::ProxyConnectionRefusedError));
 
         QCOMPARE(authspy.size(), 0);
@@ -6773,7 +6775,20 @@ void tst_QNetworkReply::getAndThenDeleteObject()
 // see https://bugs.webkit.org/show_bug.cgi?id=38935
 void tst_QNetworkReply::symbianOpenCDataUrlCrash()
 {
-    QString requestUrl("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABkAAAAWCAYAAAA1vze2AAAAB3RJTUUH2AUSEgolrgBvVQAAAAlwSFlzAAALEwAACxMBAJqcGAAAAARnQU1BAACxjwv8YQUAAAHlSURBVHja5VbNShxBEK6ZaXtnHTebQPA1gngNmfaeq+QNPIlIXkC9iQdJxJNvEHLN3VkxhxxE8gTmEhAVddXZ6Z3f9Ndriz89/sHmkBQUVVT1fB9d9c3uOERUKTunIdn3HzstxGpYBDS4wZk7TAJj/wlJ90J+jnuygqs8svSj+/rGHBos3rE18XBvfU3no7NzlJfUaY/5whAwl8Lr/WDUv4ODxTMb+P5xLExe5LmO559WqTX/MQR4WZYEAtSePS4pE0qSnuhnRUcBU5Gm2k9XljU4Z26I3NRxBrd80rj2fh+KNE0FY4xevRgTjREvPFpasAK8Xli6MUbbuKw3afAGgSBXozo5u4hkmncAlkl5wx8iMGbdyQjnCFEiEwGiosj1UQA/x2rVddiVoi+l4IxE0PTDnx+mrQBvvnx9cFz3krhVvuhzFn579/aq/n5rW8fbtTqiWhIQZEo17YBvbkxOXNVndnYpTvod7AtiuN2re0+siwcB9oH8VxxrNwQQAhzyRs30n7wTI2HIN2g2QtQwjjhJIQatOq7E8bIVCLwzpl83Lvtvl+NohWWlE8UZTWEMAGCcR77fHKhPnZF5tYie6dfdxCphACmLPM+j8bYfmTryg64kV9Vh3mV8jP0b/4wO/YUPiT/8i0MLf55lSQAAAABJRU5ErkJggg==");
+    QString requestUrl("data:image/"
+                       "png;base64,"
+                       "iVBORw0KGgoAAAANSUhEUgAAABkAAAAWCAYAAAA1vze2AAAAB3RJTUUH2AUSEgolrgBvVQAAAAl"
+                       "wSFlzAAALEwAACxMBAJqcGAAAAARnQU1BAACxjwv8YQUAAAHlSURBVHja5VbNShxBEK6ZaXtnHT"
+                       "ebQPA1gngNmfaeq+QNPIlIXkC9iQdJxJNvEHLN3VkxhxxE8gTmEhAVddXZ6Z3f9Ndriz89/"
+                       "sHmkBQUVVT1fB9d9c3uOERUKTunIdn3HzstxGpYBDS4wZk7TAJj/wlJ90J+jnuygqs8svSj+/"
+                       "rGHBos3rE18XBvfU3no7NzlJfUaY/5whAwl8Lr/WDUv4ODxTMb+P5xLExe5LmO559WqTX/"
+                       "MQR4WZYEAtSePS4pE0qSnuhnRUcBU5Gm2k9XljU4Z26I3NRxBrd80rj2fh+"
+                       "KNE0FY4xevRgTjREvPFpasAK8Xli6MUbbuKw3afAGgSBXozo5u4hkmncAlkl5wx8iMGbdyQjnCF"
+                       "EiEwGiosj1UQA/x2rVddiVoi+l4IxE0PTDnx+mrQBvvnx9cFz3krhVvuhzFn579/aq/"
+                       "n5rW8fbtTqiWhIQZEo17YBvbkxOXNVndnYpTvod7AtiuN2re0+"
+                       "siwcB9oH8VxxrNwQQAhzyRs30n7wTI2HIN2g2QtQwjjhJIQatOq7E8bIVCLwzpl83Lvtvl+"
+                       "NohWWlE8UZTWEMAGCcR77fHKhPnZF5tYie6dfdxCphACmLPM+j8bYfmTryg64kV9Vh3mV8jP0b/"
+                       "4wO/YUPiT/8i0MLf55lSQAAAABJRU5ErkJggg==");
     QUrl url = QUrl::fromEncoded(requestUrl.toLatin1());
     QNetworkRequest req(url);
     QNetworkReplyPtr reply;
@@ -10079,6 +10094,48 @@ void tst_QNetworkReply::notFoundWithCompression()
 
     QFETCH(QByteArray, expected);
     QCOMPARE(reply->readAll(), expected);
+}
+
+void tst_QNetworkReply::qtbug68821proxyError_data()
+{
+    QTest::addColumn<QString>("proxyHost");
+    QTest::addColumn<QString>("scheme");
+    QTest::addColumn<QNetworkReply::NetworkError>("error");
+
+    QTest::newRow("invalidhost+http") << "this-host-will-never-exist.qt-project.org"
+                                      << "http" << QNetworkReply::ProxyNotFoundError;
+    QTest::newRow("localhost+http") << "localhost"
+                                    << "http" << QNetworkReply::ProxyConnectionRefusedError;
+#ifndef QT_NO_SSL
+    QTest::newRow("invalidhost+https") << "this-host-will-never-exist.qt-project.org"
+                                       << "https" << QNetworkReply::ProxyNotFoundError;
+    QTest::newRow("localhost+https") << "localhost"
+                                     << "https" << QNetworkReply::ProxyConnectionRefusedError;
+#endif
+}
+
+void tst_QNetworkReply::qtbug68821proxyError()
+{
+    QTcpServer proxyServer;
+    QVERIFY(proxyServer.listen());
+    quint16 proxyPort = proxyServer.serverPort();
+    proxyServer.close();
+
+    QFETCH(QString, proxyHost);
+    QNetworkProxy proxy(QNetworkProxy::HttpProxy, proxyHost, proxyPort);
+
+    manager.setProxy(proxy);
+
+    QFETCH(QString, scheme);
+    QNetworkReply *reply = manager.get(QNetworkRequest(QUrl(scheme + "://example.com")));
+    QSignalSpy spy(reply, &QNetworkReply::errorOccurred);
+    QVERIFY(spy.isValid());
+
+    QVERIFY(spy.wait(15000));
+
+    QFETCH(QNetworkReply::NetworkError, error);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0), error);
 }
 
 // NOTE: This test must be last testcase in tst_qnetworkreply!

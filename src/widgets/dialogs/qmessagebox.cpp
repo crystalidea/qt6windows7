@@ -172,7 +172,7 @@ public:
     void init(const QString &title = QString(), const QString &text = QString());
     void setupLayout();
     void _q_buttonClicked(QAbstractButton *);
-    void _q_clicked(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole role);
+    void _q_helperClicked(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole role);
     void setClickedButton(QAbstractButton *button);
 
     QAbstractButton *findButton(int button0, int button1, int button2, int flags);
@@ -180,8 +180,6 @@ public:
 
     QAbstractButton *abstractButtonForId(int id) const;
     int execReturnCode(QAbstractButton *button);
-
-    int dialogCodeForButton(QAbstractButton *button) const;
 
     void detectEscapeButton();
     void updateSize();
@@ -232,7 +230,7 @@ public:
 private:
     void initHelper(QPlatformDialogHelper *) override;
     void helperPrepareShow(QPlatformDialogHelper *) override;
-    void helperDone(QDialog::DialogCode, QPlatformDialogHelper *) override;
+    int dialogCode() const override;
 };
 
 void QMessageBoxPrivate::init(const QString &title, const QString &text)
@@ -436,25 +434,24 @@ int QMessageBoxPrivate::execReturnCode(QAbstractButton *button)
     return ret;
 }
 
-/*!
-    \internal
-
-    Returns 0 for RejectedRole and NoRole, 1 for AcceptedRole and YesRole, -1 otherwise
- */
-int QMessageBoxPrivate::dialogCodeForButton(QAbstractButton *button) const
+int QMessageBoxPrivate::dialogCode() const
 {
     Q_Q(const QMessageBox);
 
-    switch (q->buttonRole(button)) {
-    case QMessageBox::AcceptRole:
-    case QMessageBox::YesRole:
-        return QDialog::Accepted;
-    case QMessageBox::RejectRole:
-    case QMessageBox::NoRole:
-        return QDialog::Rejected;
-    default:
-        return -1;
+    if (clickedButton) {
+        switch (q->buttonRole(clickedButton)) {
+        case QMessageBox::AcceptRole:
+        case QMessageBox::YesRole:
+            return QDialog::Accepted;
+        case QMessageBox::RejectRole:
+        case QMessageBox::NoRole:
+            return QDialog::Rejected;
+        default:
+            ;
+        }
     }
+
+    return QDialogPrivate::dialogCode();
 }
 
 void QMessageBoxPrivate::_q_buttonClicked(QAbstractButton *button)
@@ -488,23 +485,26 @@ void QMessageBoxPrivate::setClickedButton(QAbstractButton *button)
     emit q->buttonClicked(clickedButton);
 
     auto resultCode = execReturnCode(button);
-    close(resultCode);
-    finalize(resultCode, dialogCodeForButton(button));
+    q->done(resultCode);
 }
 
-void QMessageBoxPrivate::_q_clicked(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole role)
+void QMessageBoxPrivate::_q_helperClicked(QPlatformDialogHelper::StandardButton helperButton, QPlatformDialogHelper::ButtonRole role)
 {
+    Q_UNUSED(role);
     Q_Q(QMessageBox);
-    if (button > QPlatformDialogHelper::LastButton) {
-        // It's a custom button, and the QPushButton in options is just a proxy
-        // for the button on the platform dialog.  Simulate the user clicking it.
-        clickedButton = static_cast<QAbstractButton *>(options->customButton(button)->button);
-        Q_ASSERT(clickedButton);
-        clickedButton->click();
-        q->done(role);
-    } else {
-        q->done(button);
-    }
+
+    // Map back to QAbstractButton, so that the message box behaves the same from
+    // the outside, regardless of whether it's backed by a native helper or not.
+    QAbstractButton *dialogButton = helperButton > QPlatformDialogHelper::LastButton ?
+        static_cast<QAbstractButton *>(options->customButton(helperButton)->button) :
+        q->button(QMessageBox::StandardButton(helperButton));
+
+    Q_ASSERT(dialogButton);
+
+    // Simulate click by explicitly clicking the button. This will ensure that
+    // any logic of the button that responds to the click is respected, including
+    // plumbing back to _q_buttonClicked above based on the clicked() signal.
+    dialogButton->click();
 }
 
 /*!
@@ -714,7 +714,7 @@ void QMessageBoxPrivate::_q_clicked(QPlatformDialogHelper::StandardButton button
     When an escape button can't be determined using these rules,
     pressing \uicontrol Esc has no effect.
 
-    \sa QDialogButtonBox, {Standard Dialogs Example}, {Qt Widgets - Application Example}
+    \sa QDialogButtonBox, {Standard Dialogs Example}
 */
 
 /*!
@@ -1851,12 +1851,7 @@ void QMessageBox::about(QWidget *parent, const QString &title, const QString &te
     // should perhaps be a style hint
 #ifdef Q_OS_MAC
     oldMsgBox = msgBox;
-#if 0
-    // ### doesn't work until close button is enabled in title bar
-    msgBox->d_func()->autoAddOkButton = false;
-#else
     msgBox->d_func()->buttonBox->setCenterButtons(true);
-#endif
     msgBox->setModal(false);
     msgBox->show();
 #else
@@ -1937,12 +1932,7 @@ void QMessageBox::aboutQt(QWidget *parent, const QString &title)
     // should perhaps be a style hint
 #ifdef Q_OS_MAC
     oldMsgBox = msgBox;
-#if 0
-    // ### doesn't work until close button is enabled in title bar
-    msgBox->d_func()->autoAddOkButton = false;
-#else
     msgBox->d_func()->buttonBox->setCenterButtons(true);
-#endif
     msgBox->setModal(false);
     msgBox->show();
 #else
@@ -2681,7 +2671,7 @@ void QMessageBoxPrivate::initHelper(QPlatformDialogHelper *h)
 {
     Q_Q(QMessageBox);
     QObject::connect(h, SIGNAL(clicked(QPlatformDialogHelper::StandardButton,QPlatformDialogHelper::ButtonRole)),
-                     q, SLOT(_q_clicked(QPlatformDialogHelper::StandardButton,QPlatformDialogHelper::ButtonRole)));
+                     q, SLOT(_q_helperClicked(QPlatformDialogHelper::StandardButton,QPlatformDialogHelper::ButtonRole)));
 
     auto *messageDialogHelper = static_cast<QPlatformMessageDialogHelper *>(h);
     QObject::connect(messageDialogHelper, &QPlatformMessageDialogHelper::checkBoxStateChanged, q,
@@ -2731,16 +2721,6 @@ void QMessageBoxPrivate::helperPrepareShow(QPlatformDialogHelper *)
     options->setStandardButtons(helperStandardButtons(q));
     if (checkbox)
         options->setCheckBox(checkbox->text(), checkbox->checkState());
-}
-
-void QMessageBoxPrivate::helperDone(QDialog::DialogCode code, QPlatformDialogHelper *)
-{
-    Q_Q(QMessageBox);
-    QAbstractButton *button = q->button(QMessageBox::StandardButton(code));
-    // If it was a custom button, a custom ID was used, so we won't get a valid pointer here.
-    // In that case, clickedButton has already been set in _q_buttonClicked.
-    if (button)
-        clickedButton = button;
 }
 
 #if QT_DEPRECATED_SINCE(6,2)

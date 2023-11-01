@@ -29,7 +29,7 @@ QT_BEGIN_NAMESPACE
 
 class QAnimationGroup;
 class QAbstractAnimation;
-class QAbstractAnimationPrivate : public QObjectPrivate
+class Q_CORE_EXPORT QAbstractAnimationPrivate : public QObjectPrivate
 {
 public:
     QAbstractAnimationPrivate();
@@ -48,7 +48,7 @@ public:
     {
         q_func()->setDirection(direction);
     }
-    void emitDirectionChanged() { emit q_func()->directionChanged(direction); }
+    void emitDirectionChanged() { Q_EMIT q_func()->directionChanged(direction); }
     Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QAbstractAnimationPrivate, QAbstractAnimation::Direction,
                                        direction, &QAbstractAnimationPrivate::setDirection,
                                        &QAbstractAnimationPrivate::emitDirectionChanged,
@@ -61,7 +61,7 @@ public:
 
     Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QAbstractAnimationPrivate, int, loopCount, 1)
 
-    void emitCurrentLoopChanged() { emit q_func()->currentLoopChanged(currentLoop); }
+    void emitCurrentLoopChanged() { Q_EMIT q_func()->currentLoopChanged(currentLoop); }
     Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QAbstractAnimationPrivate, int, currentLoop, nullptr,
                                        &QAbstractAnimationPrivate::emitCurrentLoopChanged, 0)
 

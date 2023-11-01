@@ -46,7 +46,7 @@
     QSet is unordered, so an iterator's sequence cannot be assumed to
     be predictable. If ordering by key is required, use a QMap.
 
-    To navigate through a QSet, you can also use \l{foreach}:
+    To navigate through a QSet, you can also use range-based for:
 
     \snippet code/doc_src_qset.cpp 6
 
@@ -879,6 +879,15 @@
 */
 
 /*! \fn template <class T, class Predicate> qsizetype erase_if(QSet<T> &set, Predicate pred)
+    \relates QSet
+    \since 6.1
+
+    Removes all elements for which the predicate \a pred returns true
+    from the set \a set. Returns the number of elements removed, if
+    any.
+*/
+
+/*! \fn template <class T> template <class Predicate> qsizetype QSet<T>::removeIf(Predicate pred)
     \relates QSet
     \since 6.1
 

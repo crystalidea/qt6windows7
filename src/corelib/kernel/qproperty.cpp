@@ -438,7 +438,7 @@ QPropertyBindingError QUntypedPropertyBinding::error() const
 
 /*!
     Returns the meta-type of the binding.
-    If the QUntypedProperyBinding is null, an invalid QMetaType is returned.
+    If the QUntypedPropertyBinding is null, an invalid QMetaType is returned.
 */
 QMetaType QUntypedPropertyBinding::valueMetaType() const
 {
@@ -585,6 +585,11 @@ void QPropertyBindingData::registerWithCurrentlyEvaluatingBinding() const
 void QPropertyBindingData::registerWithCurrentlyEvaluatingBinding_helper(BindingEvaluationState *currentState) const
 {
     QPropertyBindingDataPointer d{this};
+
+    if (currentState->alreadyCaptureProperties.contains(this))
+        return;
+    else
+        currentState->alreadyCaptureProperties.push_back(this);
 
     QPropertyObserverPointer dependencyObserver = currentState->binding->allocateDependencyObserver();
     Q_ASSERT(QPropertyObserver::ObserverNotifiesBinding == 0);
@@ -1166,13 +1171,20 @@ QString QPropertyBindingError::description() const
    usable directly without reading through a QBindable use \l QProperty or
    \l QObjectBindableProperty.
 
+   \code
+   QProperty<QString> displayText;
+   QDateTimeEdit *dateTimeEdit = findDateTimeEdit();
+   QBindable<QDateTime> dateTimeBindable(dateTimeEdit, "dateTime");
+   displayText.setBinding([dateTimeBindable](){ return dateTimeBindable.value().toString(); });
+   \endcode
+
    \sa QProperty, QObjectBindableProperty, {Qt Bindable Properties}
 */
 
 /*!
    \fn template<typename T> QBindable<T>::QBindable(QObject *obj, const QMetaProperty &property)
 
-   See \c \l QBindable::QBindable(QObject *obj, const char *property)
+   See \l QBindable::QBindable(QObject *obj, const char *property)
 */
 
 /*!

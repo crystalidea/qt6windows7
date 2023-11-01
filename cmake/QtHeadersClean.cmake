@@ -185,6 +185,9 @@ function(qt_internal_add_headersclean_target module_target module_headers)
         # <windows.h> and <GL.h> violate the standards.
         set(hcleanFLAGS -std:c++latest -Zc:__cplusplus -WX -W3)
 
+        # Because we now add `-DNOMINMAX` to `PlatformCommonInternal`.
+        set(hcleanUDEFS -UNOMINMAX)
+
         # cl.exe needs a source path
         get_filename_component(source_path "${QT_MKSPECS_DIR}/features/data/dummy.cpp" REALPATH)
 
@@ -195,6 +198,7 @@ function(qt_internal_add_headersclean_target module_target module_headers)
             "${hcleanFLAGS}"
             "${target_includes_joined_genex}"
             "${hcleanDEFS}"
+            "${hcleanUDEFS}"
         )
         string(JOIN " " compiler_command_line_variables
             "-FI"
@@ -227,7 +231,7 @@ function(qt_internal_add_headersclean_target module_target module_headers)
     file(GENERATE OUTPUT "${headers_check_parameters}"
         CONTENT "${headers_check_parameters_content}")
 
-    set(sync_headers_dep "sync_headers")
+    set(sync_headers_dep "${module_target}_sync_headers")
 
     foreach(header ${hclean_headers})
         # We need realpath here to make sure path starts with drive letter

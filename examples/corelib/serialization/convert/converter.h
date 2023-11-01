@@ -5,10 +5,10 @@
 #define CONVERTER_H
 
 #include <QIODevice>
+#include <QList>
 #include <QPair>
 #include <QVariant>
 #include <QVariantMap>
-#include <QList>
 
 class VariantOrderedMap : public QList<QPair<QVariant, QVariant>>
 {
@@ -32,26 +32,25 @@ protected:
 public:
     static Converter *null;
 
-    enum Direction {
-        In = 1, Out = 2, InOut = 3
-    };
+    enum class Direction { In = 1, Out = 2, InOut = In | Out };
+    Q_DECLARE_FLAGS(Directions, Direction)
 
-    enum Option {
-        SupportsArbitraryMapKeys = 0x01
-    };
+    enum Option { SupportsArbitraryMapKeys = 0x01 };
     Q_DECLARE_FLAGS(Options, Option)
 
     virtual ~Converter() = 0;
 
-    virtual QString name() = 0;
-    virtual Direction directions() = 0;
-    virtual Options outputOptions() = 0;
-    virtual const char *optionsHelp() = 0;
-    virtual bool probeFile(QIODevice *f) = 0;
-    virtual QVariant loadFile(QIODevice *f, Converter *&outputConverter) = 0;
-    virtual void saveFile(QIODevice *f, const QVariant &contents, const QStringList &options) = 0;
+    virtual QString name() const = 0;
+    virtual Directions directions() const = 0;
+    virtual Options outputOptions() const = 0;
+    virtual const char *optionsHelp() const = 0;
+    virtual bool probeFile(QIODevice *f) const = 0;
+    virtual QVariant loadFile(QIODevice *f, const Converter *&outputConverter) const = 0;
+    virtual void saveFile(QIODevice *f, const QVariant &contents,
+                          const QStringList &options) const = 0;
 };
 
+Q_DECLARE_OPERATORS_FOR_FLAGS(Converter::Directions)
 Q_DECLARE_OPERATORS_FOR_FLAGS(Converter::Options)
 
 #endif // CONVERTER_H

@@ -535,15 +535,13 @@ scrolling range.
 QSize QAbstractScrollArea::maximumViewportSize() const
 {
     Q_D(const QAbstractScrollArea);
-    int hsbExt = d->hbar->sizeHint().height();
-    int vsbExt = d->vbar->sizeHint().width();
-
     int f = 2 * d->frameWidth;
     QSize max = size() - QSize(f + d->left + d->right, f + d->top + d->bottom);
+    // Count the sizeHint of the bar only if it is displayed.
     if (d->vbarpolicy == Qt::ScrollBarAlwaysOn)
-        max.rwidth() -= vsbExt;
+        max.rwidth() -= d->vbar->sizeHint().width();
     if (d->hbarpolicy == Qt::ScrollBarAlwaysOn)
-        max.rheight() -= hsbExt;
+        max.rheight() -= d->hbar->sizeHint().height();
     return max;
 }
 
@@ -1102,7 +1100,7 @@ void QAbstractScrollArea::resizeEvent(QResizeEvent *)
     This event handler can be reimplemented in a subclass to receive
     paint events (passed in \a event), for the viewport() widget.
 
-    \note If you open a painter, make sure to open it on the viewport().
+    \note If you create a QPainter, it must operate on the viewport().
 
     \sa QWidget::paintEvent()
 */
@@ -1433,9 +1431,9 @@ QSize QAbstractScrollArea::sizeHint() const
 
     if (!d->sizeHint.isValid() || d->sizeAdjustPolicy == QAbstractScrollArea::AdjustToContents) {
         const int f = 2 * d->frameWidth;
-        const QSize frame( f, f );
-        const bool vbarHidden = d->vbar->isHidden() || d->vbarpolicy == Qt::ScrollBarAlwaysOff;
-        const bool hbarHidden = d->hbar->isHidden() || d->hbarpolicy == Qt::ScrollBarAlwaysOff;
+        const QSize frame(f, f);
+        const bool vbarHidden = !d->vbar->isVisibleTo(this) || d->vbarpolicy == Qt::ScrollBarAlwaysOff;
+        const bool hbarHidden = !d->vbar->isVisibleTo(this) || d->hbarpolicy == Qt::ScrollBarAlwaysOff;
         const QSize scrollbars(vbarHidden ? 0 : d->vbar->sizeHint().width(),
                                hbarHidden ? 0 : d->hbar->sizeHint().height());
         d->sizeHint = frame + scrollbars + viewportSizeHint();

@@ -4,6 +4,7 @@
 /*!
     \example dialogs/trivialwizard
     \title Trivial Wizard Example
+    \examplecategory {User Interface Components}
     \ingroup examples-dialogs
 
     \brief The Trivial Wizard example illustrates how to create a linear three-page
@@ -55,5 +56,5 @@
 
     \snippet dialogs/trivialwizard/trivialwizard.cpp 10
 
-    \sa QWizard, {Class Wizard Example}, {License Wizard Example}
+    \sa QWizard, {License Wizard Example}
 */

@@ -4,6 +4,7 @@
 /*!
     \example dialogs/licensewizard
     \title License Wizard Example
+    \examplecategory {User Interface Components}
     \ingroup examples-dialogs
 
     \brief The License Wizard example shows how to implement complex wizards in
@@ -13,7 +14,7 @@
 
     Most wizards have a linear structure, with page 1 followed by
     page 2 and so on until the last page. The
-    \l{dialogs/classwizard}{Class Wizard} example shows how to create
+    \l{dialogs/trivialwizard}{Trivial Wizard} example shows how to create
     such wizards.
 
     Some wizards are more complex in that they allow different
@@ -191,5 +192,5 @@
        option and disconnect the \c printButtonClicked() slot.
     \endlist
 
-    \sa QWizard, {Class Wizard Example}, {Trivial Wizard Example}
+    \sa QWizard, {Trivial Wizard Example}
 */

@@ -24,6 +24,8 @@ private slots:
     void getSetCheck();
     void setMinMax();
     void setFromTo();
+
+    void hideNativeByDestruction();
 #endif
 };
 
@@ -133,6 +135,37 @@ void tst_QAbstractPrintDialog::setFromTo()
     QCOMPARE(obj1.toPage(), 50);
     QCOMPARE(obj1.minPage(), 1);
     QCOMPARE(obj1.maxPage(), 50);
+}
+
+void tst_QAbstractPrintDialog::hideNativeByDestruction()
+{
+#ifdef Q_OS_WINDOWS
+    QSKIP("This test fails on windows, the QPrintDialog::setVisible implementation blocks");
+#endif
+
+    QWidget window;
+    QWidget *child = new QWidget(&window);
+    QPointer<QPrintDialog> dialog = new QPrintDialog(child);
+    // Make it application modal so that we don't end up with a sheet on macOS
+    dialog->setWindowModality(Qt::ApplicationModal);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    dialog->open();
+
+    // We test that the dialog opens and closes by watching the activation of the
+    // transient parent window. If it doesn't deactivate, then we have to skip.
+    const auto windowActive = [&window]{ return window.isActiveWindow(); };
+    const auto windowInactive = [&window]{ return !window.isActiveWindow(); };
+    if (!QTest::qWaitFor(windowInactive, 2000))
+        QSKIP("Dialog didn't activate");
+
+    // This should destroy the dialog and close the native window
+    child->deleteLater();
+    QTRY_VERIFY(!dialog);
+    // If the native window is still open, then the transient parent can't become
+    // active
+    window.activateWindow();
+    QVERIFY(QTest::qWaitFor(windowActive));
 }
 
 #endif

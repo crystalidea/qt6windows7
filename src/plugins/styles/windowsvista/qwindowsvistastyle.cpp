@@ -12,6 +12,7 @@
 #include <private/qstylehelper_p.h>
 #include <qpa/qplatformnativeinterface.h>
 #include <private/qapplication_p.h>
+#include <private/qsystemlibrary_p.h>
 
 #include "qdrawutil.h" // for now
 #include <qbackingstore.h>
@@ -228,6 +229,33 @@ bool QWindowsVistaStylePrivate::transitionsEnabled() const
     return false;
 }
 
+HTHEME QWindowsVistaStylePrivate::openThemeForPrimaryScreenDpi(HWND hwnd, const wchar_t *name)
+{
+    // We want to call OpenThemeDataForDpi, but it won't link with MinGW (11.2.0), so we
+    // dynamically load this.
+    using FuncThemeDpi = decltype(&::OpenThemeDataForDpi);
+
+    // Only try to initialize openThemeForDpiFunc once. If it fails, it will likely keep failing.
+    const FuncThemeDpi uninitializedFunction = reinterpret_cast<FuncThemeDpi>(1);
+    static FuncThemeDpi openThemeForDpiFunc = uninitializedFunction;
+    if (openThemeForDpiFunc == uninitializedFunction) {
+        QSystemLibrary uxthemeLib(L"uxtheme.dll");
+        openThemeForDpiFunc = reinterpret_cast<FuncThemeDpi>(uxthemeLib.resolve("OpenThemeDataForDpi"));
+        if (!openThemeForDpiFunc) {
+            qWarning() << "QWindowsVistaStylePrivate: Load OpenThemeDataForDpi in uxtheme.dll failed";
+        }
+    }
+
+    // If we have screens and the openThemeDataForDpi function then use it :).
+    if (openThemeForDpiFunc && QGuiApplication::primaryScreen()) {
+        const int dpi = qRound(QGuiApplication::primaryScreen()->handle()->logicalDpi().first);
+        return openThemeForDpiFunc(hwnd, name, dpi);
+    }
+
+    // In case of any issues we fall back to use the plain/old OpenThemeData.
+    return OpenThemeData(hwnd, name);
+}
+
 int QWindowsVistaStylePrivate::pixelMetricFromSystemDp(QStyle::PixelMetric pm, const QStyleOption *option, const QWidget *widget)
 {
     switch (pm) {
@@ -331,7 +359,8 @@ HTHEME QWindowsVistaStylePrivate::createTheme(int theme, HWND hwnd)
         const wchar_t *name = themeNames[theme];
         if (theme == VistaTreeViewTheme && QWindowsVistaStylePrivate::initVistaTreeViewTheming())
             hwnd = QWindowsVistaStylePrivate::m_vistaTreeViewHelper;
-        m_themes[theme] = OpenThemeData(hwnd, name);
+        // Use dpi from primary screen in theme.
+        m_themes[theme] = openThemeForPrimaryScreenDpi(hwnd, name);
         if (Q_UNLIKELY(!m_themes[theme]))
             qErrnoWarning("OpenThemeData() failed for theme %d (%s).",
                           theme, qPrintable(themeName(theme)));
@@ -4496,8 +4525,7 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
 #endif // QT_CONFIG(mdiarea)
 
     default:
-        return visualRect(option->direction, option->rect,
-                          QWindowsStyle::subControlRect(control, option, subControl, widget));
+        return QWindowsStyle::subControlRect(control, option, subControl, widget);
     }
 
     return visualRect(option->direction, option->rect, rect);
@@ -4652,6 +4680,7 @@ void QWindowsVistaStyle::polish(QWidget *widget)
             QPalette pal = widget->palette();
             pal.setColor(QPalette::ButtonText, QColor(21, 28, 85));
             pal.setColor(QPalette::BrightText, QColor(7, 64, 229));
+            pal.setResolveMask(0);
             widget->setPalette(pal);
         }
 #endif // QT_CONFIG(commandlinkbutton)
@@ -4665,6 +4694,7 @@ void QWindowsVistaStyle::polish(QWidget *widget)
                 QColor textColor = QColor::fromRgb(bgRef);
                 QPalette pal;
                 pal.setColor(QPalette::All, QPalette::ToolTipText, textColor);
+                pal.setResolveMask(0);
                 widget->setPalette(pal);
             }
         } else if (qobject_cast<QMessageBox *> (widget)) {
@@ -4789,7 +4819,7 @@ void QWindowsVistaStyle::polish(QPalette &pal)
 {
     Q_D(QWindowsVistaStyle);
 
-    if (qApp->styleHints()->colorScheme() == Qt::ColorScheme::Dark) {
+    if (QGuiApplicationPrivate::colorScheme() == Qt::ColorScheme::Dark) {
         // System runs in dark mode, but the Vista style cannot use a dark palette.
         // Overwrite with the light system palette.
         using QWindowsApplication = QNativeInterface::Private::QWindowsApplication;

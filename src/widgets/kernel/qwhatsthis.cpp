@@ -110,7 +110,6 @@ public:
     static QWhatsThat *instance;
 
 protected:
-    void showEvent(QShowEvent *e) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
@@ -123,7 +122,6 @@ private:
     QString text;
     QTextDocument* doc;
     QString anchor;
-    QPixmap background;
 };
 
 QWhatsThat *QWhatsThat::instance = nullptr;
@@ -197,11 +195,6 @@ QWhatsThat::~QWhatsThat()
         delete doc;
 }
 
-void QWhatsThat::showEvent(QShowEvent *)
-{
-    background = QGuiApplication::primaryScreen()->grabWindow(0, x(), y(), width(), height());
-}
-
 void QWhatsThat::mousePressEvent(QMouseEvent* e)
 {
     pressed = true;
@@ -261,7 +254,6 @@ void QWhatsThat::paintEvent(QPaintEvent*)
     if (drawShadow)
         r.adjust(0, 0, -shadowWidth, -shadowWidth);
     QPainter p(this);
-    p.drawPixmap(0, 0, background);
     p.setPen(QPen(palette().toolTipText(), 0));
     p.setBrush(palette().toolTipBase());
     p.drawRect(r);

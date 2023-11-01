@@ -12,6 +12,8 @@
 #pragma qt_sync_stop_processing
 #endif
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QObject;
 class QObjectPrivate;
@@ -355,7 +357,16 @@ namespace QtPrivate {
     public:
         explicit QSlotObjectBase(ImplFn fn) : m_ref(1), m_impl(fn) {}
 
-        inline int ref() noexcept { return m_ref.ref(); }
+        // A custom deleter compatible with std protocols (op()()) we well as
+        // the legacy QScopedPointer protocol (cleanup()).
+        struct Deleter {
+            void operator()(QSlotObjectBase *p) const noexcept
+            { if (p) p->destroyIfLastRef(); }
+            // for the non-standard QScopedPointer protocol:
+            static void cleanup(QSlotObjectBase *p) noexcept { Deleter{}(p); }
+        };
+
+        bool ref() noexcept { return m_ref.ref(); }
         inline void destroyIfLastRef() noexcept
         { if (!m_ref.deref()) m_impl(Destroy, this, nullptr, nullptr, nullptr); }
 
@@ -366,6 +377,43 @@ namespace QtPrivate {
         ~QSlotObjectBase() {}
     private:
         Q_DISABLE_COPY_MOVE(QSlotObjectBase)
+    };
+
+    using SlotObjUniquePtr = std::unique_ptr<QSlotObjectBase,
+                                             QSlotObjectBase::Deleter>;
+    inline SlotObjUniquePtr copy(const SlotObjUniquePtr &other) noexcept
+    {
+        if (other)
+            other->ref();
+        return SlotObjUniquePtr{other.get()};
+    }
+
+    class SlotObjSharedPtr {
+        SlotObjUniquePtr obj;
+    public:
+        Q_IMPLICIT SlotObjSharedPtr() noexcept = default;
+        Q_IMPLICIT SlotObjSharedPtr(std::nullptr_t) noexcept : SlotObjSharedPtr() {}
+        explicit SlotObjSharedPtr(SlotObjUniquePtr o)
+            : obj(std::move(o))
+        {
+            // does NOT ref() (takes unique_ptr by value)
+            // (that's why (QSlotObjectBase*) ctor doesn't exisit: don't know whether that one _should_)
+        }
+        SlotObjSharedPtr(const SlotObjSharedPtr &other) noexcept
+            : obj{copy(other.obj)} {}
+        SlotObjSharedPtr &operator=(const SlotObjSharedPtr &other) noexcept
+        { auto copy = other; swap(copy); return *this; }
+
+        SlotObjSharedPtr(SlotObjSharedPtr &&other) noexcept = default;
+        SlotObjSharedPtr &operator=(SlotObjSharedPtr &&other) noexcept = default;
+        ~SlotObjSharedPtr() = default;
+
+        void swap(SlotObjSharedPtr &other) noexcept { obj.swap(other.obj); }
+
+        auto get() const noexcept { return obj.get(); }
+        auto operator->() const noexcept { return get(); }
+
+        explicit operator bool() const noexcept { return bool(obj); }
     };
 
     // implementation of QSlotObjectBase for which the slot is a pointer to member function of a QObject

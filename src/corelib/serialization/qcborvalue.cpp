@@ -787,9 +787,9 @@ static QCborValue::Type convertToExtendedType(QCborContainerPrivate *d)
             bool ok = false;
             if (e.type == QCborValue::Integer) {
 #if QT_POINTER_SIZE == 8
-                // we don't have a fast 64-bit mul_overflow implementation on
+                // we don't have a fast 64-bit qMulOverflow implementation on
                 // 32-bit architectures.
-                ok = !mul_overflow(e.value, qint64(1000), &msecs);
+                ok = !qMulOverflow(e.value, qint64(1000), &msecs);
 #else
                 static const qint64 Limit = std::numeric_limits<qint64>::max() / 1000;
                 ok = (e.value > -Limit && e.value < Limit);
@@ -2247,12 +2247,6 @@ static void convertArrayToMap(QCborContainerPrivate *&array)
     }
     for (qsizetype i = 0; i < size; ++i)
         dst[i * 2] = { i, QCborValue::Integer };
-
-    // only do this last portion if we're not modifying in-place
-    for (qsizetype i = 0; src != dst && i < size; ++i) {
-        if (dst[i * 2 + 1].flags & QtCbor::Element::IsContainer)
-            dst[i * 2 + 1].container->ref.ref();
-    }
 
     // update reference counts
     assignContainer(array, map);

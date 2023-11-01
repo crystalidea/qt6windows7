@@ -57,14 +57,13 @@ static int menuBarHeightForWidth(QWidget *menubar, int w)
     resized to zero size if there is too little space. To support
     children whose heights depend on their widths, implement
     hasHeightForWidth() and heightForWidth(). See the
-    \l{layouts/borderlayout}{Border Layout} and
-    \l{layouts/flowlayout}{Flow Layout} examples for
+    \l{layouts/flowlayout}{Flow Layout} example for
     more information about implementing custom layout managers.
 
     Geometry management stops when the layout manager is deleted.
 
     \sa QLayoutItem, {Layout Management}, {Basic Layouts Example},
-        {Border Layout Example}, {Flow Layout Example}
+        {Flow Layout Example}
 */
 
 
@@ -1259,7 +1258,7 @@ QLayout::SizeConstraint QLayout::sizeConstraint() const
     this layout is set to \a r, provided that this layout supports
     setAlignment().
 
-    The result is derived from sizeHint() and expanding(). It is never
+    The result is derived from sizeHint() and expandingDirections(). It is never
     larger than \a r.
 */
 QRect QLayout::alignmentRect(const QRect &r) const

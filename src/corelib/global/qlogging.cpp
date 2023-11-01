@@ -14,6 +14,7 @@
 #include "qdebug.h"
 #include "qmutex.h"
 #include <QtCore/private/qlocking_p.h>
+#include <QtCore/private/qsimd_p.h>
 #include "qloggingcategory.h"
 #ifndef QT_BOOTSTRAPPED
 #include "qelapsedtimer.h"
@@ -23,7 +24,6 @@
 #include "qthread.h"
 #include "private/qloggingregistry_p.h"
 #include "private/qcoreapplication_p.h"
-#include "private/qsimd_p.h"
 #include <qtcore_tracepoints_p.h>
 #endif
 #ifdef Q_OS_WIN
@@ -184,6 +184,17 @@ static int checked_var_value(const char *varname)
     return ok ? value : 1;
 }
 
+static bool is_fatal_count_down(QAtomicInt &n)
+{
+    // it's fatal if the current value is exactly 1,
+    // otherwise decrement if it's non-zero
+
+    int v = n.loadRelaxed();
+    while (v != 0 && !n.testAndSetRelaxed(v, v - 1, v))
+        qYieldCpu();
+    return v == 1; // we exited the loop, so either v == 0 or CAS succeeded to set n from v to v-1
+}
+
 static bool isFatal(QtMsgType msgType)
 {
     if (msgType == QtFatalMsg)
@@ -191,18 +202,12 @@ static bool isFatal(QtMsgType msgType)
 
     if (msgType == QtCriticalMsg) {
         static QAtomicInt fatalCriticals = checked_var_value("QT_FATAL_CRITICALS");
-
-        // it's fatal if the current value is exactly 1,
-        // otherwise decrement if it's non-zero
-        return fatalCriticals.loadRelaxed() && fatalCriticals.fetchAndAddRelaxed(-1) == 1;
+        return is_fatal_count_down(fatalCriticals);
     }
 
     if (msgType == QtWarningMsg || msgType == QtCriticalMsg) {
         static QAtomicInt fatalWarnings = checked_var_value("QT_FATAL_WARNINGS");
-
-        // it's fatal if the current value is exactly 1,
-        // otherwise decrement if it's non-zero
-        return fatalWarnings.loadRelaxed() && fatalWarnings.fetchAndAddRelaxed(-1) == 1;
+        return is_fatal_count_down(fatalWarnings);
     }
 
     return false;
@@ -998,8 +1003,13 @@ Q_AUTOTEST_EXPORT QByteArray qCleanupFuncinfo(QByteArray info)
     pos = info.size() - 1;
     if (info.endsWith(']') && !(info.startsWith('+') || info.startsWith('-'))) {
         while (--pos) {
-            if (info.at(pos) == '[')
-                info.truncate(pos);
+          if (info.at(pos) == '[') {
+              info.truncate(pos);
+              break;
+          }
+        }
+        if (info.endsWith(' ')) {
+          info.chop(1);
         }
     }
 
@@ -1013,10 +1023,11 @@ Q_AUTOTEST_EXPORT QByteArray qCleanupFuncinfo(QByteArray info)
     // canonize operator names
     info.replace("operator ", "operator");
 
+    pos = -1;
     // remove argument list
     forever {
         int parencount = 0;
-        pos = info.lastIndexOf(')');
+        pos = info.lastIndexOf(')', pos);
         if (pos == -1) {
             // Don't know how to parse this function name
             return info;
@@ -1024,8 +1035,8 @@ Q_AUTOTEST_EXPORT QByteArray qCleanupFuncinfo(QByteArray info)
         if (info.indexOf('>', pos) != -1
                 || info.indexOf(':', pos) != -1) {
             // that wasn't the function argument list.
-            pos = info.size();
-            break;
+            --pos;
+            continue;
         }
 
         // find the beginning of the argument list
@@ -2373,13 +2384,7 @@ QMessageLogContext &QMessageLogContext::copyContextFrom(const QMessageLogContext
     Calls the message handler with the warning message \a message. If no
     message handler has been installed, the message is printed to
     stderr. Under Windows, the message is sent to the debugger.
-    On QNX the message is sent to slogger2. This
-    function does nothing if \c QT_NO_WARNING_OUTPUT was defined
-    during compilation; it exits if at the nth warning corresponding to the
-    counter in environment variable \c QT_FATAL_WARNINGS. That is, if the
-    environment variable contains the value 1, it will exit on the 1st message;
-    if it contains the value 10, it will exit on the 10th message. Any
-    non-numeric value is equivalent to 1.
+    On QNX the message is sent to slogger2.
 
     This function takes a format string and a list of arguments,
     similar to the C printf() function. The format should be a Latin-1
@@ -2396,8 +2401,20 @@ QMessageLogContext &QMessageLogContext::copyContextFrom(const QMessageLogContext
     This syntax inserts a space between each item, and
     appends a newline at the end.
 
-    To suppress the output at runtime, install your own message handler
-    with qInstallMessageHandler().
+    This function does nothing if \c QT_NO_WARNING_OUTPUT was defined
+    during compilation.
+    To suppress the output at runtime, you can set
+    \l{QLoggingCategory}{logging rules} or register a custom
+    \l{QLoggingCategory::installFilter()}{filter}.
+
+    For debugging purposes, it is sometimes convenient to let the
+    program abort for warning messages. This allows you then
+    to inspect the core dump, or attach a debugger - see also \l{qFatal()}.
+    To enable this, set the environment variable \c{QT_FATAL_WARNINGS}
+    to a number \c n. The program terminates then for the n-th warning.
+    That is, if the environment variable is set to 1, it will terminate
+    on the first call; if it contains the value 10, it will exit on the 10th
+    call. Any non-numeric value in the environment variable is equivalent to 1.
 
     \sa qDebug(), qInfo(), qCritical(), qFatal(), qInstallMessageHandler(),
         {Debugging Techniques}
@@ -2412,8 +2429,6 @@ QMessageLogContext &QMessageLogContext::copyContextFrom(const QMessageLogContext
     message handler has been installed, the message is printed to
     stderr. Under Windows, the message is sent to the debugger.
     On QNX the message is sent to slogger2.
-
-    It exits if the environment variable QT_FATAL_CRITICALS is not empty.
 
     This function takes a format string and a list of arguments,
     similar to the C printf() function. The format should be a Latin-1
@@ -2430,8 +2445,19 @@ QMessageLogContext &QMessageLogContext::copyContextFrom(const QMessageLogContext
     A space is inserted between the items, and a newline is
     appended at the end.
 
-    To suppress the output at runtime, install your own message handler
-    with qInstallMessageHandler().
+    To suppress the output at runtime, you can define
+    \l{QLoggingCategory}{logging rules} or register a custom
+    \l{QLoggingCategory::installFilter()}{filter}.
+
+    For debugging purposes, it is sometimes convenient to let the
+    program abort for critical messages. This allows you then
+    to inspect the core dump, or attach a debugger - see also \l{qFatal()}.
+    To enable this, set the environment variable \c{QT_FATAL_CRITICALS}
+    to a number \c n. The program terminates then for the n-th critical
+    message.
+    That is, if the environment variable is set to 1, it will terminate
+    on the first call; if it contains the value 10, it will exit on the 10th
+    call. Any non-numeric value in the environment variable is equivalent to 1.
 
     \sa qDebug(), qInfo(), qWarning(), qFatal(), qInstallMessageHandler(),
         {Debugging Techniques}

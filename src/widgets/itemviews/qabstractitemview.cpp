@@ -129,8 +129,8 @@ void QAbstractItemViewPrivate::setHoverIndex(const QPersistentModelIndex &index)
         q->update(hover); //update the old one
         q->update(index); //update the new one
     } else {
-        QRect oldHoverRect = q->visualRect(hover);
-        QRect newHoverRect = q->visualRect(index);
+        const QRect oldHoverRect = visualRect(hover);
+        const QRect newHoverRect = visualRect(index);
         viewport->update(QRect(0, newHoverRect.y(), viewport->width(), newHoverRect.height()));
         viewport->update(QRect(0, oldHoverRect.y(), viewport->width(), oldHoverRect.height()));
     }
@@ -318,7 +318,7 @@ void QAbstractItemViewPrivate::_q_delegateSizeHintChanged(const QModelIndex &ind
     \l{QWidget::update()}{update()} as all painting operations take place on the
     viewport.
 
-    \sa {View Classes}, {Model/View Programming}, QAbstractItemModel, {Chart Example}
+    \sa {View Classes}, {Model/View Programming}, QAbstractItemModel
 */
 
 /*!
@@ -1153,6 +1153,12 @@ void QAbstractItemView::setRootIndex(const QModelIndex &index)
         return;
     }
     d->root = index;
+#if QT_CONFIG(accessibility)
+    if (QAccessible::isActive()) {
+        QAccessibleTableModelChangeEvent accessibleEvent(this, QAccessibleTableModelChangeEvent::ModelReset);
+        QAccessible::updateAccessibility(&accessibleEvent);
+    }
+#endif
     d->doDelayedItemsLayout();
     d->updateGeometry();
 }
@@ -3354,7 +3360,7 @@ void QAbstractItemView::update(const QModelIndex &index)
 {
     Q_D(QAbstractItemView);
     if (index.isValid()) {
-        const QRect rect = visualRect(index);
+        const QRect rect = d->visualRect(index);
         //this test is important for performance reason
         //For example in dataChanged we simply update all the cells without checking
         //it can be a major bottleneck to update rects that aren't even part of the viewport

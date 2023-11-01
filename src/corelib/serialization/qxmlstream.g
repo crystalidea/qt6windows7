@@ -1419,7 +1419,12 @@ space_opt ::= space;
 qname ::= LETTER;
 /.
         case $rule_number: {
-            sym(1).len += fastScanName(&sym(1).prefix);
+            Value &val = sym(1);
+            if (auto res = fastScanName(&val))
+                val.len += *res;
+            else
+                return false;
+
             if (atEnd) {
                 resume($rule_number);
                 return false;
@@ -1430,7 +1435,11 @@ qname ::= LETTER;
 name ::= LETTER;
 /.
         case $rule_number:
-            sym(1).len += fastScanName();
+            if (auto res = fastScanName())
+                sym(1).len += *res;
+            else
+                return false;
+
             if (atEnd) {
                 resume($rule_number);
                 return false;

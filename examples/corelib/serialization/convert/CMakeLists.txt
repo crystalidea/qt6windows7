@@ -4,6 +4,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(convert LANGUAGES CXX)
 
+if (ANDROID)
+    message(FATAL_ERROR "This project cannot be built on Android.")
+endif()
+
 if(NOT DEFINED INSTALL_EXAMPLESDIR)
     set(INSTALL_EXAMPLESDIR "examples")
 endif()
@@ -18,6 +22,7 @@ qt_add_executable(convert
     cborconverter.cpp cborconverter.h
     converter.h
     datastreamconverter.cpp datastreamconverter.h
+    debugtextdumper.cpp debugtextdumper.h
     jsonconverter.cpp jsonconverter.h
     main.cpp
     nullconverter.cpp nullconverter.h

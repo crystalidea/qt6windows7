@@ -2614,6 +2614,7 @@ static void unixPipe_helper(int pipes[2])
         c = 2;
         qt_safe_write(fd, &c, 1);
     }));
+
     thr->start();
 
     // synchronize with the thread having started
@@ -2622,12 +2623,11 @@ static void unixPipe_helper(int pipes[2])
     QCOMPARE(c, '\1');
 
     QFETCH(bool, useStdio);
-    QElapsedTimer timer;
-    timer.start();
     QFile f;
     if (useStdio) {
         FILE *fh = fdopen(pipes[0], "rb");
         QVERIFY(f.open(fh, QIODevice::ReadOnly | QIODevice::Unbuffered, QFileDevice::AutoCloseHandle));
+        pipes[0] = -1;      // QFile fclose()s the FILE* and that close()s the fd
     } else {
         QVERIFY(f.open(pipes[0], QIODevice::ReadOnly | QIODevice::Unbuffered));
     }
@@ -2636,8 +2636,6 @@ static void unixPipe_helper(int pipes[2])
     c = 0;
     QCOMPARE(f.read(&c, 1), 1);
     QCOMPARE(c, '\2');
-    int elapsed = timer.elapsed();
-    QVERIFY2(elapsed >= Timeout, QByteArray::number(elapsed));
 
     thr->wait();
 }
@@ -2654,7 +2652,8 @@ void tst_QFile::unixPipe()
     int pipes[2] = { -1, -1 };
     QVERIFY2(pipe(pipes) == 0, qPrintable(qt_error_string()));
     unixPipe_helper(pipes);
-    qt_safe_close(pipes[0]);
+    if (pipes[0] != -1)
+        qt_safe_close(pipes[0]);
     qt_safe_close(pipes[1]);
 }
 
@@ -2663,7 +2662,8 @@ void tst_QFile::socketPair()
     int pipes[2] = { -1, -1 };
     QVERIFY2(socketpair(AF_UNIX, SOCK_STREAM, 0, pipes) == 0, qPrintable(qt_error_string()));
     unixPipe_helper(pipes);
-    qt_safe_close(pipes[0]);
+    if (pipes[0] != -1)
+        qt_safe_close(pipes[0]);
     qt_safe_close(pipes[1]);
 }
 #endif

@@ -65,6 +65,8 @@ qt_internal_add_module(Widgets
         Qt::GuiPrivate
     PRECOMPILED_HEADER
         "kernel/qt_widgets_pch.h"
+    NO_PCH_SOURCES
+        compat/removed_api.cpp
     GENERATE_CPP_EXPORTS
 )
 
@@ -243,15 +245,6 @@ set(qstyle_resource_files
     "styles/images/viewlist-16.png"
     "styles/images/viewlist-32.png"
 )
-
-set(widgets_no_pch_sources
-    compat/removed_api.cpp
-)
-
-foreach(src ${widgets_no_pch_sources})
-    qt_update_ignore_pch_source(Widgets ${src})
-endforeach()
-
 
 qt_internal_add_resource(Widgets "qstyle"
     PREFIX
@@ -510,7 +503,7 @@ qt_internal_extend_target(Widgets CONDITION QT_FEATURE_resizehandler
 
 qt_internal_extend_target(Widgets CONDITION QT_FEATURE_dialogbuttonbox
     SOURCES
-        widgets/qdialogbuttonbox.cpp widgets/qdialogbuttonbox.h
+        widgets/qdialogbuttonbox.cpp widgets/qdialogbuttonbox.h widgets/qdialogbuttonbox_p.h
 )
 
 qt_internal_extend_target(Widgets CONDITION QT_FEATURE_rubberband
@@ -661,6 +654,8 @@ qt_internal_extend_target(Widgets CONDITION QT_FEATURE_inputdialog
 qt_internal_extend_target(Widgets CONDITION QT_FEATURE_messagebox
     SOURCES
         dialogs/qmessagebox.cpp dialogs/qmessagebox.h
+    NO_UNITY_BUILD_SOURCES
+        dialogs/qmessagebox.cpp # error: ‘Old_Ok’ [etc] was not declared in this scope
 )
 
 if(QT_FEATURE_messagebox)

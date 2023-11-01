@@ -381,6 +381,9 @@ public:
     QMetaCallEvent(QtPrivate::QSlotObjectBase *slotObj,
                    const QObject *sender, int signalId,
                    void **args, QSemaphore *semaphore);
+    QMetaCallEvent(QtPrivate::SlotObjUniquePtr slotObj,
+                   const QObject *sender, int signalId,
+                   void **args, QSemaphore *semaphore);
 
     // queued - args allocated by event, copied by caller
     QMetaCallEvent(ushort method_offset, ushort method_relative,
@@ -390,8 +393,30 @@ public:
     QMetaCallEvent(QtPrivate::QSlotObjectBase *slotObj,
                    const QObject *sender, int signalId,
                    int nargs);
+    QMetaCallEvent(QtPrivate::SlotObjUniquePtr slotObj,
+                   const QObject *sender, int signalId,
+                   int nargs);
 
     ~QMetaCallEvent() override;
+
+    template<typename ...Args>
+    static QMetaCallEvent *create(QtPrivate::QSlotObjectBase *slotObj, const QObject *sender,
+                                  int signal_index, const Args &...argv)
+    {
+        const void* const argp[] = { nullptr, std::addressof(argv)... };
+        const QMetaType metaTypes[] = { QMetaType::fromType<void>(), QMetaType::fromType<Args>()... };
+        constexpr auto argc = sizeof...(Args) + 1;
+        return create_impl(slotObj, sender, signal_index, argc, argp, metaTypes);
+    }
+    template<typename ...Args>
+    static QMetaCallEvent *create(QtPrivate::SlotObjUniquePtr slotObj, const QObject *sender,
+                                  int signal_index, const Args &...argv)
+    {
+        const void* const argp[] = { nullptr, std::addressof(argv)... };
+        const QMetaType metaTypes[] = { QMetaType::fromType<void>(), QMetaType::fromType<Args>()... };
+        constexpr auto argc = sizeof...(Args) + 1;
+        return create_impl(std::move(slotObj), sender, signal_index, argc, argp, metaTypes);
+    }
 
     inline int id() const { return d.method_offset_ + d.method_relative_; }
     inline const void * const* args() const { return d.args_; }
@@ -402,10 +427,22 @@ public:
     virtual void placeMetaCall(QObject *object) override;
 
 private:
+    static QMetaCallEvent *create_impl(QtPrivate::QSlotObjectBase *slotObj, const QObject *sender,
+                                       int signal_index, size_t argc, const void * const argp[],
+                                       const QMetaType metaTypes[])
+    {
+        if (slotObj)
+            slotObj->ref();
+        return create_impl(QtPrivate::SlotObjUniquePtr{slotObj}, sender,
+                           signal_index, argc, argp, metaTypes);
+    }
+    static QMetaCallEvent *create_impl(QtPrivate::SlotObjUniquePtr slotObj, const QObject *sender,
+                                       int signal_index, size_t argc, const void * const argp[],
+                                       const QMetaType metaTypes[]);
     inline void allocArgs();
 
     struct Data {
-        QtPrivate::QSlotObjectBase *slotObj_;
+        QtPrivate::SlotObjUniquePtr slotObj_;
         void **args_;
         QObjectPrivate::StaticMetaCallFunction callFunction_;
         int nargs_;

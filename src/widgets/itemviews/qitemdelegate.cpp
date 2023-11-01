@@ -282,8 +282,7 @@ QSizeF QItemDelegatePrivate::doTextLayout(int lineWidth) const
     the style for drawing.
 
     \sa {Delegate Classes}, QStyledItemDelegate, QAbstractItemDelegate,
-        {Spin Box Delegate Example}, {Settings Editor Example},
-        {Icons Example}
+        {Spin Box Delegate Example}, {Settings Editor Example}
 */
 
 /*!
@@ -343,8 +342,10 @@ QString QItemDelegatePrivate::valueToText(const QVariant &value, const QStyleOpt
     For example, a selected item may need to be displayed differently to
     unselected items, as shown in the following code:
 
-    \snippet itemviews/pixelator/pixeldelegate.cpp 2
-    \dots
+    \code
+    if (option.state & QStyle::State_Selected)
+        painter->fillRect(option.rect, option.palette.highlight());
+    \endcode
 
     After painting, you should ensure that the painter is returned to its
     the state it was supplied in when this function was called. For example,

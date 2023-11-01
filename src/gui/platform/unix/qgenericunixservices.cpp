@@ -177,8 +177,7 @@ static inline QDBusMessage xdgDesktopPortalOpenFile(const QUrl &url, const QStri
     // handle_token (s) -  A string that will be used as the last element of the @handle.
     // writable (b) - Whether to allow the chosen application to write to the file.
 
-#ifdef O_PATH
-    const int fd = qt_safe_open(QFile::encodeName(url.toLocalFile()), O_PATH);
+    const int fd = qt_safe_open(QFile::encodeName(url.toLocalFile()), O_RDONLY);
     if (fd != -1) {
         QDBusMessage message = QDBusMessage::createMethodCall("org.freedesktop.portal.Desktop"_L1,
                                                               "/org/freedesktop/portal/desktop"_L1,
@@ -188,7 +187,7 @@ static inline QDBusMessage xdgDesktopPortalOpenFile(const QUrl &url, const QStri
         QDBusUnixFileDescriptor descriptor;
         descriptor.giveFileDescriptor(fd);
 
-        QVariantMap options = { { "writable"_L1, true } };
+        QVariantMap options = {};
 
         if (!xdgActivationToken.isEmpty()) {
             options.insert("activation_token"_L1, xdgActivationToken);
@@ -198,11 +197,6 @@ static inline QDBusMessage xdgDesktopPortalOpenFile(const QUrl &url, const QStri
 
         return QDBusConnection::sessionBus().call(message);
     }
-#else
-    Q_UNUSED(url);
-    Q_UNUSED(parentWindow)
-    Q_UNUSED(xdgActivationToken)
-#endif
 
     return QDBusMessage::createError(QDBusError::InternalError, qt_error_string());
 }
@@ -427,6 +421,7 @@ void runWithXdgActivationToken(F &&functionToCall)
     QWindow *window = qGuiApp->focusWindow();
 
     if (!window) {
+        functionToCall({});
         return;
     }
 
@@ -436,13 +431,14 @@ void runWithXdgActivationToken(F &&functionToCall)
             dynamic_cast<QNativeInterface::Private::QWaylandWindow *>(window->handle());
 
     if (!waylandWindow || !waylandApp) {
+        functionToCall({});
         return;
     }
 
-    waylandWindow->requestXdgActivationToken(waylandApp->lastInputSerial());
     QObject::connect(waylandWindow,
                      &QNativeInterface::Private::QWaylandWindow::xdgActivationTokenCreated,
                      waylandWindow, functionToCall, Qt::SingleShotConnection);
+    waylandWindow->requestXdgActivationToken(waylandApp->lastInputSerial());
 }
 
 bool QGenericUnixServices::openUrl(const QUrl &url)

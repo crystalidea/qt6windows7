@@ -3,7 +3,8 @@
 
 /*!
     \example serialization/cbordump
-    \examplecategory {Input/Output}
+    \examplecategory {Data Processing & I/O}
+    \meta tag {network}
     \title Parsing and displaying CBOR data
 
     \brief A demonstration of how to parse files in CBOR format.

@@ -5,8 +5,8 @@
 
 # Set the QT_IS_BUILDING_QT variable so we can verify whether we are building
 # Qt from source
-set(QT_BUILDING_QT TRUE CACHE
-    TYPE STRING "When this is present and set to true, it signals that we are building Qt from source.")
+set(QT_BUILDING_QT TRUE CACHE BOOL
+        "When this is present and set to true, it signals that we are building Qt from source.")
 
 # Pre-calculate the developer_build feature if it's set by the user via INPUT_developer_build
 if(NOT FEATURE_developer_build AND INPUT_developer_build
@@ -351,6 +351,8 @@ if(QT_UNITY_BUILD)
     set(CMAKE_UNITY_BUILD ON)
     set(CMAKE_UNITY_BUILD_BATCH_SIZE "${QT_UNITY_BUILD_BATCH_SIZE}")
 endif()
+
+option(QT_ALLOW_SYMLINK_IN_PATHS "Allows symlinks in paths." OFF)
 
 # We need to clean up QT_FEATURE_*, but only once per configuration cycle
 get_property(qt_feature_clean GLOBAL PROPERTY _qt_feature_clean)

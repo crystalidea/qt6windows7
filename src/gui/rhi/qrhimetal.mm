@@ -40,12 +40,13 @@ QT_BEGIN_NAMESPACE
 #error ARC not supported
 #endif
 
-// Note: we expect everything here pass the Metal API validation when running
-// in Debug mode in XCode (or with METAL_DEVICE_WRAPPER_TYPE=1). An exception
-// is the nextDrawable Called Early blah blah warning, which is plain and
-// simply false. This may not be present with newer XCode. There may also be
-// warnings about threading (e.g. about accessing view.layer), those are
-// expected for now.
+// Even though the macOS 13 MTLBinaryArchive problem (QTBUG-106703) seems
+// to be solved in later 13.x releases, we have reports from old Intel hardware
+// and older macOS versions where this causes problems (QTBUG-114338).
+// Thus we no longer do OS version based differentiation, but rather have a
+// single toggle that is currently on, and so QRhi::(set)pipelineCache()
+// does nothing with Metal.
+#define QRHI_METAL_DISABLE_BINARY_ARCHIVE
 
 /*!
     \class QRhiMetalInitParams
@@ -133,7 +134,6 @@ struct QRhiMetalData
     id<MTLDevice> dev = nil;
     id<MTLCommandQueue> cmdQueue = nil;
     API_AVAILABLE(macosx(11.0), ios(14.0)) id<MTLBinaryArchive> binArch = nil;
-    bool binArchWasEmpty = false;
 
     MTLRenderPassDescriptor *createDefaultRenderPass(bool hasDepthStencil,
                                                      const QColor &colorClearValue,
@@ -410,7 +410,7 @@ QRhiMetal::QRhiMetal(QRhiMetalInitParams *params, QRhiMetalNativeHandles *import
 
     importedDevice = importDevice != nullptr;
     if (importedDevice) {
-        if (d->dev) {
+        if (importDevice->dev) {
             d->dev = (id<MTLDevice>) importDevice->dev;
             importedCmdQueue = importDevice->cmdQueue != nullptr;
             if (importedCmdQueue)
@@ -446,6 +446,10 @@ bool QRhiMetal::probe(QRhiMetalInitParams *params)
 
 bool QRhiMetalData::setupBinaryArchive(NSURL *sourceFileUrl)
 {
+#ifdef QRHI_METAL_DISABLE_BINARY_ARCHIVE
+    return false;
+#endif
+
     if (@available(macOS 11.0, iOS 14.0, *)) {
         [binArch release];
         MTLBinaryArchiveDescriptor *binArchDesc = [MTLBinaryArchiveDescriptor new];
@@ -458,7 +462,6 @@ bool QRhiMetalData::setupBinaryArchive(NSURL *sourceFileUrl)
             qWarning("newBinaryArchiveWithDescriptor failed: %s", qPrintable(msg));
             return false;
         }
-        binArchWasEmpty = sourceFileUrl == nil;
         return true;
     }
     return false;
@@ -3760,7 +3763,9 @@ QMetalRenderPassDescriptor::~QMetalRenderPassDescriptor()
 
 void QMetalRenderPassDescriptor::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiMetal);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QMetalRenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const
@@ -3803,13 +3808,17 @@ void QMetalRenderPassDescriptor::updateSerializedFormat()
 
 QRhiRenderPassDescriptor *QMetalRenderPassDescriptor::newCompatibleRenderPassDescriptor() const
 {
-    QMetalRenderPassDescriptor *rp = new QMetalRenderPassDescriptor(m_rhi);
-    rp->colorAttachmentCount = colorAttachmentCount;
-    rp->hasDepthStencil = hasDepthStencil;
-    memcpy(rp->colorFormat, colorFormat, sizeof(colorFormat));
-    rp->dsFormat = dsFormat;
-    rp->updateSerializedFormat();
-    return rp;
+    QMetalRenderPassDescriptor *rpD = new QMetalRenderPassDescriptor(m_rhi);
+    rpD->colorAttachmentCount = colorAttachmentCount;
+    rpD->hasDepthStencil = hasDepthStencil;
+    memcpy(rpD->colorFormat, colorFormat, sizeof(colorFormat));
+    rpD->dsFormat = dsFormat;
+
+    rpD->updateSerializedFormat();
+
+    QRHI_RES_RHI(QRhiMetal);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 QVector<quint32> QMetalRenderPassDescriptor::serializedFormat() const
@@ -3865,7 +3874,9 @@ QMetalTextureRenderTarget::~QMetalTextureRenderTarget()
 
 void QMetalTextureRenderTarget::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiMetal);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 QRhiRenderPassDescriptor *QMetalTextureRenderTarget::newCompatibleRenderPassDescriptor()
@@ -3888,6 +3899,9 @@ QRhiRenderPassDescriptor *QMetalTextureRenderTarget::newCompatibleRenderPassDesc
         rpD->dsFormat = int(QRHI_RES(QMetalRenderBuffer, m_desc.depthStencilBuffer())->d->format);
 
     rpD->updateSerializedFormat();
+
+    QRHI_RES_RHI(QRhiMetal);
+    rhiD->registerResource(rpD, false);
     return rpD;
 }
 
@@ -3962,6 +3976,7 @@ bool QMetalTextureRenderTarget::create()
 
     QRhiRenderTargetAttachmentTracker::updateResIdList<QMetalTexture, QMetalRenderBuffer>(m_desc, &d->currentResIdList);
 
+    rhiD->registerResource(this, false);
     return true;
 }
 
@@ -3997,6 +4012,10 @@ void QMetalShaderResourceBindings::destroy()
 {
     sortedBindings.clear();
     maxBinding = -1;
+
+    QRHI_RES_RHI(QRhiMetal);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QMetalShaderResourceBindings::create()
@@ -4027,6 +4046,7 @@ bool QMetalShaderResourceBindings::create()
         memset(&bd, 0, sizeof(BoundResourceData));
 
     generation += 1;
+    rhiD->registerResource(this, false);
     return true;
 }
 
@@ -4564,33 +4584,10 @@ void QRhiMetalData::trySeedingRenderPipelineFromBinaryArchive(MTLRenderPipelineD
     }
 }
 
-static bool canAddToBinaryArchive(QRhiMetalData *d)
-{
-    if (@available(macOS 11.0, iOS 14.0, *)) {
-        if (!d->binArch)
-            return false;
-
-        // ### QTBUG-106703, QTBUG-108216, revisit after 13.0
-        if (!d->binArchWasEmpty && d->q->osMajor >= 13) {
-            static bool logPrinted = false;
-            if (!logPrinted) {
-                logPrinted = true;
-                qCDebug(QRHI_LOG_INFO, "Skipping adding more pipelines to MTLBinaryArchive on this OS version (%d.%d) due to known issues.",
-                        d->q->osMajor, d->q->osMinor);
-            }
-            return false;
-        }
-
-        return true;
-    } else {
-        return false;
-    }
-}
-
 void QRhiMetalData::addRenderPipelineToBinaryArchive(MTLRenderPipelineDescriptor *rpDesc)
 {
     if (@available(macOS 11.0, iOS 14.0, *)) {
-        if (canAddToBinaryArchive(this)) {
+        if (binArch) {
             NSError *err = nil;
             if (![binArch addRenderPipelineFunctionsWithDescriptor: rpDesc error: &err]) {
                 const QString msg = QString::fromNSString(err.localizedDescription);
@@ -5331,7 +5328,7 @@ void QRhiMetalData::trySeedingComputePipelineFromBinaryArchive(MTLComputePipelin
 void QRhiMetalData::addComputePipelineToBinaryArchive(MTLComputePipelineDescriptor *cpDesc)
 {
     if (@available(macOS 11.0, iOS 14.0, *)) {
-        if (canAddToBinaryArchive(this)) {
+        if (binArch) {
             NSError *err = nil;
             if (![binArch addComputePipelineFunctionsWithDescriptor: cpDesc error: &err]) {
                 const QString msg = QString::fromNSString(err.localizedDescription);
@@ -5582,14 +5579,19 @@ QSize QMetalSwapChain::surfacePixelSize()
 
 bool QMetalSwapChain::isFormatSupported(Format f)
 {
-#ifdef Q_OS_MACOS
-    return f == SDR || f == HDRExtendedSrgbLinear;
-#endif
+    if (f == HDRExtendedSrgbLinear) {
+        if (@available(macOS 10.11, iOS 16.0, *))
+            return true;
+        else
+            return false;
+    }
     return f == SDR;
 }
 
 QRhiRenderPassDescriptor *QMetalSwapChain::newCompatibleRenderPassDescriptor()
 {
+    QRHI_RES_RHI(QRhiMetal);
+
     chooseFormats(); // ensure colorFormat and similar are filled out
 
     QMetalRenderPassDescriptor *rpD = new QMetalRenderPassDescriptor(m_rhi);
@@ -5600,7 +5602,6 @@ QRhiRenderPassDescriptor *QMetalSwapChain::newCompatibleRenderPassDescriptor()
 
 #ifdef Q_OS_MACOS
     // m_depthStencil may not be built yet so cannot rely on computed fields in it
-    QRHI_RES_RHI(QRhiMetal);
     rpD->dsFormat = rhiD->d->dev.depth24Stencil8PixelFormatSupported
             ? MTLPixelFormatDepth24Unorm_Stencil8 : MTLPixelFormatDepth32Float_Stencil8;
 #else
@@ -5608,6 +5609,8 @@ QRhiRenderPassDescriptor *QMetalSwapChain::newCompatibleRenderPassDescriptor()
 #endif
 
     rpD->updateSerializedFormat();
+
+    rhiD->registerResource(rpD, false);
     return rpD;
 }
 
@@ -5652,13 +5655,13 @@ bool QMetalSwapChain::createOrResize()
     chooseFormats();
     if (d->colorFormat != d->layer.pixelFormat)
         d->layer.pixelFormat = d->colorFormat;
-#ifdef Q_OS_MACOS
-    // Can't enable this on iOS until wantsExtendedDynamicRangeContent is available
+
     if (m_format == HDRExtendedSrgbLinear) {
-        d->layer.colorspace = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);
-        d->layer.wantsExtendedDynamicRangeContent = YES;
+        if (@available(macOS 10.11, iOS 16.0, *)) {
+            d->layer.colorspace = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);
+            d->layer.wantsExtendedDynamicRangeContent = YES;
+        }
     }
-#endif
 
     if (m_flags.testFlag(UsedAsTransferSource))
         d->layer.framebufferOnly = NO;
@@ -5762,21 +5765,24 @@ QRhiSwapChainHdrInfo QMetalSwapChain::hdrInfo()
 {
     QRhiSwapChainHdrInfo info;
     info.limitsType = QRhiSwapChainHdrInfo::ColorComponentValue;
-    if (m_format == SDR) {
-        info.limits.colorComponentValue.maxColorComponentValue = 1;
-        return info;
+    info.limits.colorComponentValue.maxColorComponentValue = 1;
+    info.isHardCodedDefaults = true;
+
+    if (m_format != SDR && m_window) {
+        // Must use m_window, not window, given this may be called before createOrResize().
+#ifdef Q_OS_MACOS
+        NSView *view = reinterpret_cast<NSView *>(m_window->winId());
+        info.limits.colorComponentValue.maxColorComponentValue = view.window.screen.maximumExtendedDynamicRangeColorComponentValue;
+        info.isHardCodedDefaults = false;
+#else
+        if (@available(iOS 16.0, *)) {
+            UIView *view = reinterpret_cast<UIView *>(m_window->winId());
+            info.limits.colorComponentValue.maxColorComponentValue = view.window.windowScene.screen.currentEDRHeadroom;
+            info.isHardCodedDefaults = false;
+        }
+#endif
     }
 
-#ifdef Q_OS_MACOS
-    info.isHardCodedDefaults = false;
-    NSView *view = reinterpret_cast<NSView *>(window->winId());
-    info.limits.colorComponentValue.maxColorComponentValue = view.window.screen.maximumExtendedDynamicRangeColorComponentValue;
-#else
-    // ### Fixme: Maybe retrieve the brightness from the screen and if we're not at full brightness we might be able to do more.
-    // For now, assume 2, in line with iPhone 12 specs that claim 625 nits max brightness and 1200 nits max HDR brightness.
-    info.isHardCodedDefaults = true;
-    info.limits.colorComponentValue.maxColorComponentValue = 2;
-#endif
     return info;
 }
 

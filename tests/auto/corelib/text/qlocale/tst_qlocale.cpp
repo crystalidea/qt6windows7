@@ -78,6 +78,10 @@ private slots:
     void formatTimeZone();
     void toDateTime_data();
     void toDateTime();
+    void toDate_data();
+    void toDate();
+    void toTime_data();
+    void toTime();
     void negativeNumbers();
     void numberOptions();
     void dayName_data();
@@ -126,6 +130,8 @@ private slots:
     void systemLocaleDayAndMonthNames();
 #endif
 
+    void numberGrouping_data();
+    void numberGrouping();
     void numberGroupingIndia();
     void numberFormatChakma();
 
@@ -871,6 +877,18 @@ void tst_QLocale::toReal_data()
         << u"fa_IR"_s << u"\u06f4\u00d7\u200e\u2212\u06f0\u06f3"_s << false << 0.0;
     QTest::newRow("fa_IR 4x!3") // Only first character of exponent and sign
         << u"fa_IR"_s << u"\u06f4\u00d7\u200e\u06f0\u06f3"_s << false << 0.0;
+
+    // Cyrillic has its own E; only officially used by Ukrainian as exponent,
+    // with other Cyrillic locales using the Latin E. QLocale allows that there
+    // may be some cross-over between these.
+    QTest::newRow("uk_UA Cyrillic E") << u"uk_UA"_s << u"4\u0415-3"_s << true << 4e-3; // Official
+    QTest::newRow("uk_UA Latin E") << u"uk_UA"_s << u"4E-3"_s << true << 4e-3;
+    QTest::newRow("uk_UA Cyrilic e") << u"uk_UA"_s << u"4\u0435-3"_s << true << 4e-3;
+    QTest::newRow("uk_UA Latin e") << u"uk_UA"_s << u"4e-3"_s << true << 4e-3;
+    QTest::newRow("ru_RU Latin E") << u"ru_RU"_s << u"4E-3"_s << true << 4e-3; // Official
+    QTest::newRow("ru_RU Cyrillic E") << u"ru_RU"_s << u"4\u0415-3"_s << true << 4e-3;
+    QTest::newRow("ru_RU Latin e") << u"ru_RU"_s << u"4e-3"_s << true << 4e-3;
+    QTest::newRow("ru_RU Cyrilic e") << u"ru_RU"_s << u"4\u0435-3"_s << true << 4e-3;
 }
 #define EXPECT_NONSINGLE_FAILURES do { \
         QEXPECT_FAIL("sv_SE 4e-3", "Code wrongly assumes single character, QTBUG-107801", Abort); \
@@ -903,6 +921,13 @@ void tst_QLocale::stringToDouble_data()
     // Underflow:
     QTest::newRow("C tiny") << QString("C") << QString("2e-324") << false << 0.;
     QTest::newRow("C -tiny") << QString("C") << QString("-2e-324") << false << 0.;
+
+    // Test a tiny fraction (well beyond denomal) with a huge exponent:
+    const QString zeros(500, '0');
+    QTest::newRow("C tiny fraction, huge exponent")
+        << u"C"_s << u"0."_s + zeros + u"123e501"_s << true << 1.23;
+    QTest::newRow("uk_UA tiny fraction, huge exponent")
+        << u"uk_UA"_s << u"0,"_s + zeros + u"123\u0415" "501"_s << true << 1.23;
 }
 
 void tst_QLocale::stringToDouble()
@@ -990,6 +1015,13 @@ void tst_QLocale::stringToFloat_data()
     // Underflow double, too:
     QTest::newRow("C tiny") << C << QString("2e-324") << false << 0.;
     QTest::newRow("C -tiny") << C << QString("-2e-324") << false << 0.;
+
+    // Test a small fraction (well beyond denomal) with a big exponent:
+    const QString zeros(80, '0');
+    QTest::newRow("C small fraction, big exponent")
+        << u"C"_s << u"0."_s + zeros + u"123e81"_s << true << 1.23;
+    QTest::newRow("uk_UA small fraction, big exponent")
+        << u"uk_UA"_s << u"0,"_s + zeros + u"123\u0415" "81"_s << true << 1.23;
 }
 
 void tst_QLocale::stringToFloat()
@@ -1119,7 +1151,9 @@ void tst_QLocale::doubleToString_data()
     QTest::newRow("de_DE 1245678900 g -")  << QString("de_DE") << QString("1.245.678.900") << 12456789e2 << 'g' << shortest;
     QTest::newRow("de_DE 12456789100 g -") << QString("de_DE") << QString("12.456.789.100") << 124567891e2 << 'g' << shortest;
     QTest::newRow("de_DE 12456789000 g -") << QString("de_DE") << QString("1,2456789E+10")  << 12456789e3 << 'g' << shortest;
-    QTest::newRow("de_DE 120000 g -")  << QString("de_DE") << QString("120.000") << 12e4 << 'g' << shortest;
+    QTest::newRow("de_DE 12000 g -")
+        << QString("de_DE") << QString("12.000") << 12e3 << 'g' << shortest;
+    // 12e4 has "120.000" and "1.2E+05" of equal length; which shortest picks is unspecified.
     QTest::newRow("de_DE 1200000 g -") << QString("de_DE") << QString("1,2E+06") << 12e5 << 'g' << shortest;
     QTest::newRow("de_DE 1000 g -")  << QString("de_DE") << QString("1.000") << 1e3 << 'g' << shortest;
     QTest::newRow("de_DE 10000 g -") << QString("de_DE") << QString("1E+04") << 1e4 << 'g' << shortest;
@@ -2143,6 +2177,297 @@ void tst_QLocale::toDateTime()
         QCOMPARE(l.toDateTime(string, QLocale::ShortFormat), result);
 }
 
+void tst_QLocale::toDate_data()
+{
+    QTest::addColumn<QLocale>("locale");
+    QTest::addColumn<QDate>("result");
+    QTest::addColumn<QString>("format");
+    QTest::addColumn<QString>("string");
+    // No non-format letters in format string:
+    QTest::addColumn<bool>("clean");
+
+    const auto C = QLocale::c();
+    QTest::newRow("C-d/M/yyyy")
+        << C << QDate(1974, 12, 1) << u"d/M/yyyy"_s << u"1/12/1974"_s << true;
+    QTest::newRow("C-d/M/yyyyy")
+        << C << QDate(1974, 12, 1) << u"d/M/yyyyy"_s << u"1/12/1974y"_s << false;
+    QTest::newRow("C-dd/MM/yyy")
+        << C << QDate(1974, 1, 1) << u"dd/MM/yyy"_s << u"01/01/74y"_s << false;
+    QTest::newRow("C-ddddd/MMMMM/yy")
+        << C << QDate(1974, 12, 2) << u"ddddd/MMMMM/yy"_s << u"Monday2/December12/74"_s
+        << true;
+    QTest::newRow("C-'dddd'/MMMM/yy")
+        << C << QDate(1974, 12, 1) << u"'dddd'/MMMM/yy"_s << u"dddd/December/74"_s << false;
+    QTest::newRow("C-d'dd'd/MMMM/yyy")
+        << C << QDate(1974, 12, 1) << u"d'dd'd/MMMM/yyy"_s << u"1dd1/December/74y"_s << false;
+    QTest::newRow("C-d'dd'd/MMM'M'/yy")
+        << C << QDate(1974, 12, 1) << u"d'dd'd/MMM'M'/yy"_s << u"1dd1/DecM/74"_s << false;
+    QTest::newRow("C-d'd'dd/M/yy")
+        << C << QDate(1974, 12, 1) << u"d'd'dd/M/yy"_s << u"1d01/12/74"_s << false;
+    // Unpadded value for fixed-width field is wrong:
+    QTest::newRow("bad-day-C")
+        << C << QDate() << u"dd-MMM-yy"_s << u"4-Jun-11"_s << true;
+    QTest::newRow("bad-month-C")
+        << C << QDate() << u"d-MM-yy"_s << u"4-6-11"_s << true;
+    QTest::newRow("bad-year-C")
+        << C << QDate() << u"d-MMM-yyyy"_s << u"4-Jun-11"_s << true;
+    QTest::newRow("ok-C")
+        << C << QDate(1911, 6, 4) << u"d-MMM-yy"_s << u"4-Jun-11"_s << true;
+
+    // Locale-specific details frozen to avoid CLDR update breakage.
+    // However, updating to match CLDR from time to time would be constructive.
+    const QLocale norsk{QLocale::NorwegianBokmal, QLocale::Norway};
+    QTest::newRow("no_NO-d/M/yyyy")
+        << norsk << QDate(1974, 12, 1) << u"d/M/yyyy"_s << u"1/12/1974"_s << true;
+    QTest::newRow("no_NO-d/M/yyyyy")
+        << norsk << QDate(1974, 12, 1) << u"d/M/yyyyy"_s << u"1/12/1974y"_s << false;
+    QTest::newRow("no_NO-dd/MM/yyy")
+        << norsk << QDate(1974, 1, 1) << u"dd/MM/yyy"_s << u"01/01/74y"_s << false;
+    QTest::newRow("no_NO-ddddd/MMMMM/yy")
+        << norsk << QDate(1974, 12, 2) << u"ddddd/MMMMM/yy"_s << u"mandag2/desember12/74"_s
+        << true;
+    QTest::newRow("no_NO-'dddd'/MMMM/yy")
+        << norsk << QDate(1974, 12, 1) << u"'dddd'/MMMM/yy"_s << u"dddd/desember/74"_s
+        << false;
+    QTest::newRow("no_NO-d'dd'd/MMMM/yyy")
+        << norsk << QDate(1974, 12, 1) << u"d'dd'd/MMMM/yyy"_s << u"1dd1/desember/74y"_s
+        << false;
+    QTest::newRow("no_NO-d'dd'd/MMM'M'/yy")
+        << norsk << QDate(1974, 12, 1) << u"d'dd'd/MMM'M'/yy"_s << u"1dd1/des.M/74"_s
+        << false;
+    QTest::newRow("no_NO-d'd'dd/M/yy")
+        << norsk << QDate(1974, 12, 1) << u"d'd'dd/M/yy"_s << u"1d01/12/74"_s << false;
+
+    QTest::newRow("RFC-1123")
+        << C << QDate(2007, 11, 1) << u"ddd, dd MMM yyyy 'GMT'"_s << u"Thu, 01 Nov 2007 GMT"_s
+        << false;
+
+    const QLocale usa{QLocale::English, QLocale::UnitedStates};
+    QTest::newRow("longFormat")
+        << usa << QDate(2009, 1, 5) << u"dddd, MMMM d, yyyy"_s
+        << u"Monday, January 5, 2009"_s << true;
+    QTest::newRow("shortFormat") // Use of two-digit year considered harmful.
+        << usa << QDate(1909, 1, 5) << u"M/d/yy"_s << u"1/5/09"_s << true;
+
+    const QDate date(2017, 02, 25);
+    QTest::newRow("C:long")
+        << C << date << "dddd, d MMMM yyyy" << u"Saturday, 25 February 2017"_s << true;
+    QTest::newRow("C:short")
+        << C << date << u"d MMM yyyy"_s << u"25 Feb 2017"_s << true;
+    QTest::newRow("C:narrow")
+        << C << date << u"d MMM yyyy"_s << u"25 Feb 2017"_s << true;
+
+    // Test the same again with unicode and emoji.
+    QTest::newRow("C:long with emoji")
+        << C << date << u8"dddd, d💪MMMM yyyy" << u8"Saturday, 25💪February 2017" << true;
+    QTest::newRow("C:short with emoji")
+        << C << date << u8"d📞MMM📞yyyy" << u8"25📞Feb📞2017" << true;
+    QTest::newRow("C:narrow with emoji")
+        << C << date << u8"🇬🇧d MMM yyyy🇬🇧"
+        << u8"🇬🇧25 Feb 2017🇬🇧" << true;
+
+    const QLocale fr{QLocale::French};
+    QTest::newRow("fr:long")
+        << fr << date << "dddd d MMMM yyyy" << u"Samedi 25 février 2017"_s << true;
+    QTest::newRow("fr:short")
+        << fr << date << u"dd/MM/yyyy"_s << u"25/02/2017"_s << true;
+
+    // In Turkish, the word for Friday ("Cuma") is a prefix for the word for
+    // Saturday ("Cumartesi")
+    const QLocale turk(QLocale::Turkish);
+    QTest::newRow("tr:long-Cumartesi")
+        << turk << date << u"d MMMM yyyy dddd"_s << u"25 Şubat 2017 Cumartesi"_s << true;
+    QTest::newRow("tr:long-Cuma")
+        << turk << date.addDays(-1) << "d MMMM yyyy dddd" << u"24 Şubat 2017 Cuma"_s << true;
+    QTest::newRow("tr:mashed-Cumartesi")
+        << turk << date << u"d MMMMyyyydddd"_s << u"25 Şubat2017Cumartesi"_s << true;
+    QTest::newRow("tr:mashed-Cuma")
+        << turk << date.addDays(-1) << "ddddd MMMMyyyy" << u"Cuma24 Şubat2017"_s << true;
+    QTest::newRow("tr:short")
+        << turk << date << u"d.MM.yyyy"_s << u"25.02.2017"_s << true;
+
+    const QLocale chakma{QLocale::Chakma};
+    QTest::newRow("ccp:short")
+        << chakma << date << "dd/M/yy"
+        // "𑄸𑄻/𑄸/𑄷𑄽"
+        << QString::fromUcs4(U"\U00011138\U0001113b/\U00011138/\U00011137\U0001113d") << true;
+    QTest::newRow("ccp:long")
+        << chakma << date << "dddd, d MMMM, yyyy"
+        // "𑄥𑄧𑄚𑄨𑄝𑄢𑄴, 𑄸𑄻 𑄜𑄬𑄛𑄴𑄝𑄳𑄢𑄪𑄠𑄢𑄨, 𑄸𑄶𑄷𑄽"
+        << QString::fromUcs4(U"\U00011125\U00011127\U0001111a\U00011128\U0001111d\U00011122"
+                             U"\U00011134, \U00011138\U0001113b \U0001111c\U0001112c\U0001111b"
+                             U"\U00011134\U0001111d\U00011133\U00011122\U0001112a\U00011120"
+                             U"\U00011122\U00011128, \U00011138\U00011136\U00011137\U0001113d")
+        << true;
+}
+
+void tst_QLocale::toDate()
+{
+    QFETCH(const QLocale, locale);
+    QFETCH(const QDate, result);
+    QFETCH(const QString, format);
+    QFETCH(const QString, string);
+    QFETCH(const bool, clean);
+
+    QEXPECT_FAIL("ccp:short", "QTBUG-87111: Handling of code points outside BMP is broken", Abort);
+    QEXPECT_FAIL("ccp:long", "QTBUG-87111: Handling of code points outside BMP is broken", Abort);
+    QCOMPARE(locale.toDate(string, format), result);
+    if (clean) {
+        QCOMPARE(locale.toDate(string.toLower(), format), result);
+        QCOMPARE(locale.toDate(string.toUpper(), format), result);
+    }
+
+    if (locale.dateFormat(QLocale::LongFormat) == format)
+        QCOMPARE(locale.toDate(string, QLocale::LongFormat), result);
+    if (locale.dateFormat(QLocale::ShortFormat) == format)
+        QCOMPARE(locale.toDate(string, QLocale::ShortFormat), result);
+}
+
+void tst_QLocale::toTime_data()
+{
+    QTest::addColumn<QLocale>("locale");
+    QTest::addColumn<QTime>("result");
+    QTest::addColumn<QString>("format");
+    QTest::addColumn<QString>("string");
+    // No non-format letters in format string:
+    QTest::addColumn<bool>("clean");
+
+    const auto C = QLocale::c();
+    QTest::newRow("C-hh:h:mm")
+        << C << QTime(5, 14) << u"hh:h:mm"_s << u"05:5:14"_s << true;
+    QTest::newRow("C-h")
+        << C << QTime(15, 0) << u"h"_s << u"15"_s << true;
+    QTest::newRow("C-zzz")
+        << C << QTime(0, 0, 0, 1) << u"zzz"_s << u"001"_s << true;
+    QTest::newRow("C-z/001")
+        << C << QTime(0, 0, 0, 1) << u"z"_s << u"001"_s << true;
+    QTest::newRow("C-z/1")
+        << C << QTime(0, 0, 0, 100) << u"z"_s << u"1"_s << true;
+    QTest::newRow("C-ss")
+        << C << QTime(0, 0, 13) << u"ss"_s << u"13"_s << true;
+    QTest::newRow("C-s")
+        << C << QTime(0, 0, 13) << u"s"_s << u"13"_s << true;
+    QTest::newRow("C-m'm'mm")
+        << C << QTime(0, 4) << u"m'm'mm"_s << u"4m04"_s << false;
+    QTest::newRow("C-hhmmsss")
+        << C << QTime(0, 0, 3) << u"hhmmsss"_s << u"0000033"_s << true;
+    // Unpadded value for fixed-width field is wrong:
+    QTest::newRow("bad-hour-C")
+        << C << QTime() << u"hh:m"_s << u"1:2"_s << true;
+    QTest::newRow("bad-min-C")
+        << C << QTime() << u"h:mm"_s << u"1:2"_s << true;
+    QTest::newRow("bad-sec-C")
+        << C << QTime() << u"d-MMM-yy h:m:ss"_s << u"4-Jun-11 1:2:3"_s << true;
+    QTest::newRow("bad-milli-C")
+        << C << QTime() << u"h:m:s.zzz"_s << u"1:2:3.4"_s << true;
+    QTest::newRow("ok-C")
+        << C << QTime(1, 2, 3, 400) << u"h:m:s.z"_s << u"1:2:3.4"_s << true;
+
+    // Locale-specific details frozen to avoid CLDR update breakage.
+    // However, updating to match CLDR from time to time would be constructive.
+    const QLocale norsk{QLocale::NorwegianBokmal, QLocale::Norway};
+    QTest::newRow("nb_NO-hh:h:mm")
+        << norsk << QTime(5, 14) << u"hh:h:mm"_s << u"05:5:14"_s << true;
+    QTest::newRow("nb_NO-h")
+        <<norsk << QTime(15, 0) << u"h"_s << u"15"_s << true;
+    QTest::newRow("nb_NO-zzz")
+        <<norsk << QTime(0, 0) << u"zzz"_s << u"000"_s << true;
+    QTest::newRow("nb_NO-z")
+        <<norsk << QTime(0, 0) << u"z"_s << u"0"_s << true;
+    QTest::newRow("nb_NO-ss")
+        <<norsk << QTime(0, 0, 13) << u"ss"_s << u"13"_s << true;
+    QTest::newRow("nb_NO-s")
+        <<norsk << QTime(0, 0, 13) << u"s"_s << u"13"_s << true;
+    QTest::newRow("nb_NO-m'm'mm")
+        <<norsk << QTime(0, 4) << u"m'm'mm"_s << u"4m04"_s << false;
+    QTest::newRow("nb_NO-hhmmsss")
+        <<norsk << QTime(0, 0, 3) << u"hhmmsss"_s << u"0000033"_s << true;
+
+    QTest::newRow("short-ss") // Single-digit seconds does not match ss format.
+        << C << QTime() << u"HH:mm:ss"_s << u"02:26:3"_s << true;
+    QTest::newRow("RFC-1123")
+        << C << QTime(18, 8, 30) << u"hh:mm:ss 'GMT'"_s << u"18:08:30 GMT"_s << false;
+
+    const QLocale usa{QLocale::English, QLocale::UnitedStates};
+    QTest::newRow("longFormat-AM")
+        << usa << QTime(4, 43, 32) << u"h:mm:ss AP "_s << u"4:43:32 AM "_s << true;
+    QTest::newRow("shortFormat-AM")
+        << usa << QTime(4, 43) << u"h:mm AP "_s << u"4:43 AM "_s << true;
+    QTest::newRow("longFormat-PM")
+        << usa << QTime(16, 43, 32) << u"h:mm:ss AP "_s << u"4:43:32 PM "_s << true;
+    QTest::newRow("shortFormat-PM")
+        << usa << QTime(16, 43) << u"h:mm AP "_s << u"4:43 PM "_s << true;
+    // Some locales use a narrow non-breaking space as separator, but
+    // the user can't see the difference from a space (QTBUG-114909):
+    QTest::newRow("shortFormat-AM-mixspace")
+        << usa << QTime(4, 43) << u"h:mm\u202F" "AP "_s << u"4:43 AM "_s << true;
+
+    // Parsing am/pm indicators case-insensitively:
+    const QLocale czech{QLocale::Czech, QLocale::Czechia};
+    QTest::newRow("am-cs_CZ")
+        << czech << QTime(8, 15, 44, 400) << u"hh:mm:ss.z aP"_s << u"08:15:44.4 dOp."_s
+        << true;
+    QTest::newRow("pm-cs_CZ")
+        << czech << QTime(12, 0) << u"hh:mm aP"_s << u"12:00 OdP."_s << true;
+
+    const QTime time(17, 21, 25);
+    QTest::newRow("C:long")
+        << C << time << "HH:mm:ss" << u"17:21:25"_s << true;
+    QTest::newRow("C:short")
+        << C << time << u"HH:mm:ss"_s << u"17:21:25"_s << true;
+    QTest::newRow("C:narrow")
+        << C << time << u"HH:mm:ss"_s << u"17:21:25"_s << true;
+
+    // Test the same again with unicode and emoji.
+    QTest::newRow("C:long with emoji")
+        << C << time << u8"HH💪mm💪ss" << u8"17💪21💪25" << true;
+    QTest::newRow("C:short with emoji")
+        << C << time << u8"HH📞mm📞ss" << u8"17📞21📞25" << true;
+    QTest::newRow("C:narrow with emoji")
+        << C << time << u8"🇬🇧HH:mm:ss🇬🇧"
+        << u8"🇬🇧17:21:25🇬🇧" << true;
+
+    const QLocale fr{QLocale::French};
+    QTest::newRow("fr:long")
+        << fr << time << "HH:mm:ss" << u"17:21:25"_s << true;
+    QTest::newRow("fr:short")
+        << fr << time.addSecs(-25) << u"HH:mm"_s << u"17:21"_s << true;
+    QTest::newRow("tr:short")
+        << QLocale(QLocale::Turkish) << time.addSecs(-25) << u"HH:mm"_s << u"17:21"_s << true;
+
+    const QLocale chakma{QLocale::Chakma};
+    QTest::newRow("ccp:short")
+        << chakma << time << "h:mm AP"
+        // "𑄸𑄻/𑄸/𑄷𑄽 𑄻:𑄸𑄷 PM"
+        << QString::fromUcs4(U"\U0001113b:\U00011138\U00011137 PM") << true;
+    QTest::newRow("ccp:long")
+        << chakma << time << "h:mm:ss AP"
+        // "𑄻:𑄸𑄷:𑄸𑄻 PM"
+        << QString::fromUcs4(U"\U0001113b:\U00011138\U00011137:\U00011138\U0001113b PM") << true;
+}
+
+void tst_QLocale::toTime()
+{
+    QFETCH(const QLocale, locale);
+    QFETCH(const QTime, result);
+    QFETCH(const QString, format);
+    QFETCH(const QString, string);
+    QFETCH(const bool, clean);
+
+    QEXPECT_FAIL("ccp:short", "QTBUG-87111: Handling of code points outside BMP is broken", Abort);
+    QEXPECT_FAIL("ccp:long", "QTBUG-87111: Handling of code points outside BMP is broken", Abort);
+    QCOMPARE(locale.toTime(string, format), result);
+    if (clean) {
+        QCOMPARE(locale.toTime(string.toLower(), format), result);
+        QCOMPARE(locale.toTime(string.toUpper(), format), result);
+    }
+
+    if (locale.timeFormat(QLocale::LongFormat) == format)
+        QCOMPARE(locale.toTime(string, QLocale::LongFormat), result);
+    if (locale.timeFormat(QLocale::ShortFormat) == format)
+        QCOMPARE(locale.toTime(string, QLocale::ShortFormat), result);
+}
+
 #ifdef Q_OS_MAC
 
 // Format number string according to system locale settings.
@@ -2757,7 +3082,7 @@ void tst_QLocale::dateFormat()
     QCOMPARE(no.dateFormat(QLocale::LongFormat), QLatin1String("dddd d. MMMM yyyy"));
 
     const QLocale ca("en_CA");
-    QCOMPARE(ca.dateFormat(QLocale::ShortFormat), QLatin1String("M/d/yy"));
+    QCOMPARE(ca.dateFormat(QLocale::ShortFormat), QLatin1String("yyyy-MM-dd"));
     QCOMPARE(ca.dateFormat(QLocale::LongFormat), QLatin1String("dddd, MMMM d, yyyy"));
 
     const QLocale ja("ja_JP");
@@ -3113,6 +3438,7 @@ void tst_QLocale::textDirection_data()
         case QLocale::Arabic:
         case QLocale::Aramaic:
         case QLocale::Avestan:
+        case QLocale::Baluchi:
         case QLocale::CentralKurdish:
         case QLocale::Divehi:
 //        case QLocale::Fulah:
@@ -3133,6 +3459,7 @@ void tst_QLocale::textDirection_data()
         case QLocale::Sindhi:
         case QLocale::SouthernKurdish:
         case QLocale::Syriac:
+        case QLocale::Torwali:
         case QLocale::Uighur:
         case QLocale::Urdu:
         case QLocale::WesternBalochi:
@@ -3586,6 +3913,90 @@ void tst_QLocale::systemLocaleDayAndMonthNames()
 }
 
 #endif // QT_NO_SYSTEMLOCALE
+
+void tst_QLocale::numberGrouping_data()
+{
+    QTest::addColumn<QLocale>("locale");
+    QTest::addColumn<int>("number");
+    QTest::addColumn<QString>("string");
+    // Number options set here are expected to be default, but set for the
+    // avoidance of uncertainty or susceptibility to changed defaults.
+
+    QLocale c(QLocale::C); // English-style, without separators.
+    c.setNumberOptions(c.numberOptions() | QLocale::OmitGroupSeparator);
+    QTest::newRow("c:1") << c << 1 << u"1"_s;
+    QTest::newRow("c:12") << c << 12 << u"12"_s;
+    QTest::newRow("c:123") << c << 123 << u"123"_s;
+    QTest::newRow("c:1234") << c << 1234 << u"1234"_s;
+    QTest::newRow("c:12345") << c << 12345 << u"12345"_s;
+    QTest::newRow("c:123456") << c << 123456 << u"123456"_s;
+    QTest::newRow("c:1234567") << c << 1234567 << u"1234567"_s;
+    QTest::newRow("c:12345678") << c << 12345678 << u"12345678"_s;
+    QTest::newRow("c:123456789") << c << 123456789 << u"123456789"_s;
+    QTest::newRow("c:1234567890") << c << 1234567890 << u"1234567890"_s;
+
+    QLocale en(QLocale::English); // English-style, with separators:
+    en.setNumberOptions(en.numberOptions() & ~QLocale::OmitGroupSeparator);
+    QTest::newRow("en:1") << en << 1 << u"1"_s;
+    QTest::newRow("en:12") << en << 12 << u"12"_s;
+    QTest::newRow("en:123") << en << 123 << u"123"_s;
+    QTest::newRow("en:1,234") << en << 1234 << u"1,234"_s;
+    QTest::newRow("en:12,345") << en << 12345 << u"12,345"_s;
+    QTest::newRow("en:123,456") << en << 123456 << u"123,456"_s;
+    QTest::newRow("en:1,234,567") << en << 1234567 << u"1,234,567"_s;
+    QTest::newRow("en:12,345,678") << en << 12345678 << u"12,345,678"_s;
+    QTest::newRow("en:123,456,789") << en << 123456789 << u"123,456,789"_s;
+    QTest::newRow("en:1,234,567,890") << en << 1234567890 << u"1,234,567,890"_s;
+
+    QLocale es(QLocale::Spanish); // Spanish-style, with separators
+    es.setNumberOptions(es.numberOptions() & ~QLocale::OmitGroupSeparator);
+    QTest::newRow("es:1") << es << 1 << u"1"_s;
+    QTest::newRow("es:12") << es << 12 << u"12"_s;
+    QTest::newRow("es:123") << es << 123 << u"123"_s;
+    // First split doesn't happen unless first group has at least two digits:
+    QTest::newRow("es:1234") << es << 1234 << u"1234"_s;
+    QTest::newRow("es:12.345") << es << 12345 << u"12.345"_s;
+    QTest::newRow("es:123.456") << es << 123456 << u"123.456"_s;
+    // Later splits aren't limited to two digits (QTBUG-115740):
+    QTest::newRow("es:1.234.567") << es << 1234567 << u"1.234.567"_s;
+    QTest::newRow("es:12.345.678") << es << 12345678 << u"12.345.678"_s;
+    QTest::newRow("es:123.456.789") << es << 123456789 << u"123.456.789"_s;
+    QTest::newRow("es:1.234.567.890") << es << 1234567890 << u"1.234.567.890"_s;
+
+    QLocale hi(QLocale::Hindi, QLocale::India);
+    hi.setNumberOptions(hi.numberOptions() & ~QLocale::OmitGroupSeparator);
+    QTest::newRow("hi:1") << hi << 1 << u"1"_s;
+    QTest::newRow("hi:12") << hi << 12 << u"12"_s;
+    QTest::newRow("hi:123") << hi << 123 << u"123"_s;
+    QTest::newRow("hi:1,234") << hi << 1234 << u"1,234"_s;
+    QTest::newRow("hi:12,345") << hi << 12345 << u"12,345"_s;
+    QTest::newRow("hi:1,23,456") << hi << 123456 << u"1,23,456"_s;
+    QTest::newRow("hi:12,34,567") << hi << 1234567 << u"12,34,567"_s;
+    QTest::newRow("hi:1,23,45,678") << hi << 12345678 << u"1,23,45,678"_s;
+    QTest::newRow("hi:12,34,56,789") << hi << 123456789 << u"12,34,56,789"_s;
+    QTest::newRow("hi:1,23,45,67,890") << hi << 1234567890 << u"1,23,45,67,890"_s;
+}
+
+void tst_QLocale::numberGrouping()
+{
+    QFETCH(const QLocale, locale);
+    QFETCH(const int, number);
+    QFETCH(const QString, string);
+
+    QCOMPARE(locale.toString(number), string);
+    QLocale sys = QLocale::system();
+    if (sys.language() == locale.language()
+            && sys.script() == locale.script()
+            && sys.territory() == locale.territory()) {
+        sys.setNumberOptions(locale.numberOptions());
+
+        QCOMPARE(sys.toString(number), string);
+        if (QLocale() == sys) { // This normally should be the case.
+            QCOMPARE(u"%L1"_s.arg(number), string);
+            QCOMPARE(u"%L1"_s.arg(double(number), 0, 'f', 0), string);
+        }
+    }
+}
 
 void tst_QLocale::numberGroupingIndia()
 {

@@ -76,6 +76,7 @@ private slots:
     void metaProperty();
 
     void modifyObserverListWhileIterating();
+    void noDoubleCapture();
     void compatPropertyNoDobuleNotification();
     void compatPropertySignals();
 
@@ -1493,6 +1494,22 @@ void tst_QProperty::modifyObserverListWhileIterating()
     }
 }
 
+void tst_QProperty::noDoubleCapture()
+{
+    QProperty<long long> size;
+    size = 3;
+    QProperty<int> max;
+    max.setBinding([&size]() -> int {
+        // each loop run attempts to capture size
+        for (int i = 0; i < size; ++i) {}
+        return size.value();
+    });
+    auto bindingPriv = QPropertyBindingPrivate::get(max.binding());
+    QCOMPARE(bindingPriv->dependencyObserverCount, 1U);
+    size = 4; // should not crash
+    QCOMPARE(max.value(), 4);
+}
+
 class CompatPropertyTester : public QObject
 {
     Q_OBJECT
@@ -1694,6 +1711,14 @@ class PropertyAdaptorTester : public QObject
     Q_PROPERTY(int foo1 READ foo WRITE setFoo)
 
 signals:
+    void dummySignal1();
+    void dummySignal2();
+    void dummySignal3();
+    void dummySignal4();
+    void dummySignal5();
+    void dummySignal6();
+    void dummySignal7();
+    void dummySignal8();
     void fooChanged(int newFoo);
 
 public slots:
@@ -1722,9 +1747,11 @@ void tst_QProperty::propertyAdaptorBinding()
 
     // Check binding of non BINDABLE property
     PropertyAdaptorTester object;
+    // set up a dummy connection (needed to verify that the QBindable avoids an out-of-bounds read)
+    QObject::connect(&object, &PropertyAdaptorTester::dummySignal1, [](){});
+    QBindable<int> binding(&object, "foo");
     QObject::connect(&object, &PropertyAdaptorTester::fooChanged, &object,
                      &PropertyAdaptorTester::fooHasChanged);
-    QBindable<int> binding(&object, "foo");
     binding.setBinding([&]() { return source + 1; });
     QCOMPARE(object.foo(), 6);
     QCOMPARE(object.fooChangedCount, 1);

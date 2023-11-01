@@ -106,7 +106,7 @@ QT_BEGIN_NAMESPACE
     used; Qt tries to work around these limitations.
 
     \sa QBasicTimer, QTimerEvent, QObject::timerEvent(), Timers,
-        {Analog Clock}, {Tetrix Example}
+        {Analog Clock}
 */
 
 /*!
@@ -412,7 +412,8 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
                 return;
             }
             QByteArray methodName(member+1, bracketPosition - 1 - member); // extract method name
-            QMetaObject::invokeMethod(const_cast<QObject *>(receiver), methodName.constData(), Qt::QueuedConnection);
+            QMetaObject::invokeMethod(const_cast<QObject *>(receiver), methodName.trimmed().constData(),
+                                      Qt::QueuedConnection);
             return;
         }
         (void) new QSingleShotTimer(msec, timerType, receiver, member);
@@ -580,15 +581,17 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
 */
 
 /*!
-    \fn template <typename Functor> QMetaObject::Connection QTimer::callOnTimeout(Functor slot, Qt::ConnectionType connectionType = Qt::AutoConnection)
+    \fn template <typename Functor> QMetaObject::Connection QTimer::callOnTimeout(Functor &&slot)
     \since 5.12
     \overload
 
-    Creates a connection of type \a connectionType from the timeout() signal
-    to \a slot, and returns a handle to the connection.
+    Creates a connection from the timer's timeout() signal to \a slot.
+    Returns a handle to the connection.
 
-    This method is provided for convenience.
-    It's equivalent to calling \c {QObject::connect(timer, &QTimer::timeout, timer, slot, connectionType)}.
+    This method is provided for convenience. It's equivalent to calling:
+    \code
+    QObject::connect(timer, &QTimer::timeout, timer, slot, Qt::DirectConnection);
+    \endcode
 
     \sa QObject::connect(), timeout()
 */
@@ -697,8 +700,9 @@ QBindable<bool> QTimer::bindableSingleShot()
 void QTimer::setInterval(int msec)
 {
     Q_D(QTimer);
-    const bool intervalChanged = msec != d->inter;
-    d->inter.setValue(msec);
+    d->inter.removeBindingUnlessInWrapper();
+    const bool intervalChanged = msec != d->inter.valueBypassingBindings();
+    d->inter.setValueBypassingBindings(msec);
     if (d->id != QTimerPrivate::INV_TIMER) { // create new timer
         QObject::killTimer(d->id);                        // restart timer
         d->id = QObject::startTimer(msec, d->type);

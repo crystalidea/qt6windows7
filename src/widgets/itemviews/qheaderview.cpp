@@ -1137,6 +1137,11 @@ bool QHeaderView::sectionsMovable() const
     In such a scenario, it is recommended to call QTreeView::setRootIsDecorated(false)
     as well.
 
+    \code
+    treeView->setRootIsDecorated(false);
+    treeView->header()->setFirstSectionMovable(true);
+    \endcode
+
     Setting it to true has no effect unless setSectionsMovable(true) is called
     as well.
 
@@ -1880,8 +1885,9 @@ void QHeaderView::sectionsInserted(const QModelIndex &parent,
                                    int logicalFirst, int logicalLast)
 {
     Q_D(QHeaderView);
-    if (parent != d->root)
-        return; // we only handle changes in the root level
+    // only handle root level changes and return on no-op
+    if (parent != d->root || d->modelSectionCount() == d->sectionCount())
+        return;
     int oldCount = d->sectionCount();
 
     d->invalidateCachedSizeHint();
@@ -2574,7 +2580,7 @@ void QHeaderView::mousePressEvent(QMouseEvent *e)
 void QHeaderView::mouseMoveEvent(QMouseEvent *e)
 {
     Q_D(QHeaderView);
-    int pos = d->orientation == Qt::Horizontal ? e->position().toPoint().x() : e->position().toPoint().y();
+    const int pos = d->orientation == Qt::Horizontal ? e->position().toPoint().x() : e->position().toPoint().y();
     if (pos < 0 && d->state != QHeaderViewPrivate::SelectSections)
         return;
     if (e->buttons() == Qt::NoButton) {
@@ -2602,8 +2608,10 @@ void QHeaderView::mouseMoveEvent(QMouseEvent *e)
             return;
         }
         case QHeaderViewPrivate::MoveSection: {
-            if (d->shouldAutoScroll(e->position().toPoint()))
+            if (d->shouldAutoScroll(e->position().toPoint())) {
+                d->draggedPosition = e->pos();
                 d->startAutoScroll();
+            }
             if (qAbs(pos - d->firstPos) >= QApplication::startDragDistance()
 #if QT_CONFIG(label)
                 || !d->sectionIndicator->isHidden()
@@ -3800,12 +3808,9 @@ void QHeaderViewPrivate::cascadingResize(int visual, int newSize)
             if (currentSectionSize <= minimumSize)
                 continue;
             int newSectionSize = qMax(currentSectionSize - delta, minimumSize);
-            //qDebug() << "### cascading to" << i << newSectionSize - currentSectionSize << delta;
             resizeSectionItem(i, currentSectionSize, newSectionSize);
             saveCascadingSectionSize(i, currentSectionSize);
             delta = delta - (currentSectionSize - newSectionSize);
-            //qDebug() << "new delta" << delta;
-            //if (newSectionSize != minimumSize)
             if (delta <= 0)
                 break;
         }
@@ -3823,7 +3828,6 @@ void QHeaderViewPrivate::cascadingResize(int visual, int newSize)
             int newSectionSize = currentSectionSize - delta;
             resizeSectionItem(i, currentSectionSize, newSectionSize);
             if (newSectionSize >= originalSectionSize && false) {
-                //qDebug() << "section" << i << "restored to" << originalSectionSize;
                 cascadingSectionSize.remove(i); // the section is now restored
             }
             sectionResized = true;

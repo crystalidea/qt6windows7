@@ -15,7 +15,7 @@ class Parser
 public:
     Parser():index(0), displayWarnings(true), displayNotes(true) {}
     Symbols symbols;
-    int index;
+    qsizetype index;
     bool displayWarnings;
     bool displayNotes;
 
@@ -44,7 +44,7 @@ public:
     inline QByteArray unquotedLexem() { return symbols.at(index-1).unquotedLexem();}
     inline const Symbol &symbol() { return symbols.at(index-1);}
 
-    Q_NORETURN void error(int rollback);
+    Q_NORETURN void error(const Symbol &symbol);
     Q_NORETURN void error(const char *msg = nullptr);
     void warning(const char * = nullptr);
     void note(const char * = nullptr);
@@ -62,7 +62,7 @@ inline bool Parser::test(Token token)
 
 inline Token Parser::lookup(int k)
 {
-    const int l = index - 1 + k;
+    const qsizetype l = index - 1 + k;
     return l < symbols.size() ? symbols.at(l).token : NOTOKEN;
 }
 

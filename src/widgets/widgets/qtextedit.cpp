@@ -540,7 +540,7 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     of the movement keystrokes, for example, \e{Shift+Right}
     will select the character to the right, and \e{Shift+Ctrl+Right} will select the word to the right, etc.
 
-    \sa QTextDocument, QTextCursor, {Qt Widgets - Application Example},
+    \sa QTextDocument, QTextCursor,
         {Syntax Highlighter Example}, {Rich Text Processing}
 */
 
@@ -1599,6 +1599,8 @@ void QTextEditPrivate::paint(QPainter *p, QPaintEvent *e)
 This event handler can be reimplemented in a subclass to receive paint events passed in \a event.
 It is usually unnecessary to reimplement this function in a subclass of QTextEdit.
 
+\note If you create a QPainter, it must operate on the \l{QAbstractScrollArea::}{viewport()}.
+
 \warning The underlying text document must not be modified from within a reimplementation
 of this function.
 */
@@ -1895,6 +1897,7 @@ void QTextEdit::changeEvent(QEvent *e)
         || e->type() == QEvent::FontChange) {
         d->control->document()->setDefaultFont(font());
     }  else if (e->type() == QEvent::ActivationChange) {
+        d->control->setPalette(palette());
         if (!isActiveWindow())
             d->autoScrollTimer.stop();
     } else if (e->type() == QEvent::EnabledChange) {

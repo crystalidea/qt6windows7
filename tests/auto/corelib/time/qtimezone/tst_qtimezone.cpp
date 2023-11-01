@@ -795,9 +795,9 @@ void tst_QTimeZone::checkOffset_data()
         { "Etc/UTC", "post_uint32", 2106, 2, 7, 6, 28, 17, 0, 0 },
         { "Etc/UTC", "initial", -292275056, 5, 16, 16, 47, 5, 0, 0 },
         { "Etc/UTC", "final", 292278994, 8, 17, 7, 12, 55, 0, 0 },
-        // Kiev: regression test for QTBUG-64122 (on MS):
-        { "Europe/Kiev", "summer", 2017, 10, 27, 12, 0, 0, 2 * 3600, 3600 },
-        { "Europe/Kiev", "winter", 2017, 10, 29, 12, 0, 0, 2 * 3600, 0 }
+        // Kyiv: regression test for QTBUG-64122 (on MS):
+        { "Europe/Kyiv", "summer", 2017, 10, 27, 12, 0, 0, 2 * 3600, 3600 },
+        { "Europe/Kyiv", "winter", 2017, 10, 29, 12, 0, 0, 2 * 3600, 0 }
     };
     bool lacksRows = true;
     for (const auto &entry : table) {
@@ -940,8 +940,8 @@ void tst_QTimeZone::windowsId()
     list << "America/Chicago" << "America/Indiana/Knox" << "America/Indiana/Tell_City"
          << "America/Matamoros" << "America/Menominee" << "America/North_Dakota/Beulah"
          << "America/North_Dakota/Center" << "America/North_Dakota/New_Salem"
-         << "America/Rainy_River" << "America/Rankin_Inlet" << "America/Resolute"
-         << "America/Winnipeg" << "CST6CDT";
+         << "America/Ojinaga" << "America/Rainy_River" << "America/Rankin_Inlet"
+         << "America/Resolute" << "America/Winnipeg" << "CST6CDT";
     QCOMPARE(QTimeZone::windowsIdToIanaIds("Central Standard Time"), list);
 
     // Check country with no match returns empty list
@@ -956,7 +956,7 @@ void tst_QTimeZone::windowsId()
     QCOMPARE(QTimeZone::windowsIdToIanaIds("Central Standard Time", QLocale::Canada), list);
 
     list.clear();
-    list << "America/Matamoros";
+    list << "America/Matamoros" << "America/Ojinaga";
     QCOMPARE(QTimeZone::windowsIdToIanaIds("Central Standard Time", QLocale::Mexico), list);
 
     list.clear();

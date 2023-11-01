@@ -5,6 +5,7 @@
 #include <QVarLengthArray>
 
 #include <qhash.h>
+#include <qfloat16.h>
 
 #include <iterator>
 #include <sstream>
@@ -16,11 +17,11 @@ class tst_QHashFunctions : public QObject
 {
     Q_OBJECT
 public:
-    enum {
-        // random value
-        RandomSeed = 1045982819
-    };
-    uint seed;
+    // random values
+    static constexpr quint64 ZeroSeed = 0;
+    static constexpr quint64 RandomSeed32 = 1045982819;
+    static constexpr quint64 RandomSeed64 = QtPrivate::QHashCombine{}(RandomSeed32, RandomSeed32);
+    size_t seed;
 
     template <typename T1, typename T2> void stdPair_template(const T1 &t1, const T2 &t2);
 
@@ -64,22 +65,76 @@ void tst_QHashFunctions::consistent()
 {
     // QString-like
     const QString s = QStringLiteral("abcdefghijklmnopqrstuvxyz").repeated(16);
-    QCOMPARE(qHash(s), qHash(QStringView(s)));
+    QCOMPARE(qHash(s, seed), qHash(QStringView(s), seed));
+
+    // unsigned integers
+    {
+        constexpr unsigned char ae = 0xE4; // LATIN SMALL LETTER A WITH DIAERESIS
+        const auto h8   = qHash(quint8(ae), seed);
+        const auto h16  = qHash(quint16(ae), seed);
+        const auto h32  = qHash(quint32(ae), seed);
+        const auto h64  = qHash(quint64(ae), seed);
+        QCOMPARE(h8, h16);
+        QCOMPARE(h16, h32);
+        QCOMPARE(h32, h64);
+       // there are a few more unsigned types:
+#ifdef __cpp_char8_t
+        const auto hc8 = qHash(char8_t(ae), seed);
+#endif
+        const auto hc16  = qHash(char16_t(ae), seed);
+        const auto hc32  = qHash(char32_t(ae), seed);
+#ifdef __cpp_char8_t
+        QCOMPARE(hc8, h8);
+#endif
+        QCOMPARE(hc16, h16);
+        QCOMPARE(hc32, h32);
+    }
+
+    // signed integers
+    {
+        constexpr signed char ae = 0xE4; // LATIN SMALL LETTER A WITH DIAERESIS
+        const auto h8   = qHash(qint8(ae), seed);
+        const auto h16  = qHash(qint16(ae), seed);
+        const auto h32  = qHash(qint32(ae), seed);
+        const auto h64  = qHash(qint64(ae), seed);
+        QCOMPARE(h8, h16);
+        QCOMPARE(h16, h32);
+        if constexpr (sizeof(size_t) == sizeof(int)) // 32-bit
+            QEXPECT_FAIL("", "QTBUG-116080", Continue);
+        QCOMPARE(h32, h64);
+    }
+
+    // floats
+    {
+        const/*expr broken: QTBUG-116079*/ qfloat16 f16 = -42.f;
+        const auto h16 = qHash(f16, seed);
+        const auto h32 = qHash(float(f16), seed);
+        const auto h64 = qHash(double(f16), seed);
+        QCOMPARE(h16, h32);
+        QEXPECT_FAIL("", "QTBUG-116077", Continue);
+        QCOMPARE(h32, h64);
+    }
 }
 
 void tst_QHashFunctions::initTestCase()
 {
-    static_assert(int(RandomSeed) > 0);
+    QTest::addColumn<quint64>("seedValue");
 
-    QTest::addColumn<uint>("seedValue");
-    QTest::newRow("zero-seed") << 0U;
-    QTest::newRow("non-zero-seed") << uint(RandomSeed);
+    QTest::newRow("zero-seed") << ZeroSeed;
+    QTest::newRow("zero-seed-negated") << ~ZeroSeed;
+    QTest::newRow("non-zero-seed-32bit") << RandomSeed32;
+    QTest::newRow("non-zero-seed-32bit-negated")
+            << quint64{~quint32(RandomSeed32)}; // ensure this->seed gets same value on 32/64-bit
+    if constexpr (sizeof(size_t) == sizeof(quint64)) {
+        QTest::newRow("non-zero-seed-64bit") << RandomSeed64;
+        QTest::newRow("non-zero-seed-64bit-negated") << ~RandomSeed64;
+    }
 }
 
 void tst_QHashFunctions::init()
 {
-    QFETCH_GLOBAL(uint, seedValue);
-    seed = seedValue;
+    QFETCH_GLOBAL(quint64, seedValue);
+    seed = size_t(seedValue);
 }
 
 void tst_QHashFunctions::qhash()
@@ -354,13 +409,9 @@ void tst_QHashFunctions::stdPair_template(const T1 &t1, const T2 &t2)
     std::pair<T1, T2> dpair{};
     std::pair<T1, T2> vpair{t1, t2};
 
-    size_t seed = QHashSeed::globalSeed();
-
     // confirm proper working of the pair and of the underlying types
     QVERIFY(t1 == t1);
     QVERIFY(t2 == t2);
-    QCOMPARE(qHash(t1), qHash(t1));
-    QCOMPARE(qHash(t2), qHash(t2));
     QCOMPARE(qHash(t1, seed), qHash(t1, seed));
     QCOMPARE(qHash(t2, seed), qHash(t2, seed));
 
@@ -368,9 +419,7 @@ void tst_QHashFunctions::stdPair_template(const T1 &t1, const T2 &t2)
     QVERIFY(vpair == vpair);
 
     // therefore their hashes should be equal
-    QCOMPARE(qHash(dpair), qHash(dpair));
     QCOMPARE(qHash(dpair, seed), qHash(dpair, seed));
-    QCOMPARE(qHash(vpair), qHash(vpair));
     QCOMPARE(qHash(vpair, seed), qHash(vpair, seed));
 }
 

@@ -122,7 +122,11 @@
       // define to verify the Clang version we hard-code the versions
       // based on the best available info we have about the actual
       // version: http://en.wikipedia.org/wiki/Xcode#Toolchain_Versions
-#      if __apple_build_version__   >= 13160021 // Xcode 13.3
+#      if __apple_build_version__   >= 14030022 // Xcode 14.3
+#        define Q_CC_CLANG 1500
+#      elif __apple_build_version__ >= 14000029 // Xcode 14.0
+#        define Q_CC_CLANG 1400
+#      elif __apple_build_version__ >= 13160021 // Xcode 13.3
 #        define Q_CC_CLANG 1300
 #      elif __apple_build_version__ >= 13000029 // Xcode 13.0
 #        define Q_CC_CLANG 1200
@@ -891,16 +895,22 @@
 #   endif // !_HAS_CONSTEXPR
 #  endif // !__GLIBCXX__ && !_LIBCPP_VERSION
 # endif // Q_OS_QNX
-# if defined(Q_CC_CLANG) && defined(Q_OS_MAC) && defined(__GNUC_LIBSTD__) \
-    && ((__GNUC_LIBSTD__-0) * 100 + __GNUC_LIBSTD_MINOR__-0 <= 402)
+# if defined(Q_CC_CLANG) && defined(Q_OS_MAC)
+#  if defined(__GNUC_LIBSTD__) && ((__GNUC_LIBSTD__-0) * 100 + __GNUC_LIBSTD_MINOR__-0 <= 402)
 // Apple has not updated libstdc++ since 2007, which means it does not have
 // <initializer_list> or std::move. Let's disable these features
-#  undef Q_COMPILER_INITIALIZER_LISTS
-#  undef Q_COMPILER_RVALUE_REFS
-#  undef Q_COMPILER_REF_QUALIFIERS
+#   undef Q_COMPILER_INITIALIZER_LISTS
+#   undef Q_COMPILER_RVALUE_REFS
+#   undef Q_COMPILER_REF_QUALIFIERS
 // Also disable <atomic>, since it's clearly not there
-#  undef Q_COMPILER_ATOMICS
-# endif
+#   undef Q_COMPILER_ATOMICS
+#  endif
+#  if defined(__cpp_lib_memory_resource) \
+    && ((defined(__MAC_OS_X_VERSION_MIN_REQUIRED)  && __MAC_OS_X_VERSION_MIN_REQUIRED  < 140000) \
+     || (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED < 170000))
+#   undef __cpp_lib_memory_resource // Only supported on macOS 14 and iOS 17
+#  endif
+# endif // defined(Q_CC_CLANG) && defined(Q_OS_DARWIN)
 #endif
 
 // Don't break code that is already using Q_COMPILER_DEFAULT_DELETE_MEMBERS

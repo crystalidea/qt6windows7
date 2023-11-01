@@ -553,9 +553,16 @@ void QCocoaWindow::updateTitleBarButtons(Qt::WindowFlags windowFlags)
 
     bool hideButtons = true;
     for (const auto &[button, buttonHint] : buttons) {
+        // Set up Qt defaults based on window type
         bool enabled = true;
+        if (button == NSWindowMiniaturizeButton)
+            enabled = window()->type() != Qt::Dialog;
+
+        // Let users override via CustomizeWindowHint
         if (windowFlags & Qt::CustomizeWindowHint)
             enabled = windowFlags & buttonHint;
+
+        // Then do some final sanitizations
 
         if (button == NSWindowZoomButton && isFixedSize())
             enabled = false;
@@ -1441,15 +1448,21 @@ void QCocoaWindow::recreateWindowIfNeeded()
 {
     QMacAutoReleasePool pool;
 
+    QPlatformWindow *parentWindow = QPlatformWindow::parent();
+    auto *parentCocoaWindow = static_cast<QCocoaWindow *>(parentWindow);
+
     if (isForeignWindow()) {
         // A foreign window is created as such, and can never move between being
         // foreign and not, so we don't need to get rid of any existing NSWindows,
         // nor create new ones, as a foreign window is a single simple NSView.
         qCDebug(lcQpaWindow) << "Skipping NSWindow management for foreign window" << this;
+
+        // We do however need to manage the parent relationship
+        if (parentCocoaWindow)
+            [parentCocoaWindow->m_view addSubview:m_view];
+
         return;
     }
-
-    QPlatformWindow *parentWindow = QPlatformWindow::parent();
 
     const bool isEmbeddedView = isEmbedded();
     RecreationReasons recreateReason = RecreationNotNeeded;
@@ -1487,8 +1500,6 @@ void QCocoaWindow::recreateWindowIfNeeded()
 
     if (recreateReason == RecreationNotNeeded)
         return;
-
-    QCocoaWindow *parentCocoaWindow = static_cast<QCocoaWindow *>(parentWindow);
 
     // Remove current window (if any)
     if ((isContentView() && !shouldBeContentView) || (recreateReason & PanelChanged)) {
@@ -1783,22 +1794,32 @@ void QCocoaWindow::setWindowCursor(NSCursor *cursor)
     if (isForeignWindow())
         return;
 
+    qCInfo(lcQpaMouse) << "Setting" << this << "cursor to" << cursor;
+
     QNSView *view = qnsview_cast(m_view);
     if (cursor == view.cursor)
         return;
 
     view.cursor = cursor;
 
+    // We're not using the the legacy cursor rects API to manage our
+    // cursor, but calling this function also invalidates AppKit's
+    // view of whether or not we need a cursorUpdate callback for
+    // our tracking area.
     [m_view.window invalidateCursorRectsForView:m_view];
 
-    // There's a bug in AppKit where calling invalidateCursorRectsForView when
-    // there's an override cursor active (for example when hovering over the
-    // window frame), will not result in a cursorUpdate: callback. To work around
-    // this we synthesize a cursor update event and call the callback ourselves,
-    // if we detect that the mouse is currently over the view.
+    // We've informed AppKit that we need a cursorUpdate, but cursor
+    // updates for tracking areas are deferred in some cases, such as
+    // when the mouse is down, whereas we want a synchronous update.
+    // To ensure an updated cursor we synthesize a cursor update event
+    // now if the window is otherwise allowed to change the cursor.
     auto locationInWindow = m_view.window.mouseLocationOutsideOfEventStream;
     auto locationInSuperview = [m_view.superview convertPoint:locationInWindow fromView:nil];
-    if ([m_view hitTest:locationInSuperview] == m_view) {
+    bool mouseIsOverView = [m_view hitTest:locationInSuperview] == m_view;
+    auto utilityMask = NSWindowStyleMaskUtilityWindow | NSWindowStyleMaskTitled;
+    bool isUtilityWindow = (m_view.window.styleMask & utilityMask) == utilityMask;
+    if (mouseIsOverView && (m_view.window.keyWindow || isUtilityWindow)) {
+        qCDebug(lcQpaMouse) << "Synthesizing cursor update";
         [m_view cursorUpdate:[NSEvent enterExitEventWithType:NSEventTypeCursorUpdate
             location:locationInWindow modifierFlags:0 timestamp:0
             windowNumber:m_view.window.windowNumber context:nil
@@ -1907,7 +1928,7 @@ qreal QCocoaWindow::devicePixelRatio() const
 {
     // The documented way to observe the relationship between device-independent
     // and device pixels is to use one for the convertToBacking functions. Other
-    // methods such as [NSWindow backingScaleFacor] might not give the correct
+    // methods such as [NSWindow backingScaleFactor] might not give the correct
     // result, for example if setWantsBestResolutionOpenGLSurface is not set or
     // or ignored by the OpenGL driver.
     NSSize backingSize = [m_view convertSizeToBacking:NSMakeSize(1.0, 1.0)];

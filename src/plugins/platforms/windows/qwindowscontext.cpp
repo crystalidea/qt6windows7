@@ -451,7 +451,7 @@ void QWindowsContext::setDetectAltGrModifier(bool a)
 
 int QWindowsContext::processDpiAwareness()
 {
-    int result;
+    PROCESS_DPI_AWARENESS result;
     if (QWindowsContext::shcoredll.getProcessDpiAwareness
         && SUCCEEDED(QWindowsContext::shcoredll.getProcessDpiAwareness(nullptr, &result))) {
         return static_cast<int>(result);
@@ -504,8 +504,11 @@ bool QWindowsContext::setProcessDpiV2Awareness()
             return false;
         }
         QWindowsContextPrivate::m_v2DpiAware = true;
+
+        return true;
     }
-    return true;
+    
+    return false;
 }
 
 bool QWindowsContext::isDarkMode()

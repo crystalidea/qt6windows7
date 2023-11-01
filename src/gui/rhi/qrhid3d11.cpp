@@ -7,7 +7,7 @@
 #include "cs_tdr_p.h"
 #include <QWindow>
 #include <qmath.h>
-#include <private/qsystemlibrary_p.h>
+#include <QtCore/private/qsystemlibrary_p.h>
 #include <QtCore/qcryptographichash.h>
 #include <QtCore/private/qsystemerror_p.h>
 
@@ -1388,6 +1388,8 @@ QRhi::FrameOpResult QRhiD3D11::endOffscreenFrame(QRhi::EndFrameFlags flags)
     executeCommandBuffer(&ofr.cbWrapper);
 
     finishActiveReadbacks();
+
+    context->Flush();
 
     return QRhi::FrameOpSuccess;
 }
@@ -3618,7 +3620,9 @@ QD3D11RenderPassDescriptor::~QD3D11RenderPassDescriptor()
 
 void QD3D11RenderPassDescriptor::destroy()
 {
-    // nothing to do here
+    QRHI_RES_RHI(QRhiD3D11);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QD3D11RenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *other) const
@@ -3629,7 +3633,10 @@ bool QD3D11RenderPassDescriptor::isCompatible(const QRhiRenderPassDescriptor *ot
 
 QRhiRenderPassDescriptor *QD3D11RenderPassDescriptor::newCompatibleRenderPassDescriptor() const
 {
-    return new QD3D11RenderPassDescriptor(m_rhi);
+    QD3D11RenderPassDescriptor *rpD = new QD3D11RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiD3D11);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 QVector<quint32> QD3D11RenderPassDescriptor::serializedFormat() const
@@ -3711,7 +3718,10 @@ void QD3D11TextureRenderTarget::destroy()
 
 QRhiRenderPassDescriptor *QD3D11TextureRenderTarget::newCompatibleRenderPassDescriptor()
 {
-    return new QD3D11RenderPassDescriptor(m_rhi);
+    QD3D11RenderPassDescriptor *rpD = new QD3D11RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiD3D11);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 bool QD3D11TextureRenderTarget::create()
@@ -3876,6 +3886,10 @@ void QD3D11ShaderResourceBindings::destroy()
 {
     sortedBindings.clear();
     boundResourceData.clear();
+
+    QRHI_RES_RHI(QRhiD3D11);
+    if (rhiD)
+        rhiD->unregisterResource(this);
 }
 
 bool QD3D11ShaderResourceBindings::create()
@@ -3911,6 +3925,7 @@ bool QD3D11ShaderResourceBindings::create()
     }
 
     generation += 1;
+    rhiD->registerResource(this, false);
     return true;
 }
 
@@ -4804,8 +4819,10 @@ bool QD3D11SwapChain::isFormatSupported(Format f)
 
     QRHI_RES_RHI(QRhiD3D11);
     DXGI_OUTPUT_DESC1 desc1;
-    if (outputDesc1ForWindow(m_window, rhiD->activeAdapter, &desc1))
-        return desc1.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+    if (outputDesc1ForWindow(m_window, rhiD->activeAdapter, &desc1)) {
+        if (desc1.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
+            return f == QRhiSwapChain::HDRExtendedSrgbLinear || f == QRhiSwapChain::HDR10;
+    }
 
     return false;
 }
@@ -4828,7 +4845,10 @@ QRhiSwapChainHdrInfo QD3D11SwapChain::hdrInfo()
 
 QRhiRenderPassDescriptor *QD3D11SwapChain::newCompatibleRenderPassDescriptor()
 {
-    return new QD3D11RenderPassDescriptor(m_rhi);
+    QD3D11RenderPassDescriptor *rpD = new QD3D11RenderPassDescriptor(m_rhi);
+    QRHI_RES_RHI(QRhiD3D11);
+    rhiD->registerResource(rpD, false);
+    return rpD;
 }
 
 bool QD3D11SwapChain::newColorBuffer(const QSize &size, DXGI_FORMAT format, DXGI_SAMPLE_DESC sampleDesc,
@@ -4867,34 +4887,41 @@ bool QD3D11SwapChain::newColorBuffer(const QSize &size, DXGI_FORMAT format, DXGI
     return true;
 }
 
-static const DXGI_FORMAT DEFAULT_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
-static const DXGI_FORMAT DEFAULT_SRGB_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+static IDCompositionDevice *createDirectCompositionDevice()
+{
+    QSystemLibrary dcomplib(QStringLiteral("dcomp"));
+    typedef HRESULT (__stdcall *DCompositionCreateDeviceFuncPtr)(
+        _In_opt_ IDXGIDevice *dxgiDevice,
+        _In_ REFIID iid,
+        _Outptr_ void **dcompositionDevice);
+    DCompositionCreateDeviceFuncPtr func = reinterpret_cast<DCompositionCreateDeviceFuncPtr>(
+        dcomplib.resolve("DCompositionCreateDevice"));
+    if (!func) {
+        qWarning("Unable to resolve DCompositionCreateDevice, perhaps dcomp.dll is missing?");
+        return nullptr;
+    }
+    IDCompositionDevice *device = nullptr;
+    HRESULT hr = func(nullptr, __uuidof(IDCompositionDevice), reinterpret_cast<void **>(&device));
+    if (FAILED(hr)) {
+        qWarning("Failed to Direct Composition device: %s",
+                 qPrintable(QSystemError::windowsComString(hr)));
+        return nullptr;
+    }
+    return device;
+}
 
 bool QRhiD3D11::ensureDirectCompositionDevice()
 {
     if (dcompDevice)
         return true;
 
-    typedef HRESULT(WINAPI* DCompositionCreateDeviceFunc) (IDXGIDevice *dxgiDevice, REFIID iid, void **dcompositionDevice);
-    static DCompositionCreateDeviceFunc myDCompositionCreateDevice =
-        (DCompositionCreateDeviceFunc)::GetProcAddress(::GetModuleHandle(L"dcomp"), "DCompositionCreateDevice");
-
-    if (myDCompositionCreateDevice)
-    {
-        qCDebug(QRHI_LOG_INFO, "Creating Direct Composition device (needed for semi-transparent windows)");
-
-        HRESULT hr = myDCompositionCreateDevice(nullptr, __uuidof(IDCompositionDevice), reinterpret_cast<void **>(&dcompDevice));
-        if (FAILED(hr)) {
-            qWarning("Failed to Direct Composition device: %s",
-                qPrintable(QSystemError::windowsComString(hr)));
-            return false;
-        }
-
-        return true;
-    }
-    
-    return false;
+    qCDebug(QRHI_LOG_INFO, "Creating Direct Composition device (needed for semi-transparent windows)");
+    dcompDevice = createDirectCompositionDevice();
+    return dcompDevice ? true : false;
 }
+
+static const DXGI_FORMAT DEFAULT_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
+static const DXGI_FORMAT DEFAULT_SRGB_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 bool QD3D11SwapChain::createOrResize()
 {

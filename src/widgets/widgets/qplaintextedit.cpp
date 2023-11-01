@@ -1177,7 +1177,7 @@ void QPlainTextEditPrivate::ensureViewportLayouted()
    fast log viewer (see setMaximumBlockCount()).
 
 
-    \sa QTextDocument, QTextCursor, {Qt Widgets - Application Example},
+    \sa QTextDocument, QTextCursor
         {Syntax Highlighter Example}, {Rich Text Processing}
 
 */
@@ -2284,6 +2284,7 @@ void QPlainTextEdit::changeEvent(QEvent *e)
         || e->type() == QEvent::FontChange) {
         d->control->document()->setDefaultFont(font());
     }  else if (e->type() == QEvent::ActivationChange) {
+        d->control->setPalette(palette());
         if (!isActiveWindow())
             d->autoScrollTimer.stop();
     } else if (e->type() == QEvent::EnabledChange) {

@@ -154,14 +154,26 @@ static QVariant macDayName(int day, QSystemLocale::QueryType type)
 
 static QString macZeroDigit()
 {
-    QCFType<CFLocaleRef> locale = CFLocaleCopyCurrent();
-    QCFType<CFNumberFormatterRef> numberFormatter =
-            CFNumberFormatterCreate(nullptr, locale, kCFNumberFormatterNoStyle);
-    const int zeroDigit = 0;
-    QCFType<CFStringRef> value
-        = CFNumberFormatterCreateStringWithValue(nullptr, numberFormatter,
-                                                 kCFNumberIntType, &zeroDigit);
-    return QString::fromCFString(value);
+    static QString cachedZeroDigit;
+
+    if (cachedZeroDigit.isNull()) {
+        QCFType<CFLocaleRef> locale = CFLocaleCopyCurrent();
+        QCFType<CFNumberFormatterRef> numberFormatter =
+                CFNumberFormatterCreate(nullptr, locale, kCFNumberFormatterNoStyle);
+        const int zeroDigit = 0;
+        QCFType<CFStringRef> value
+            = CFNumberFormatterCreateStringWithValue(nullptr, numberFormatter,
+                                                     kCFNumberIntType, &zeroDigit);
+        cachedZeroDigit = QString::fromCFString(value);
+    }
+
+    static QMacNotificationObserver localeChangeObserver = QMacNotificationObserver(
+        nil, NSCurrentLocaleDidChangeNotification, [&] {
+            qCDebug(lcLocale) << "System locale changed";
+            cachedZeroDigit = QString();
+    });
+
+    return cachedZeroDigit;
 }
 
 static QString zeroPad(QString &&number, qsizetype minDigits, const QString &zero)
@@ -224,7 +236,11 @@ static QString fourDigitYear(int year, const QString &zero)
 
 static QString macDateToStringImpl(QDate date, CFDateFormatterStyle style)
 {
-    QCFType<CFDateRef> myDate = date.startOfDay().toCFDate();
+    // Use noon on the given date, to avoid complications that can arise for
+    // dates before 1900 (see QTBUG-54955) using different UTC offset than
+    // QDateTime extrapolates backwards from time_t functions that only work
+    // back to 1900. (Alaska and Phillipines may still be borked, though.)
+    QCFType<CFDateRef> myDate = QDateTime(date, QTime(12, 0)).toCFDate();
     QCFType<CFLocaleRef> mylocale = CFLocaleCopyCurrent();
     QCFType<CFDateFormatterRef> myFormatter
         = CFDateFormatterCreate(kCFAllocatorDefault, mylocale, style,
@@ -237,12 +253,14 @@ static QVariant macDateToString(QDate date, bool short_format)
 {
     const int year = date.year();
     QString fakeYear, trueYear;
-    if (year < 0) {
+    if (year < 1583) {
         // System API (in macOS 11.0, at least) discards sign :-(
         // Simply negating the year won't do as the resulting year typically has
         // a different pattern of week-days.
+        // Furthermore (see QTBUG-54955), Darwin uses the Julian calendar for
+        // dates before 1582-10-15, leading to discrepancies.
         int matcher = QGregorianCalendar::yearSharingWeekDays(date);
-        Q_ASSERT(matcher > 0);
+        Q_ASSERT(matcher >= 1583);
         Q_ASSERT(matcher % 100 != date.month());
         Q_ASSERT(matcher % 100 != date.day());
         // i.e. there can't be any confusion between the two-digit year and
@@ -255,7 +273,7 @@ static QVariant macDateToString(QDate date, bool short_format)
     QString text = macDateToStringImpl(date, short_format
                                        ? kCFDateFormatterShortStyle
                                        : kCFDateFormatterLongStyle);
-    if (year < 0) {
+    if (year < 1583) {
         if (text.contains(fakeYear))
             return std::move(text).replace(fakeYear, trueYear);
         // Cope with two-digit year:

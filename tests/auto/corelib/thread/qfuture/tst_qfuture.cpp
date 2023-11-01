@@ -3377,17 +3377,6 @@ void tst_QFuture::testFutureTaken(QFuture<T> &noMoreFuture)
 {
     QCOMPARE(noMoreFuture.isValid(), false);
     QCOMPARE(noMoreFuture.resultCount(), 0);
-    QCOMPARE(noMoreFuture.isStarted(), false);
-    QCOMPARE(noMoreFuture.isRunning(), false);
-    QCOMPARE(noMoreFuture.isSuspending(), false);
-    QCOMPARE(noMoreFuture.isSuspended(), false);
-#if QT_DEPRECATED_SINCE(6, 0)
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-    QCOMPARE(noMoreFuture.isPaused(), false);
-QT_WARNING_POP
-#endif
-    QCOMPARE(noMoreFuture.isFinished(), false);
     QCOMPARE(noMoreFuture.progressValue(), 0);
 }
 
@@ -3806,8 +3795,6 @@ void tst_QFuture::signalConnect()
         QSignalSpy spy(sender, &QObject::destroyed);
         sender->deleteLater();
 
-        // emit the signal when sender is being destroyed
-        QObject::connect(sender, &QObject::destroyed, [sender] { sender->emitIntArg(42); });
         spy.wait();
 
         QVERIFY(future.isCanceled());

@@ -21,6 +21,7 @@
 
 
 #include <memory>
+#include <optional>
 
 #ifndef QXMLSTREAM_P_H
 #define QXMLSTREAM_P_H
@@ -38,7 +39,7 @@ public:
 
     constexpr XmlStringRef() = default;
     constexpr inline XmlStringRef(const QString *string, qsizetype pos, qsizetype length)
-        : m_string(string), m_pos(pos), m_size(length)
+        : m_string(string), m_pos(pos), m_size((Q_ASSERT(length >= 0), length))
     {
     }
     XmlStringRef(const QString *string)
@@ -296,6 +297,17 @@ public:
     QStringDecoder decoder;
     bool atEnd;
 
+    enum class XmlContext
+    {
+        Prolog,
+        Body,
+    };
+
+    XmlContext currentContext = XmlContext::Prolog;
+    bool foundDTD = false;
+    bool isValidToken(QXmlStreamReader::TokenType type);
+    void checkToken();
+
     /*!
       \sa setType()
      */
@@ -498,7 +510,7 @@ public:
     qsizetype fastScanLiteralContent();
     qsizetype fastScanSpace();
     qsizetype fastScanContentCharList();
-    qsizetype fastScanName(qint16 *prefix = nullptr);
+    std::optional<qsizetype> fastScanName(Value *val = nullptr);
     inline qsizetype fastScanNMTOKEN();
 
 
@@ -507,6 +519,7 @@ public:
 
     void raiseError(QXmlStreamReader::Error error, const QString& message = QString());
     void raiseWellFormedError(const QString &message);
+    void raiseNamePrefixTooLongError();
 
     QXmlStreamEntityResolver *entityResolver;
 

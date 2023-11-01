@@ -12,6 +12,8 @@
 
 #include "../shared/test_number_shared.h"
 
+using namespace Qt::StringLiterals;
+
 class tst_QByteArray : public QObject
 {
     Q_OBJECT
@@ -46,6 +48,7 @@ private slots:
     void prependExtended_data();
     void prependExtended();
     void append();
+    void appendFromRawData();
     void appendExtended_data();
     void appendExtended();
     void insert();
@@ -902,6 +905,20 @@ void tst_QByteArray::append()
         prepended2.append('b');
         QCOMPARE(prepended2, array + QByteArray("b"));
     }
+}
+
+void tst_QByteArray::appendFromRawData()
+{
+    char rawData[] = "Hello World!";
+    QByteArray ba = QByteArray::fromRawData(rawData, std::size(rawData) - 1);
+
+    QByteArray copy;
+    copy.append(ba);
+    QCOMPARE(copy, ba);
+    // We make an _actual_ copy, because appending a byte array
+    // created with fromRawData() might be optimized to copy the DataPointer,
+    // which means we may point to temporary stack data.
+    QCOMPARE_NE((void *)copy.constData(), (void *)ba.constData());
 }
 
 void tst_QByteArray::appendExtended_data()
@@ -2181,7 +2198,6 @@ void tst_QByteArray::literals()
 void tst_QByteArray::userDefinedLiterals()
 {
     {
-        using namespace Qt::StringLiterals;
         QByteArray str = "abcd"_ba;
 
         QVERIFY(str.size() == 4);

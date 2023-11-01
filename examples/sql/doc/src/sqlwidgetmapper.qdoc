@@ -5,6 +5,7 @@
     \example sqlwidgetmapper
     \title SQL Widget Mapper Example
     \ingroup sql_examples
+    \examplecategory {Data Processing & I/O}
 
     \brief The SQL Widget Mapper example shows how to use a map information from a
     database to widgets on a form.
@@ -101,8 +102,7 @@
     As a result, the user is able to select an item from the combo box,
     and the associated value is written back to the model.
 
-    The rest of the constructor is very similar to that of the
-    \l{Simple Widget Mapper Example}:
+    The rest of the constructor sets up connections and layouts:
 
     \snippet sqlwidgetmapper/window.cpp Set up connections and layouts
 

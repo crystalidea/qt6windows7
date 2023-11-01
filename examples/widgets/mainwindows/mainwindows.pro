@@ -1,6 +1,2 @@
 TEMPLATE      = subdirs
-SUBDIRS       = application \
-		dockwidgets \
-                mainwindow \
-                mdi \
-                menus
+SUBDIRS       = menus

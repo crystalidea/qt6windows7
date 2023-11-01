@@ -101,7 +101,8 @@ if(MACOS AND QT_IS_MACOS_UNIVERSAL
         QT_FEATURE_x86intrin)
 endif()
 
-if(MACOS AND QT_IS_MACOS_UNIVERSAL AND __qt_osx_first_arch STREQUAL "x86_64")
+if(MACOS AND QT_IS_MACOS_UNIVERSAL AND
+    (__qt_osx_first_arch STREQUAL "x86_64" OR __qt_osx_first_arch STREQUAL "x86_64h"))
     set(QT_FORCE_FEATURE_neon ON CACHE INTERNAL "Force enable neon due to platform requirements.")
     set(__QtFeature_custom_enabled_cache_variables
         TEST_subarch_neon
@@ -373,6 +374,10 @@ qt_copy_or_install(DIRECTORY cmake/
     FILES_MATCHING PATTERN "Find*.cmake"
     PATTERN "tests" EXCLUDE
     PATTERN "3rdparty" EXCLUDE
+    PATTERN "macos" EXCLUDE
+    PATTERN "ios" EXCLUDE
+    PATTERN "platforms" EXCLUDE
+    PATTERN "QtBuildInternals" EXCLUDE
 )
 
 # In prefix builds we also need to copy the files into the build config directory, so that the
@@ -383,6 +388,10 @@ if(QT_WILL_INSTALL)
         FILES_MATCHING PATTERN "Find*.cmake"
         PATTERN "tests" EXCLUDE
         PATTERN "3rdparty" EXCLUDE
+        PATTERN "macos" EXCLUDE
+        PATTERN "ios" EXCLUDE
+        PATTERN "platforms" EXCLUDE
+        PATTERN "QtBuildInternals" EXCLUDE
     )
 endif()
 

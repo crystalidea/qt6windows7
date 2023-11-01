@@ -43,9 +43,13 @@ const char *Style = R"css(
     box-shadow: rgb(0 0 0 / 20%) 0px 10px 16px 0px, rgb(0 0 0 / 19%) 0px 6px 20px 0px;
 }
 
-.qt-window.has-frame {
+.qt-window.has-border {
     border: var(--border-width) solid lightgray;
     caret-color: transparent;
+}
+
+.qt-window.frameless {
+    background-color: transparent;
 }
 
 .resize-outline {
@@ -53,7 +57,7 @@ const char *Style = R"css(
     display: none;
 }
 
-.qt-window.has-frame:not(.maximized) .resize-outline {
+.qt-window.has-border:not(.maximized) .resize-outline {
     display: block;
 }
 
@@ -129,7 +133,7 @@ const char *Style = R"css(
     padding-bottom: 4px;
 }
 
-.qt-window.has-frame .title-bar {
+.qt-window.has-border .title-bar {
     display: flex;
 }
 
@@ -204,6 +208,21 @@ const char *Style = R"css(
 
 .title-bar .action-button:active img {
     filter: invert(0.6);
+}
+
+/* This will clip the content within 50% frame in 1x1 pixel area, preventing it
+    from being rendered on the page, but it should still be read by modern
+    screen readers */
+.hidden-visually-read-by-screen-reader {
+    visibility: visible;
+    clip: rect(1px, 1px, 1px, 1px);
+    clip-path: inset(50%);
+    height: 1px;
+    width: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
 }
 
 )css";

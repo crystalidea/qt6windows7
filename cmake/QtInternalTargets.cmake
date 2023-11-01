@@ -102,7 +102,7 @@ function(qt_internal_add_global_definition definition)
     set(optional_args)
     set(single_value_args VALUE)
     set(multi_value_args SCOPE)
-    cmake_parse_arguments(args
+    cmake_parse_arguments(arg
         "${optional_args}"
         "${single_value_args}"
         "${multi_value_args}"
@@ -168,6 +168,8 @@ if(WIN32)
     # Needed for M_PI define. Same as mkspecs/features/qt_module.prf.
     # It's set for every module being built, but it's not propagated to user apps.
     target_compile_definitions(PlatformModuleInternal INTERFACE _USE_MATH_DEFINES)
+    # Not disabling min/max macros may result in unintended substitutions of std::min/max
+    target_compile_definitions(PlatformCommonInternal INTERFACE NOMINMAX)
 endif()
 if(FEATURE_largefile AND UNIX)
     target_compile_definitions(PlatformCommonInternal
@@ -203,6 +205,14 @@ function(qt_internal_apply_bitcode_flags target)
     set(bitcode_flags "$<${is_enabled_genex}:${flags_genex}>")
 
     target_compile_options("${target}" INTERFACE ${bitcode_flags})
+endfunction()
+
+# Function guards linker options that are applicable for internal Qt targets only from propagating
+# them to user projects.
+function(qt_internal_platform_link_options target scope)
+    set(options ${ARGN})
+    set(is_internal_target_genex "$<BOOL:$<TARGET_PROPERTY:_qt_is_internal_target>>")
+    target_link_options(${target} ${scope} "$<${is_internal_target_genex}:${options}>")
 endfunction()
 
 # Apple deprecated the entire OpenGL API in favor of Metal, which
@@ -283,7 +293,7 @@ if (MSVC)
         $<$<NOT:$<CONFIG:Debug>>:-guard:cf -Gw>
     )
 
-    target_link_options(PlatformCommonInternal INTERFACE
+    qt_internal_platform_link_options(PlatformCommonInternal INTERFACE
         -DYNAMICBASE -NXCOMPAT -LARGEADDRESSAWARE
         $<$<NOT:$<CONFIG:Debug>>:-OPT:REF -OPT:ICF -GUARD:CF>
     )
@@ -299,7 +309,7 @@ endif()
 
 if(QT_FEATURE_intelcet)
     if(MSVC)
-        target_link_options(PlatformCommonInternal INTERFACE
+        qt_internal_platform_link_options(PlatformCommonInternal INTERFACE
             -CETCOMPAT
         )
     else()
@@ -328,30 +338,31 @@ endif()
 if(DEFINED QT_EXTRA_FRAMEWORKPATHS AND APPLE)
     list(TRANSFORM QT_EXTRA_FRAMEWORKPATHS PREPEND "-F" OUTPUT_VARIABLE __qt_fw_flags)
     target_compile_options(PlatformCommonInternal INTERFACE ${__qt_fw_flags})
-    target_link_options(PlatformCommonInternal INTERFACE ${__qt_fw_flags})
+    qt_internal_platform_link_options(PlatformCommonInternal INTERFACE ${__qt_fw_flags})
     unset(__qt_fw_flags)
 endif()
 
 qt_internal_get_active_linker_flags(__qt_internal_active_linker_flags)
 if(__qt_internal_active_linker_flags)
-    target_link_options(PlatformCommonInternal INTERFACE "${__qt_internal_active_linker_flags}")
+    qt_internal_platform_link_options(PlatformCommonInternal INTERFACE
+        "${__qt_internal_active_linker_flags}")
 endif()
 unset(__qt_internal_active_linker_flags)
 
 if(QT_FEATURE_enable_gdb_index)
-    target_link_options(PlatformCommonInternal INTERFACE "-Wl,--gdb-index")
+    qt_internal_platform_link_options(PlatformCommonInternal INTERFACE "-Wl,--gdb-index")
 endif()
 
 if(QT_FEATURE_enable_new_dtags)
-    target_link_options(PlatformCommonInternal INTERFACE "-Wl,--enable-new-dtags")
+    qt_internal_platform_link_options(PlatformCommonInternal INTERFACE "-Wl,--enable-new-dtags")
 endif()
 
 function(qt_get_implicit_sse2_genex_condition out_var)
     set(is_shared_lib "$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>")
     set(is_static_lib "$<STREQUAL:$<TARGET_PROPERTY:TYPE>,STATIC_LIBRARY>")
     set(is_static_qt_build "$<NOT:$<BOOL:${QT_BUILD_SHARED_LIBS}>>")
-    set(is_staitc_lib_during_static_qt_build "$<AND:${is_static_qt_build},${is_static_lib}>")
-    set(enable_sse2_condition "$<OR:${is_shared_lib},${is_staitc_lib_during_static_qt_build}>")
+    set(is_static_lib_during_static_qt_build "$<AND:${is_static_qt_build},${is_static_lib}>")
+    set(enable_sse2_condition "$<OR:${is_shared_lib},${is_static_lib_during_static_qt_build}>")
     set(${out_var} "${enable_sse2_condition}" PARENT_SCOPE)
 endfunction()
 

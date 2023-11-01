@@ -86,17 +86,35 @@ QCFString::operator CFStringRef() const
 
 #if defined(QT_USE_APPLE_UNIFIED_LOGGING)
 
-bool AppleUnifiedLogger::willMirrorToStderr()
+bool AppleUnifiedLogger::preventsStderrLogging()
 {
-    // When running under Xcode or LLDB, one or more of these variables will
-    // be set, which triggers libsystem_trace.dyld to log messages to stderr
-    // as well, via_os_log_impl_mirror_to_stderr. Un-setting these variables
-    // is not an option, as that would silence normal NSLog or os_log calls,
-    // so instead we skip our own stderr output. See rdar://36919139.
+    // os_log will mirror to stderr if OS_ACTIVITY_DT_MODE is set,
+    // regardless of its value. OS_ACTIVITY_MODE then controls whether
+    // to include info and/or debug messages in this mirroring.
+    // For some reason, when launched under lldb (via Xcode or not),
+    // all levels are included.
+
+    // CFLog will normally log to both stderr, and via os_log.
+    // Setting CFLOG_FORCE_DISABLE_STDERR disables the stderr
+    // logging. Setting CFLOG_FORCE_STDERR will both duplicate
+    // CFLog's output to stderr, and trigger OS_ACTIVITY_DT_MODE,
+    // resulting in os_log calls also being mirrored to stderr.
+    // Setting ACTIVITY_LOG_STDERR has the same effect.
+
+    // NSLog is plumbed to CFLog, and will respond to the same
+    // environment variables as CFLog.
+
+    // We want to disable Qt's default stderr log handler when
+    // os_log has already mirrored to stderr.
     static bool willMirror = qEnvironmentVariableIsSet("OS_ACTIVITY_DT_MODE")
-                                 || qEnvironmentVariableIsSet("ACTIVITY_LOG_STDERR")
-                                 || qEnvironmentVariableIsSet("CFLOG_FORCE_STDERR");
-    return willMirror;
+                          || qEnvironmentVariableIsSet("ACTIVITY_LOG_STDERR")
+                          || qEnvironmentVariableIsSet("CFLOG_FORCE_STDERR");
+
+    // As well as when we suspect that Xcode is going to present os_log
+    // as structured log messages.
+    static bool disableStderr = qEnvironmentVariableIsSet("CFLOG_FORCE_DISABLE_STDERR");
+
+    return willMirror || disableStderr;
 }
 
 QT_MAC_WEAK_IMPORT(_os_log_default);
@@ -137,7 +155,7 @@ bool AppleUnifiedLogger::messageHandler(QtMsgType msgType, const QMessageLogCont
     // system from redacting our log message.
     os_log_with_type(log, logType, "%{public}s", qPrintable(message));
 
-    return willMirrorToStderr();
+    return preventsStderrLogging();
 }
 
 os_log_type_t AppleUnifiedLogger::logTypeForMessageType(QtMsgType msgType)
@@ -214,52 +232,28 @@ QT_FOR_EACH_MUTABLE_CORE_GRAPHICS_TYPE(QT_DECLARE_WEAK_QDEBUG_OPERATOR_FOR_CF_TY
 
 QT_END_NAMESPACE
 QT_USE_NAMESPACE
+
+#ifdef QT_DEBUG
 @interface QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker) : NSObject
 @end
 
-@implementation QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker) {
-    NSAutoreleasePool **m_pool;
-}
-
-- (instancetype)initWithPool:(NSAutoreleasePool **)pool
-{
-    if ((self = [self init]))
-        m_pool = pool;
-    return self;
-}
-
-- (void)dealloc
-{
-    if (*m_pool) {
-        // The pool is still valid, which means we're not being drained from
-        // the corresponding QMacAutoReleasePool (see below).
-
-        // QMacAutoReleasePool has only a single member, the NSAutoreleasePool*
-        // so the address of that member is also the QMacAutoReleasePool itself.
-        QMacAutoReleasePool *pool = reinterpret_cast<QMacAutoReleasePool *>(m_pool);
-        qWarning() << "Premature drain of" << pool << "This can happen if you've allocated"
-            << "the pool on the heap, or as a member of a heap-allocated object. This is not a"
-            << "supported use of QMacAutoReleasePool, and might result in crashes when objects"
-            << "in the pool are deallocated and then used later on under the assumption they"
-            << "will be valid until" << pool << "has been drained.";
-
-        // Reset the pool so that it's not drained again later on
-        *m_pool = nullptr;
-    }
-
-    [super dealloc];
-}
+@implementation QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker)
 @end
 QT_NAMESPACE_ALIAS_OBJC_CLASS(QMacAutoReleasePoolTracker);
+#endif // QT_DEBUG
 
 QT_BEGIN_NAMESPACE
 
 QMacAutoReleasePool::QMacAutoReleasePool()
     : pool([[NSAutoreleasePool alloc] init])
 {
+#ifdef QT_DEBUG
+    static const bool debugAutoReleasePools = qEnvironmentVariableIsSet("QT_DARWIN_DEBUG_AUTORELEASEPOOLS");
+    if (!debugAutoReleasePools)
+        return;
+
     Class trackerClass = [QMacAutoReleasePoolTracker class];
 
-#ifdef QT_DEBUG
     void *poolFrame = nullptr;
     void *frames[2];
     if (backtrace_from_fp(__builtin_frame_address(0), frames, 2))
@@ -289,30 +283,17 @@ QMacAutoReleasePool::QMacAutoReleasePool()
                 free((char*)symbolName);
         }
     }
-#endif
 
-    [[[trackerClass alloc] initWithPool:
-        reinterpret_cast<NSAutoreleasePool **>(&pool)] autorelease];
+    [[trackerClass new] autorelease];
+#endif // QT_DEBUG
 }
 
 QMacAutoReleasePool::~QMacAutoReleasePool()
 {
-    if (!pool) {
-        qWarning() << "Prematurely drained pool" << this << "finally drained. Any objects belonging"
-            << "to this pool have already been released, and have potentially been invalid since the"
-            << "premature drain earlier on.";
-        return;
-    }
-
-    // Save and reset pool before draining, so that the pool tracker can know
-    // that it's being drained by its owning pool.
-    NSAutoreleasePool *savedPool = static_cast<NSAutoreleasePool*>(pool);
-    pool = nullptr;
-
     // Drain behaves the same as release, with the advantage that
     // if we're ever used in a garbage-collected environment, the
     // drain acts as a hint to the garbage collector to collect.
-    [savedPool drain];
+    [static_cast<NSAutoreleasePool*>(pool) drain];
 }
 
 #ifndef QT_NO_DEBUG_STREAM

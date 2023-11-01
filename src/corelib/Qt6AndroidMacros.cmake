@@ -367,7 +367,11 @@ function(qt6_android_add_apk_target target)
     endif()
     # Use genex to get path to the deployment settings, the above check only to confirm that
     # qt6_android_add_apk_target is called on an android executable target.
-    set(deployment_file "$<TARGET_PROPERTY:${target},QT_ANDROID_DEPLOYMENT_SETTINGS_FILE>")
+    string(JOIN "" deployment_file
+        "$<GENEX_EVAL:"
+            "$<TARGET_PROPERTY:${target},QT_ANDROID_DEPLOYMENT_SETTINGS_FILE>"
+        ">"
+    )
 
     # Make global apk and aab targets depend on the current apk target.
     if(TARGET aab)
@@ -427,6 +431,16 @@ function(qt6_android_add_apk_target target)
     endif()
     if(QT_ENABLE_VERBOSE_DEPLOYMENT)
         list(APPEND extra_args "--verbose")
+    endif()
+    if(QT_ANDROID_DEPLOY_RELEASE)
+        list(APPEND extra_args "--release")
+    elseif(NOT QT_BUILD_TESTS)
+    # Workaround for tests: do not set automatically --release flag if QT_BUILD_TESTS is set.
+    # Release package need to be signed. Signing is currently not supported by CI.
+    # What is more, also androidtestrunner is not working on release APKs,
+    # For example running "adb shell run-as" on release APK will finish with the error:
+    #    run-as: Package '[PACKAGE-NAME]' is not debuggable
+        list(APPEND extra_args $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>:--release>)
     endif()
 
     _qt_internal_check_depfile_support(has_depfile_support)

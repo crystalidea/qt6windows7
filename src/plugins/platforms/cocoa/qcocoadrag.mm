@@ -213,7 +213,9 @@ bool QCocoaDrag::maybeDragMultipleItems()
     }
 
     [sourceView beginDraggingSessionWithItems:dragItems event:m_lastEvent source:sourceView];
-    internalDragLoop.exec();
+    QEventLoop eventLoop;
+    QScopedValueRollback updateGuard(m_internalDragLoop, &eventLoop);
+    eventLoop.exec();
     return true;
 }
 
@@ -224,8 +226,10 @@ void QCocoaDrag::setAcceptedAction(Qt::DropAction act)
 
 void QCocoaDrag::exitDragLoop()
 {
-    if (internalDragLoop.isRunning())
-        internalDragLoop.exit();
+    if (m_internalDragLoop) {
+        Q_ASSERT(m_internalDragLoop->isRunning());
+        m_internalDragLoop->exit();
+    }
 }
 
 

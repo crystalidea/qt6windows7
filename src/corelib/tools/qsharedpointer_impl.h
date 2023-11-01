@@ -383,10 +383,10 @@ public:
 
     inline void clear() { QSharedPointer copy; swap(copy); }
 
-    QWeakPointer<T> toWeakRef() const;
+    [[nodiscard]] QWeakPointer<T> toWeakRef() const;
 
     template <typename... Args>
-    static QSharedPointer create(Args && ...arguments)
+    [[nodiscard]] static QSharedPointer create(Args && ...arguments)
     {
         typedef QtSharedPointer::ExternalRefCountWithContiguousData<T> Private;
 # ifdef QT_SHAREDPOINTER_TRACK_POINTERS
@@ -615,9 +615,9 @@ public:
 
     inline void clear() { *this = QWeakPointer(); }
 
-    inline QSharedPointer<T> toStrongRef() const { return QSharedPointer<T>(*this); }
+    [[nodiscard]] QSharedPointer<T> toStrongRef() const { return QSharedPointer<T>(*this); }
     // std::weak_ptr compatibility:
-    inline QSharedPointer<T> lock() const { return toStrongRef(); }
+    [[nodiscard]] QSharedPointer<T> lock() const { return toStrongRef(); }
 
     template <class X>
     bool operator==(const QWeakPointer<X> &o) const noexcept

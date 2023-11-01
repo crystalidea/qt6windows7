@@ -42,6 +42,8 @@ QCocoaMenu::~QCocoaMenu()
             item->setMenuParent(nullptr);
     }
 
+    if (isOpen())
+        dismiss();
     [m_nativeMenu release];
 }
 
@@ -320,6 +322,8 @@ void QCocoaMenu::showPopup(const QWindow *parentWindow, const QRect &targetRect,
 {
     QMacAutoReleasePool pool;
 
+    QPointer<QCocoaMenu> guard = this;
+
     QPoint pos =  QPoint(targetRect.left(), targetRect.top() + targetRect.height());
     QCocoaWindow *cocoaWindow = parentWindow ? static_cast<QCocoaWindow *>(parentWindow->handle()) : nullptr;
     NSView *view = cocoaWindow ? cocoaWindow->view() : nil;
@@ -404,6 +408,11 @@ void QCocoaMenu::showPopup(const QWindow *parentWindow, const QRect &targetRect,
         }
     }
 
+    if (!guard) {
+        menuParentGuard.dismiss();
+        return;
+    }
+
     // The calls above block, and also swallow any mouse release event,
     // so we need to clear any mouse button that triggered the menu popup.
     if (cocoaWindow && !cocoaWindow->isForeignWindow())
@@ -483,6 +492,10 @@ void QCocoaMenu::setAttachedItem(NSMenuItem *item)
     if (m_attachedItem)
         m_attachedItem.submenu = m_nativeMenu;
 
+    // NSMenuItems with a submenu and submenuAction: as the item's action
+    // will not take part in NSMenuValidation, so explicitly enable/disable
+    // the item here. See also QCocoaMenuItem::resolveTargetAction()
+    m_attachedItem.enabled = m_attachedItem.hasSubmenu;
 }
 
 NSMenuItem *QCocoaMenu::attachedItem() const

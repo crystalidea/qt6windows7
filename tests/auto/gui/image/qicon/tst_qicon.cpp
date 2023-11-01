@@ -717,14 +717,38 @@ void tst_QIcon::fromTheme()
         QCOMPARE(i.availableSizes(), abIcon.availableSizes());
     }
 
+    // Check that setting a fallback theme invalidates earlier lookups
+    QVERIFY(QIcon::fromTheme("edit-cut").isNull());
+    QIcon::setFallbackThemeName("fallbacktheme");
+    QVERIFY(!QIcon::fromTheme("edit-cut").isNull());
+
     // Make sure setting the theme name clears the state
     QIcon::setThemeName("");
     abIcon = QIcon::fromTheme("address-book-new");
     QVERIFY(abIcon.isNull());
 
+    // Test fallback icon behavior for empty theme names.
+    // Can only reliably test this on systems that don't have a
+    // named system icon theme.
+    QIcon::setThemeName(""); // Reset user-theme
+    if (QIcon::themeName().isEmpty()) {
+        // Test icon from fallback theme even when theme name is empty
+        QIcon::setFallbackThemeName("fallbacktheme");
+        QVERIFY(!QIcon::fromTheme("edit-cut").isNull());
+
+        // Test icon from fallback path even when theme name is empty
+        fallbackIcon = QIcon::fromTheme("red");
+        QVERIFY(!fallbackIcon.isNull());
+        QVERIFY(QIcon::hasThemeIcon("red"));
+        QCOMPARE(fallbackIcon.availableSizes().size(), 1);
+    }
+
     // Passing a full path to fromTheme is not very useful, but should work anyway
     QIcon fullPathIcon = QIcon::fromTheme(m_pngImageFileName);
     QVERIFY(!fullPathIcon.isNull());
+
+    // Restore to system fallback theme
+    QIcon::setFallbackThemeName("");
 }
 
 static inline QString findGtkUpdateIconCache()

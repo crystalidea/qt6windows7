@@ -32,6 +32,7 @@ QT_BEGIN_NAMESPACE
 
 //#define QDNSLOOKUP_DEBUG
 
+constexpr qsizetype MaxDomainNameLength = 255;
 class QDnsLookupRunnable;
 
 class QDnsLookupReply
@@ -201,7 +202,5 @@ public:
 };
 
 QT_END_NAMESPACE
-
-QT_DECL_METATYPE_EXTERN(QDnsLookupReply, Q_NETWORK_EXPORT)
 
 #endif // QDNSLOOKUP_P_H

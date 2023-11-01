@@ -680,6 +680,7 @@ qsizetype qt_repeatCount(QStringView s)
 }
 
 Q_CONSTINIT static const QLocaleData *default_data = nullptr;
+Q_CONSTINIT QBasicAtomicInt QLocalePrivate::s_generation = Q_BASIC_ATOMIC_INITIALIZER(0);
 
 static QLocalePrivate *c_private()
 {
@@ -778,6 +779,10 @@ static void updateSystemPrivate()
         systemLocaleData.m_script_id = res.toInt();
 
     // Should we replace Any values based on likely sub-tags ?
+
+    // If system locale is default locale, update the default collator's generation:
+    if (default_data == &systemLocaleData)
+        QLocalePrivate::s_generation.fetchAndAddRelaxed(1);
 }
 #endif // !QT_NO_SYSTEMLOCALE
 
@@ -851,7 +856,6 @@ QDataStream &operator>>(QDataStream &ds, QLocale &l)
 
 static constexpr qsizetype locale_data_size = q20::ssize(locale_data) - 1; // trailing guard
 
-Q_CONSTINIT QBasicAtomicInt QLocalePrivate::s_generation = Q_BASIC_ATOMIC_INITIALIZER(0);
 Q_GLOBAL_STATIC(QSharedDataPointer<QLocalePrivate>, defaultLocalePrivate,
                 new QLocalePrivate(defaultData(), defaultIndex()))
 
@@ -3643,7 +3647,7 @@ QString QLocaleData::doubleToString(double d, int precision, DoubleForm form,
                     int bias = 2 + minExponentDigits;
                     // Decimal form may get grouping separators inserted:
                     if (groupDigits && decpt >= m_grouping_top + m_grouping_least)
-                        bias -= (decpt - m_grouping_top - m_grouping_least) / m_grouping_higher + 1;
+                        bias -= (decpt - m_grouping_least) / m_grouping_higher + 1;
                     // X = decpt - 1 needs two digits if decpt > 10:
                     if (decpt > 10 && minExponentDigits == 1)
                         ++bias;
@@ -3733,7 +3737,7 @@ QString QLocaleData::decimalForm(QString &&digits, int decpt, int precision,
         qsizetype i = decpt - m_grouping_least;
         if (i >= m_grouping_top) {
             digits.insert(i * digitWidth, group);
-            while ((i -= m_grouping_higher) >= m_grouping_top)
+            while ((i -= m_grouping_higher) > 0)
                 digits.insert(i * digitWidth, group);
         }
     }
@@ -3841,7 +3845,7 @@ QString QLocaleData::applyIntegerFormatting(QString &&numStr, bool negative, int
         if (i >= m_grouping_top) {
             numStr.insert(i * digitWidth, group);
             ++usedWidth;
-            while ((i -= m_grouping_higher) >= m_grouping_top) {
+            while ((i -= m_grouping_higher) > 0) {
                 numStr.insert(i * digitWidth, group);
                 ++usedWidth;
             }
@@ -3955,7 +3959,7 @@ bool QLocaleData::numberToCLocale(QStringView s, QLocale::NumberOptions number_o
                 if (last_separator_idx == -1) {
                     // Check distance from the beginning of the digits:
                     if (start_of_digits_idx == -1 || m_grouping_top > digitsInGroup
-                        || digitsInGroup >= m_grouping_higher + m_grouping_top) {
+                        || digitsInGroup >= m_grouping_least + m_grouping_top) {
                         return false;
                     }
                 } else {

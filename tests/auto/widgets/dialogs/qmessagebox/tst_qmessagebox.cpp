@@ -55,6 +55,11 @@ private slots:
     void acceptedRejectedSignals();
     void acceptedRejectedSignals_data();
 
+    void overrideDone_data();
+    void overrideDone();
+
+    void hideNativeByDestruction();
+
     void cleanup();
 };
 
@@ -147,6 +152,44 @@ void tst_QMessageBox::init()
 {
     QFETCH_GLOBAL(bool, useNativeDialog);
     qApp->setAttribute(Qt::AA_DontUseNativeDialogs, !useNativeDialog);
+}
+
+class OverridingMessageBox : public QMessageBox
+{
+public:
+    void done(int result) override {
+        doneResult = result;
+        QMessageBox::done(result);
+    }
+    std::optional<int> doneResult;
+};
+
+void tst_QMessageBox::overrideDone_data()
+{
+    QTest::addColumn<QMessageBox::StandardButton>("button");
+    QTest::addColumn<int>("closeAction");
+    QTest::addColumn<int>("result");
+
+    QTest::newRow("close") << QMessageBox::Help << int(ExecCloseHelper::CloseWindow) << 0;
+    QTest::newRow("yes") << QMessageBox::Yes << int(Qt::Key_Enter) << int(QMessageBox::Yes);
+    QTest::newRow("no") << QMessageBox::No << int(Qt::Key_Enter) << int(QMessageBox::No);
+}
+
+void tst_QMessageBox::overrideDone()
+{
+    QFETCH(QMessageBox::StandardButton, button);
+    QFETCH(int, closeAction);
+    QFETCH(int, result);
+
+    OverridingMessageBox messageBox;
+    messageBox.addButton(button);
+    messageBox.setDefaultButton(button);
+    ExecCloseHelper closeHelper;
+    closeHelper.start(closeAction, &messageBox);
+    messageBox.exec();
+    QVERIFY(messageBox.doneResult.has_value());
+    QCOMPARE(*messageBox.doneResult, result);
+
 }
 
 void tst_QMessageBox::cleanup()
@@ -739,6 +782,33 @@ void tst_QMessageBox::acceptedRejectedSignals_data()
 
     addStandardButtonsData();
     addCustomButtonsData();
+}
+
+void tst_QMessageBox::hideNativeByDestruction()
+{
+    QWidget window;
+    QWidget *child = new QWidget(&window);
+    QPointer<QMessageBox> dialog = new QMessageBox(child);
+    // Make it application modal so that we don't end up with a sheet on macOS
+    dialog->setWindowModality(Qt::ApplicationModal);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    dialog->open();
+
+    // We test that the dialog opens and closes by watching the activation of the
+    // transient parent window. If it doesn't deactivate, then we have to skip.
+    const auto windowActive = [&window]{ return window.isActiveWindow(); };
+    const auto windowInactive = [&window]{ return !window.isActiveWindow(); };
+    if (!QTest::qWaitFor(windowInactive, 2000))
+        QSKIP("Dialog didn't activate");
+
+    // This should destroy the dialog and close the native window
+    child->deleteLater();
+    QTRY_VERIFY(!dialog);
+    // If the native window is still open, then the transient parent can't become
+    // active
+    window.activateWindow();
+    QVERIFY(QTest::qWaitFor(windowActive));
 }
 
 QTEST_MAIN(tst_QMessageBox)

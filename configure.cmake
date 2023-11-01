@@ -22,6 +22,7 @@ qt_find_package(WrapOpenSSLHeaders PROVIDED_TARGETS WrapOpenSSLHeaders::WrapOpen
 # openssl_headers
 # OPENSSL_VERSION_MAJOR is not defined for OpenSSL 1.1.1
 qt_config_compile_test(opensslv11_headers
+    LABEL "opensslv11_headers"
     LIBRARIES
         WrapOpenSSLHeaders::WrapOpenSSLHeaders
     CODE
@@ -46,6 +47,7 @@ qt_find_package(WrapOpenSSL PROVIDED_TARGETS WrapOpenSSL::WrapOpenSSL MODULE_NAM
 # openssl
 # OPENSSL_VERSION_MAJOR is not defined for OpenSSL 1.1.1
 qt_config_compile_test(opensslv11
+    LABEL "opensslv11"
     LIBRARIES
         WrapOpenSSL::WrapOpenSSL
     CODE
@@ -70,6 +72,7 @@ SSL_free(SSL_new(0));
 # opensslv30
 # openssl_headers
 qt_config_compile_test(opensslv30_headers
+    LABEL "opensslv30_headers"
     LIBRARIES
         WrapOpenSSLHeaders::WrapOpenSSLHeaders
     CODE
@@ -87,6 +90,7 @@ int main(void)
 }
 ")
 qt_config_compile_test(opensslv30
+    LABEL "opensslv30"
     LIBRARIES
         WrapOpenSSL::WrapOpenSSL
     CODE
@@ -331,11 +335,13 @@ int main(void)
 "# FIXME: qmake: ['TEMPLATE = lib', 'CONFIG += dll bsymbolic_functions', 'isEmpty(QMAKE_LFLAGS_BSYMBOLIC_FUNC): error("Nope")']
 )
 
+if(NOT MSVC AND NOT APPLE)
+    qt_config_compile_test("separate_debug_info"
+                       LABEL "separate debug information support"
+                       PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/config.tests/separate_debug_info"
+    )
+endif()
 
-qt_config_compile_test("separate_debug_info"
-                   LABEL "separate debug information support"
-                   PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/config.tests/separate_debug_info"
-)
 # signaling_nan
 qt_config_compile_test(signaling_nan
     LABEL "Signaling NaN for doubles"
@@ -535,7 +541,7 @@ qt_feature("developer-build" PRIVATE
     LABEL "Developer build"
     AUTODETECT OFF
 )
-qt_feature("no-prefix" PRIVATE
+qt_feature("no-prefix"
     LABEL "No prefix build"
     AUTODETECT NOT QT_WILL_INSTALL
     CONDITION NOT QT_WILL_INSTALL
@@ -567,7 +573,7 @@ qt_feature_config("force_debug_info" QMAKE_PRIVATE_CONFIG)
 qt_feature("separate_debug_info" PUBLIC
     LABEL "Split off debug information"
     AUTODETECT OFF
-    CONDITION ( QT_FEATURE_shared ) AND ( QT_FEATURE_debug OR QT_FEATURE_debug_and_release OR QT_FEATURE_force_debug_info ) AND ( APPLE OR TEST_separate_debug_info )
+    CONDITION ( QT_FEATURE_shared ) AND ( QT_FEATURE_debug OR QT_FEATURE_debug_and_release OR QT_FEATURE_force_debug_info ) AND ( MSVC OR APPLE OR TEST_separate_debug_info )
 )
 qt_feature_config("separate_debug_info" QMAKE_PUBLIC_QT_CONFIG)
 qt_feature("appstore-compliant" PUBLIC
@@ -1158,6 +1164,18 @@ qt_configure_add_summary_entry(
     CONDITION UNIX
 )
 qt_configure_add_summary_entry(
+    TYPE "message" ARGS "Unity Build" MESSAGE "yes" CONDITION QT_UNITY_BUILD
+)
+qt_configure_add_summary_entry(
+    TYPE "message" ARGS "Unity Build" MESSAGE "no" CONDITION NOT QT_UNITY_BUILD
+)
+qt_configure_add_summary_entry(
+    TYPE "message"
+    ARGS "Unity Build Batch Size"
+    MESSAGE "${QT_UNITY_BUILD_BATCH_SIZE}"
+    CONDITION QT_UNITY_BUILD
+)
+qt_configure_add_summary_entry(
     TYPE "firstAvailableFeature"
     ARGS "use_bfd_linker use_gold_linker use_lld_linker use_mold_linker"
     MESSAGE "Linker"
@@ -1326,3 +1344,11 @@ qt_extra_definition("QT_VERSION_PATCH" ${PROJECT_VERSION_PATCH} PUBLIC)
 
 qt_extra_definition("QT_COPYRIGHT" \"${QT_COPYRIGHT}\" PRIVATE)
 qt_extra_definition("QT_COPYRIGHT_YEAR" \"${QT_COPYRIGHT_YEAR}\" PRIVATE)
+
+qt_configure_add_report_entry(
+    TYPE WARNING
+    MESSAGE "QT_ALLOW_SYMLINK_IN_PATHS is enabled. This is not recommended, and it may lead to unexpected issues.
+E.g., When building QtWebEngine, enabling this option may result in build issues in certain platforms.
+See https://bugreports.qt.io/browse/QTBUG-59769."
+    CONDITION QT_ALLOW_SYMLINK_IN_PATHS
+)
