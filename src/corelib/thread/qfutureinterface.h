@@ -38,7 +38,9 @@ class CanceledHandler;
 template<class Function, class ResultType>
 class FailureHandler;
 #endif
+
 }
+class QBasicFutureWatcher;
 
 class Q_CORE_EXPORT QFutureInterfaceBase
 {
@@ -176,6 +178,8 @@ private:
     friend class QtPrivate::FailureHandler;
 #endif
 
+    friend class QBasicFutureWatcher;
+
     template<class T>
     friend class QPromise;
 
@@ -236,6 +240,8 @@ public:
 
     inline QFuture<T> future(); // implemented in qfuture.h
 
+    template <typename...Args, std::enable_if_t<std::is_constructible_v<T, Args...>, bool> = true>
+    inline bool reportAndEmplaceResult(int index, Args&&...args);
     inline bool reportResult(const T *result, int index = -1);
     inline bool reportAndMoveResult(T &&result, int index = -1);
     inline bool reportResult(T &&result, int index = -1);
@@ -301,7 +307,8 @@ inline bool QFutureInterface<T>::reportResult(const T *result, int index)
 }
 
 template<typename T>
-bool QFutureInterface<T>::reportAndMoveResult(T &&result, int index)
+template<typename...Args, std::enable_if_t<std::is_constructible_v<T, Args...>, bool>>
+bool QFutureInterface<T>::reportAndEmplaceResult(int index, Args&&...args)
 {
     QMutexLocker<QMutex> locker{&mutex()};
     if (queryState(Canceled) || queryState(Finished))
@@ -311,11 +318,17 @@ bool QFutureInterface<T>::reportAndMoveResult(T &&result, int index)
     QtPrivate::ResultStoreBase &store = resultStoreBase();
 
     const int oldResultCount = store.count();
-    const int insertIndex = store.moveResult(index, std::move(result));
+    const int insertIndex = store.emplaceResult<T>(index, std::forward<Args>(args)...);
     // Let's make sure it's not in pending results.
     if (insertIndex != -1 && (!store.filterMode() || oldResultCount < store.count()))
         reportResultsReady(insertIndex, store.count());
     return insertIndex != -1;
+}
+
+template<typename T>
+bool QFutureInterface<T>::reportAndMoveResult(T &&result, int index)
+{
+    return reportAndEmplaceResult(index, std::move(result));
 }
 
 template<typename T>

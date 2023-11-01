@@ -1,8 +1,8 @@
-// Copyright (C) 2019 The Qt Company Ltd.
+// Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qrhivulkan_p_p.h"
-#include "qrhivulkanext_p.h"
+#include "qrhivulkan_p.h"
+#include <qpa/qplatformvulkaninstance.h>
 
 #define VMA_IMPLEMENTATION
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -59,9 +59,12 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QRhiVulkanInitParams
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Vulkan specific initialization parameters.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
 
     A Vulkan-based QRhi needs at minimum a valid QVulkanInstance. It is up to
     the user to ensure this is available and initialized. This is typically
@@ -165,33 +168,120 @@ QT_BEGIN_NAMESPACE
  */
 
 /*!
+    \variable QRhiVulkanInitParams::inst
+
+    The QVulkanInstance that has already been successfully
+    \l{QVulkanInstance::create()}{created}, required.
+*/
+
+/*!
+    \variable QRhiVulkanInitParams::window
+
+    Optional, but recommended when targeting a QWindow.
+*/
+
+/*!
+    \variable QRhiVulkanInitParams::deviceExtensions
+
+    Optional, empty by default. The list of Vulkan device extensions to enable.
+    Unsupported extensions are ignored gracefully.
+*/
+
+/*!
     \class QRhiVulkanNativeHandles
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Collects device, queue, and other Vulkan objects that are used by the QRhi.
 
     \note Ownership of the Vulkan objects is never transferred.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
 
 /*!
+    \variable QRhiVulkanNativeHandles::physDev
+
+    When different from \nullptr, specifies the Vulkan physical device to use.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::dev
+
+    When wanting to import not just a physical device, but also use an already
+    existing VkDevice, set this and the graphics queue index and family index.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::gfxQueueFamilyIdx
+
+    Graphics queue family index.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::gfxQueueIdx
+
+    Graphics queue index.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::vmemAllocator
+
+    Relevant only when importing an existing memory allocator object,
+    leave it set to \nullptr otherwise.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::gfxQueue
+
+    Output only, not used by QRhi::create(), only set by the
+    QRhi::nativeHandles() accessor. The graphics VkQueue used by the QRhi.
+*/
+
+/*!
+    \variable QRhiVulkanNativeHandles::inst
+
+    Output only, not used by QRhi::create(), only set by the
+    QRhi::nativeHandles() accessor. The QVulkanInstance used by the QRhi.
+*/
+
+/*!
     \class QRhiVulkanCommandBufferNativeHandles
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Holds the Vulkan command buffer object that is backing a QRhiCommandBuffer.
 
     \note The Vulkan command buffer object is only guaranteed to be valid, and
     in recording state, while recording a frame. That is, between a
     \l{QRhi::beginFrame()}{beginFrame()} - \l{QRhi::endFrame()}{endFrame()} or
     \l{QRhi::beginOffscreenFrame()}{beginOffscreenFrame()} -
-    \l{QRhi::endOffsrceenFrame()}{endOffscreenFrame()} pair.
+    \l{QRhi::endOffscreenFrame()}{endOffscreenFrame()} pair.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
 
 /*!
+    \variable QRhiVulkanCommandBufferNativeHandles::commandBuffer
+
+    The VkCommandBuffer object.
+*/
+
+/*!
     \class QRhiVulkanRenderPassNativeHandles
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Holds the Vulkan render pass object backing a QRhiRenderPassDescriptor.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
+
+/*!
+    \variable QRhiVulkanRenderPassNativeHandles::renderPass
+
+    The VkRenderPass object.
+*/
 
 template <class Int>
 inline Int aligned(Int v, Int byteAlign)
@@ -221,6 +311,13 @@ static inline VmaAllocator toVmaAllocator(QVkAllocator a)
     return reinterpret_cast<VmaAllocator>(a);
 }
 
+/*!
+    \return the list of instance extensions that are expected to be enabled on
+    the QVulkanInstance that is used for the Vulkan-based QRhi.
+
+    The returned list can be safely passed to QVulkanInstance::setExtensions()
+    as-is, because unsupported extensions are filtered out automatically.
+ */
 QByteArrayList QRhiVulkanInitParams::preferredInstanceExtensions()
 {
     return {
@@ -228,6 +325,11 @@ QByteArrayList QRhiVulkanInitParams::preferredInstanceExtensions()
     };
 }
 
+/*!
+    \return the list of device extensions that are expected to be enabled on the
+    \c VkDevice when creating a Vulkan-based QRhi with an externally created
+    \c VkDevice object.
+ */
 QByteArrayList QRhiVulkanInitParams::preferredExtensionsForImportedDevice()
 {
     return {
@@ -427,7 +529,31 @@ bool QRhiVulkan::create(QRhi::Flags flags)
     driverInfoStruct.vendorId = physDevProperties.vendorID;
     driverInfoStruct.deviceType = toRhiDeviceType(physDevProperties.deviceType);
 
-    f->vkGetPhysicalDeviceFeatures(physDev, &physDevFeatures);
+#ifdef VK_VERSION_1_2 // Vulkan11Features is only in Vulkan 1.2
+    VkPhysicalDeviceFeatures2 physDevFeaturesChainable = {};
+    physDevFeaturesChainable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    physDevFeatures11 = {};
+    physDevFeatures11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    physDevFeatures12 = {};
+    physDevFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+#ifdef VK_VERSION_1_3
+    physDevFeatures13 = {};
+    physDevFeatures13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+#endif
+    if (caps.apiVersion >= QVersionNumber(1, 2)) {
+        physDevFeaturesChainable.pNext = &physDevFeatures11;
+        physDevFeatures11.pNext = &physDevFeatures12;
+#ifdef VK_VERSION_1_3
+        if (caps.apiVersion >= QVersionNumber(1, 3))
+            physDevFeatures12.pNext = &physDevFeatures13;
+#endif
+        f->vkGetPhysicalDeviceFeatures2(physDev, &physDevFeaturesChainable);
+        memcpy(&physDevFeatures, &physDevFeaturesChainable.features, sizeof(VkPhysicalDeviceFeatures));
+    } else
+#endif // VK_VERSION_1_2
+    {
+        f->vkGetPhysicalDeviceFeatures(physDev, &physDevFeatures);
+    }
 
     // Choose queue and create device, unless the device was specified in importParams.
     if (!importedDevice) {
@@ -500,12 +626,14 @@ bool QRhiVulkan::create(QRhi::Flags flags)
         }
 
         caps.vertexAttribDivisor = false;
+#ifdef VK_EXT_vertex_attribute_divisor
         if (devExts.contains(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME)) {
             if (hasPhysDevProp2) {
                 requestedDevExts.append(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);
                 caps.vertexAttribDivisor = true;
             }
         }
+#endif
 
         for (const QByteArray &ext : requestedDeviceExtensions) {
             if (!ext.isEmpty() && !requestedDevExts.contains(ext)) {
@@ -558,42 +686,18 @@ bool QRhiVulkan::create(QRhi::Flags flags)
         // tessellationShader, geometryShader
         // textureCompressionETC2, textureCompressionASTC_LDR, textureCompressionBC
 
-#ifdef VK_VERSION_1_2 // Vulkan11Features is only in Vulkan 1.2
-        VkPhysicalDeviceFeatures2 physDevFeatures2 = {};
-        physDevFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-
-        VkPhysicalDeviceVulkan11Features features11 = {};
-        features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-        VkPhysicalDeviceVulkan12Features features12 = {};
-        features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-#ifdef VK_VERSION_1_3
-        VkPhysicalDeviceVulkan13Features features13 = {};
-        features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-#endif
-
+#ifdef VK_VERSION_1_2
         if (caps.apiVersion >= QVersionNumber(1, 2)) {
-            physDevFeatures2.pNext = &features11;
-            features11.pNext = &features12;
+            physDevFeaturesChainable.features.robustBufferAccess = VK_FALSE;
 #ifdef VK_VERSION_1_3
-            if (caps.apiVersion >= QVersionNumber(1, 3))
-                features12.pNext = &features13;
+            physDevFeatures13.robustImageAccess = VK_FALSE;
 #endif
-            f->vkGetPhysicalDeviceFeatures2(physDev, &physDevFeatures2);
-
-            physDevFeatures2.features.robustBufferAccess = VK_FALSE;
-#ifdef VK_VERSION_1_3
-            features13.robustImageAccess = VK_FALSE;
-#endif
-
-            devInfo.pNext = &physDevFeatures2;
-        }
+            devInfo.pNext = &physDevFeaturesChainable;
+        } else
 #endif // VK_VERSION_1_2
-
-        VkPhysicalDeviceFeatures features;
-        if (!devInfo.pNext) {
-            memcpy(&features, &physDevFeatures, sizeof(features));
-            features.robustBufferAccess = VK_FALSE;
-            devInfo.pEnabledFeatures = &features;
+        {
+            physDevFeatures.robustBufferAccess = VK_FALSE;
+            devInfo.pEnabledFeatures = &physDevFeatures;
         }
 
         VkResult err = f->vkCreateDevice(physDev, &devInfo, nullptr, &dev);
@@ -720,6 +824,7 @@ bool QRhiVulkan::create(QRhi::Flags flags)
     nativeHandlesStruct.gfxQueueIdx = gfxQueueIdx;
     nativeHandlesStruct.gfxQueue = gfxQueue;
     nativeHandlesStruct.vmemAllocator = allocator;
+    nativeHandlesStruct.inst = inst;
 
     return true;
 }
@@ -1668,11 +1773,31 @@ void QRhiVulkan::ensureCommandPoolForNewFrame()
     df->vkResetCommandPool(dev, cmdPool[currentFrameSlot], flags);
 }
 
+double QRhiVulkan::elapsedSecondsFromTimestamp(quint64 timestamp[2], bool *ok)
+{
+    quint64 mask = 0;
+    for (quint64 i = 0; i < timestampValidBits; i += 8)
+        mask |= 0xFFULL << i;
+    const quint64 ts0 = timestamp[0] & mask;
+    const quint64 ts1 = timestamp[1] & mask;
+    const float nsecsPerTick = physDevProperties.limits.timestampPeriod;
+    if (!qFuzzyIsNull(nsecsPerTick)) {
+        const float elapsedMs = float(ts1 - ts0) * nsecsPerTick / 1000000.0f;
+        const double elapsedSec = elapsedMs / 1000.0;
+        *ok = true;
+        return elapsedSec;
+    }
+    *ok = false;
+    return 0;
+}
+
 QRhi::FrameOpResult QRhiVulkan::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginFrameFlags)
 {
     QVkSwapChain *swapChainD = QRHI_RES(QVkSwapChain, swapChain);
     const int frameResIndex = swapChainD->bufferCount > 1 ? swapChainD->currentFrameSlot : 0;
     QVkSwapChain::FrameResources &frame(swapChainD->frameRes[frameResIndex]);
+
+    inst->handle()->beginFrame(swapChainD->window);
 
     if (!frame.imageAcquired) {
         // Wait if we are too far ahead, i.e. the thread gets throttled based on the presentation rate
@@ -1717,30 +1842,6 @@ QRhi::FrameOpResult QRhiVulkan::beginFrame(QRhiSwapChain *swapChain, QRhi::Begin
     // mess up A's in-flight commands (as they are not in flight anymore).
     waitCommandCompletion(frameResIndex);
 
-    // Now is the time to read the timestamps for the previous frame for this slot.
-    if (frame.timestampQueryIndex >= 0) {
-        quint64 timestamp[2] = { 0, 0 };
-        VkResult err = df->vkGetQueryPoolResults(dev, timestampQueryPool, uint32_t(frame.timestampQueryIndex), 2,
-                                                 2 * sizeof(quint64), timestamp, sizeof(quint64),
-                                                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-        timestampQueryPoolMap.clearBit(frame.timestampQueryIndex / 2);
-        frame.timestampQueryIndex = -1;
-        if (err == VK_SUCCESS) {
-            quint64 mask = 0;
-            for (quint64 i = 0; i < timestampValidBits; i += 8)
-                mask |= 0xFFULL << i;
-            const quint64 ts0 = timestamp[0] & mask;
-            const quint64 ts1 = timestamp[1] & mask;
-            const float nsecsPerTick = physDevProperties.limits.timestampPeriod;
-            if (!qFuzzyIsNull(nsecsPerTick)) {
-                const float elapsedMs = float(ts1 - ts0) * nsecsPerTick / 1000000.0f;
-                runGpuFrameTimeCallbacks(elapsedMs);
-            }
-        } else {
-            qWarning("Failed to query timestamp: %d", err);
-        }
-    }
-
     currentFrameSlot = int(swapChainD->currentFrameSlot);
     currentSwapChain = swapChainD;
     if (swapChainD->ds)
@@ -1754,9 +1855,34 @@ QRhi::FrameOpResult QRhiVulkan::beginFrame(QRhiSwapChain *swapChain, QRhi::Begin
     if (cbres != QRhi::FrameOpSuccess)
         return cbres;
 
-    // when profiling is enabled, pick a free query (pair) from the pool
-    int timestampQueryIdx = -1;
-    if (hasGpuFrameTimeCallback() && swapChainD->bufferCount > 1) { // no timestamps if not having at least 2 frames in flight
+    swapChainD->cbWrapper.cb = frame.cmdBuf;
+
+    QVkSwapChain::ImageResources &image(swapChainD->imageRes[swapChainD->currentImageIndex]);
+    swapChainD->rtWrapper.d.fb = image.fb;
+
+    prepareNewFrame(&swapChainD->cbWrapper);
+
+    // Read the timestamps for the previous frame for this slot.
+    if (frame.timestampQueryIndex >= 0) {
+        quint64 timestamp[2] = { 0, 0 };
+        VkResult err = df->vkGetQueryPoolResults(dev, timestampQueryPool, uint32_t(frame.timestampQueryIndex), 2,
+                                                 2 * sizeof(quint64), timestamp, sizeof(quint64),
+                                                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        timestampQueryPoolMap.clearBit(frame.timestampQueryIndex / 2);
+        frame.timestampQueryIndex = -1;
+        if (err == VK_SUCCESS) {
+            bool ok = false;
+            const double elapsedSec = elapsedSecondsFromTimestamp(timestamp, &ok);
+            if (ok)
+                swapChainD->cbWrapper.lastGpuTime = elapsedSec;
+        } else {
+            qWarning("Failed to query timestamp: %d", err);
+        }
+    }
+
+    // No timestamps if the client did not opt in, or when not having at least 2 frames in flight.
+    if (rhiFlags.testFlag(QRhi::EnableTimestamps) && swapChainD->bufferCount > 1) {
+        int timestampQueryIdx = -1;
         for (int i = 0; i < timestampQueryPoolMap.size(); ++i) {
             if (!timestampQueryPoolMap.testBit(i)) {
                 timestampQueryPoolMap.setBit(i);
@@ -1764,21 +1890,14 @@ QRhi::FrameOpResult QRhiVulkan::beginFrame(QRhiSwapChain *swapChain, QRhi::Begin
                 break;
             }
         }
+        if (timestampQueryIdx >= 0) {
+            df->vkCmdResetQueryPool(frame.cmdBuf, timestampQueryPool, uint32_t(timestampQueryIdx), 2);
+            // record timestamp at the start of the command buffer
+            df->vkCmdWriteTimestamp(frame.cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    timestampQueryPool, uint32_t(timestampQueryIdx));
+            frame.timestampQueryIndex = timestampQueryIdx;
+        }
     }
-    if (timestampQueryIdx >= 0) {
-        df->vkCmdResetQueryPool(frame.cmdBuf, timestampQueryPool, uint32_t(timestampQueryIdx), 2);
-        // record timestamp at the start of the command buffer
-        df->vkCmdWriteTimestamp(frame.cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                timestampQueryPool, uint32_t(timestampQueryIdx));
-        frame.timestampQueryIndex = timestampQueryIdx;
-    }
-
-    swapChainD->cbWrapper.cb = frame.cmdBuf;
-
-    QVkSwapChain::ImageResources &image(swapChainD->imageRes[swapChainD->currentImageIndex]);
-    swapChainD->rtWrapper.d.fb = image.fb;
-
-    prepareNewFrame(&swapChainD->cbWrapper);
 
     return QRhi::FrameOpSuccess;
 }
@@ -1787,6 +1906,10 @@ QRhi::FrameOpResult QRhiVulkan::endFrame(QRhiSwapChain *swapChain, QRhi::EndFram
 {
     QVkSwapChain *swapChainD = QRHI_RES(QVkSwapChain, swapChain);
     Q_ASSERT(currentSwapChain == swapChainD);
+
+    auto cleanup = qScopeGuard([this, swapChainD] {
+        inst->handle()->endFrame(swapChainD->window);
+    });
 
     recordPrimaryCommandBuffer(&swapChainD->cbWrapper);
 
@@ -2028,6 +2151,24 @@ QRhi::FrameOpResult QRhiVulkan::beginOffscreenFrame(QRhiCommandBuffer **cb, QRhi
     prepareNewFrame(cbWrapper);
     ofr.active = true;
 
+    if (rhiFlags.testFlag(QRhi::EnableTimestamps)) {
+        int timestampQueryIdx = -1;
+        for (int i = 0; i < timestampQueryPoolMap.size(); ++i) {
+            if (!timestampQueryPoolMap.testBit(i)) {
+                timestampQueryPoolMap.setBit(i);
+                timestampQueryIdx = i * 2;
+                break;
+            }
+        }
+        if (timestampQueryIdx >= 0) {
+            df->vkCmdResetQueryPool(cbWrapper->cb, timestampQueryPool, uint32_t(timestampQueryIdx), 2);
+            // record timestamp at the start of the command buffer
+            df->vkCmdWriteTimestamp(cbWrapper->cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    timestampQueryPool, uint32_t(timestampQueryIdx));
+            ofr.timestampQueryIndex = timestampQueryIdx;
+        }
+    }
+
     *cb = cbWrapper;
     return QRhi::FrameOpSuccess;
 }
@@ -2040,6 +2181,12 @@ QRhi::FrameOpResult QRhiVulkan::endOffscreenFrame(QRhi::EndFrameFlags flags)
 
     QVkCommandBuffer *cbWrapper(ofr.cbWrapper[currentFrameSlot]);
     recordPrimaryCommandBuffer(cbWrapper);
+
+    // record another timestamp, when enabled
+    if (ofr.timestampQueryIndex >= 0) {
+        df->vkCmdWriteTimestamp(cbWrapper->cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                timestampQueryPool, uint32_t(ofr.timestampQueryIndex + 1));
+    }
 
     if (!ofr.cmdFence) {
         VkFenceCreateInfo fenceInfo = {};
@@ -2062,6 +2209,24 @@ QRhi::FrameOpResult QRhiVulkan::endOffscreenFrame(QRhi::EndFrameFlags flags)
     // Here we know that executing the host-side reads for this (or any
     // previous) frame is safe since we waited for completion above.
     finishActiveReadbacks(true);
+
+    // Read the timestamps, if we wrote them.
+    if (ofr.timestampQueryIndex >= 0) {
+        quint64 timestamp[2] = { 0, 0 };
+        VkResult err = df->vkGetQueryPoolResults(dev, timestampQueryPool, uint32_t(ofr.timestampQueryIndex), 2,
+                                                 2 * sizeof(quint64), timestamp, sizeof(quint64),
+                                                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        timestampQueryPoolMap.clearBit(ofr.timestampQueryIndex / 2);
+        ofr.timestampQueryIndex = -1;
+        if (err == VK_SUCCESS) {
+            bool ok = false;
+            const double elapsedSec = elapsedSecondsFromTimestamp(timestamp, &ok);
+            if (ok)
+                cbWrapper->lastGpuTime = elapsedSec;
+        } else {
+            qWarning("Failed to query timestamp: %d", err);
+        }
+    }
 
     return QRhi::FrameOpSuccess;
 }
@@ -2461,7 +2626,7 @@ void QRhiVulkan::dispatch(QRhiCommandBuffer *cb, int x, int y, int z)
         QVkShaderResourceBindings *srbD = QRHI_RES(QVkShaderResourceBindings, cbD->currentComputeSrb);
         const int bindingCount = srbD->m_bindings.size();
         for (int i = 0; i < bindingCount; ++i) {
-            const QRhiShaderResourceBinding::Data *b = srbD->m_bindings.at(i).data();
+            const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->m_bindings.at(i));
             switch (b->type) {
             case QRhiShaderResourceBinding::ImageLoad:
             case QRhiShaderResourceBinding::ImageStore:
@@ -2619,7 +2784,7 @@ void QRhiVulkan::updateShaderResourceBindings(QRhiShaderResourceBindings *srb, i
     int frameSlot = updateAll ? 0 : descSetIdx;
     while (frameSlot < (updateAll ? QVK_FRAMES_IN_FLIGHT : descSetIdx + 1)) {
         for (int i = 0, ie = srbD->sortedBindings.size(); i != ie; ++i) {
-            const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings.at(i).data();
+            const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->sortedBindings.at(i));
             QVkShaderResourceBindings::BoundResourceData &bd(srbD->boundResourceData[frameSlot][i]);
 
             VkWriteDescriptorSet writeInfo = {};
@@ -3431,10 +3596,10 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             if (!origStage)
                 origStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
-            for (int layer = 0; layer < (isCube ? 6 : (isArray ? utexD->m_arraySize : 1)); ++layer) {
+            for (int layer = 0; layer < (isCube ? 6 : (isArray ? qMax(0, utexD->m_arraySize) : 1)); ++layer) {
                 int w = utexD->m_pixelSize.width();
                 int h = utexD->m_pixelSize.height();
-                int depth = is3D ? utexD->m_depth : 1;
+                int depth = is3D ? qMax(1, utexD->m_depth) : 1;
                 for (int level = 1; level < int(utexD->mipLevelCount); ++level) {
                     if (level == 1) {
                         subresourceBarrier(cbD, utexD->image,
@@ -4262,6 +4427,12 @@ bool QRhiVulkan::isFeatureSupported(QRhi::Feature feature) const
         return true;
     case QRhi::OneDimensionalTextureMipmaps:
         return true;
+    case QRhi::HalfAttributes:
+        return true;
+    case QRhi::RenderToOneDimensionalTexture:
+        return true;
+    case QRhi::ThreeDimensionalTextureMipmaps:
+        return true;
     default:
         Q_UNREACHABLE_RETURN(false);
     }
@@ -4566,7 +4737,7 @@ void QRhiVulkan::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBin
     // Do host writes and mark referenced shader resources as in-use.
     // Also prepare to ensure the descriptor set we are going to bind refers to up-to-date Vk objects.
     for (int i = 0, ie = srbD->sortedBindings.size(); i != ie; ++i) {
-        const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings[i].data();
+        const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->sortedBindings[i]);
         QVkShaderResourceBindings::BoundResourceData &bd(descSetBd[i]);
         switch (b->type) {
         case QRhiShaderResourceBinding::UniformBuffer:
@@ -4713,7 +4884,7 @@ void QRhiVulkan::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBin
             // and neither srb nor dynamicOffsets has any such ordering
             // requirement.
             for (const QRhiShaderResourceBinding &binding : std::as_const(srbD->sortedBindings)) {
-                const QRhiShaderResourceBinding::Data *b = binding.data();
+                const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(binding);
                 if (b->type == QRhiShaderResourceBinding::UniformBuffer && b->u.ubuf.hasDynamicOffset) {
                     uint32_t offset = 0;
                     for (int i = 0; i < dynamicOffsetCount; ++i) {
@@ -5144,6 +5315,12 @@ void QRhiVulkan::endExternal(QRhiCommandBuffer *cb)
     cbD->resetCachedState();
 }
 
+double QRhiVulkan::lastCompletedGpuTime(QRhiCommandBuffer *cb)
+{
+    QVkCommandBuffer *cbD = QRHI_RES(QVkCommandBuffer, cb);
+    return cbD->lastGpuTime;
+}
+
 void QRhiVulkan::setObjectName(uint64_t object, VkObjectType type, const QByteArray &name, int slot)
 {
 #ifdef VK_EXT_debug_utils
@@ -5276,6 +5453,14 @@ static inline VkFormat toVkAttributeFormat(QRhiVertexInputAttribute::Format form
         return VK_FORMAT_R32G32_SINT;
     case QRhiVertexInputAttribute::SInt:
         return VK_FORMAT_R32_SINT;
+    case QRhiVertexInputAttribute::Half4:
+        return VK_FORMAT_R16G16B16A16_SFLOAT;
+    case QRhiVertexInputAttribute::Half3:
+        return VK_FORMAT_R16G16B16_SFLOAT;
+    case QRhiVertexInputAttribute::Half2:
+        return VK_FORMAT_R16G16_SFLOAT;
+    case QRhiVertexInputAttribute::Half:
+        return VK_FORMAT_R16_SFLOAT;
     default:
         Q_UNREACHABLE_RETURN(VK_FORMAT_R32G32B32A32_SFLOAT);
     }
@@ -5925,12 +6110,10 @@ bool QVkTexture::prepareCreate(QSize *adjustedSize)
         qWarning("Texture cannot be both 1D and 3D");
         return false;
     }
-    m_depth = qMax(1, m_depth);
     if (m_depth > 1 && !is3D) {
         qWarning("Texture cannot have a depth of %d when it is not 3D", m_depth);
         return false;
     }
-    m_arraySize = qMax(0, m_arraySize);
     if (m_arraySize > 0 && !isArray) {
         qWarning("Texture cannot have an array size of %d when it is not an array", m_arraySize);
         return false;
@@ -5979,7 +6162,7 @@ bool QVkTexture::finishCreate()
         viewInfo.subresourceRange.baseArrayLayer = uint32_t(m_arrayRangeStart);
         viewInfo.subresourceRange.layerCount = uint32_t(m_arrayRangeLength);
     } else {
-        viewInfo.subresourceRange.layerCount = isCube ? 6 : (isArray ? m_arraySize : 1);
+        viewInfo.subresourceRange.layerCount = isCube ? 6 : (isArray ? qMax(0, m_arraySize) : 1);
     }
 
     VkResult err = rhiD->df->vkCreateImageView(rhiD->dev, &viewInfo, nullptr, &imageView);
@@ -6033,9 +6216,9 @@ bool QVkTexture::create()
     imageInfo.format = vkformat;
     imageInfo.extent.width = uint32_t(size.width());
     imageInfo.extent.height = uint32_t(size.height());
-    imageInfo.extent.depth = is3D ? m_depth : 1;
+    imageInfo.extent.depth = is3D ? qMax(1, m_depth) : 1;
     imageInfo.mipLevels = mipLevelCount;
-    imageInfo.arrayLayers = isCube ? 6 : (isArray ? m_arraySize : 1);
+    imageInfo.arrayLayers = isCube ? 6 : (isArray ? qMax(0, m_arraySize) : 1);
     imageInfo.samples = samples;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
@@ -6136,7 +6319,7 @@ VkImageView QVkTexture::imageViewForLevel(int level)
     viewInfo.subresourceRange.baseMipLevel = uint32_t(level);
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = isCube ? 6 : (isArray ? m_arraySize : 1);
+    viewInfo.subresourceRange.layerCount = isCube ? 6 : (isArray ? qMax(0, m_arraySize) : 1);
 
     VkImageView v = VK_NULL_HANDLE;
     QRHI_RES_RHI(QRhiVulkan);
@@ -6490,8 +6673,7 @@ bool QVkTextureRenderTarget::create()
     if (d.fb)
         destroy();
 
-    const bool hasColorAttachments = m_desc.cbeginColorAttachments() != m_desc.cendColorAttachments();
-    Q_ASSERT(hasColorAttachments || m_desc.depthTexture());
+    Q_ASSERT(m_desc.colorAttachmentCount() > 0 || m_desc.depthTexture());
     Q_ASSERT(!m_desc.depthStencilBuffer() || !m_desc.depthTexture());
     const bool hasDepthStencil = m_desc.depthStencilBuffer() || m_desc.depthTexture();
 
@@ -6694,16 +6876,12 @@ bool QVkShaderResourceBindings::create()
 
     sortedBindings.clear();
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    std::sort(sortedBindings.begin(), sortedBindings.end(),
-              [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-    {
-        return a.data()->binding < b.data()->binding;
-    });
+    std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
 
     hasSlottedResource = false;
     hasDynamicOffset = false;
     for (const QRhiShaderResourceBinding &binding : std::as_const(sortedBindings)) {
-        const QRhiShaderResourceBinding::Data *b = binding.data();
+        const QRhiShaderResourceBinding::Data *b = QRhiImplementation::shaderResourceBindingData(binding);
         if (b->type == QRhiShaderResourceBinding::UniformBuffer && b->u.ubuf.buf) {
             if (QRHI_RES(QVkBuffer, b->u.ubuf.buf)->type() == QRhiBuffer::Dynamic)
                 hasSlottedResource = true;
@@ -6714,7 +6892,7 @@ bool QVkShaderResourceBindings::create()
 
     QVarLengthArray<VkDescriptorSetLayoutBinding, 4> vkbindings;
     for (const QRhiShaderResourceBinding &binding : std::as_const(sortedBindings)) {
-        const QRhiShaderResourceBinding::Data *b = binding.data();
+        const QRhiShaderResourceBinding::Data *b = QRhiImplementation::shaderResourceBindingData(binding);
         VkDescriptorSetLayoutBinding vkbinding = {};
         vkbinding.binding = uint32_t(b->binding);
         vkbinding.descriptorType = toVkDescriptorType(b);
@@ -6763,13 +6941,8 @@ void QVkShaderResourceBindings::updateResources(UpdateFlags flags)
 {
     sortedBindings.clear();
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    if (!flags.testFlag(BindingsAreSorted)) {
-        std::sort(sortedBindings.begin(), sortedBindings.end(),
-                  [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-        {
-            return a.data()->binding < b.data()->binding;
-        });
-    }
+    if (!flags.testFlag(BindingsAreSorted))
+        std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
 
     // Reset the state tracking table too - it can deal with assigning a
     // different QRhiBuffer/Texture/Sampler for a binding point, but it cannot
@@ -6873,7 +7046,9 @@ bool QVkGraphicsPipeline::create()
     pipelineInfo.pStages = shaderStageCreateInfos.constData();
 
     QVarLengthArray<VkVertexInputBindingDescription, 4> vertexBindings;
+#ifdef VK_EXT_vertex_attribute_divisor
     QVarLengthArray<VkVertexInputBindingDivisorDescriptionEXT> nonOneStepRates;
+#endif
     int bindingIndex = 0;
     for (auto it = m_vertexInputLayout.cbeginBindings(), itEnd = m_vertexInputLayout.cendBindings();
          it != itEnd; ++it, ++bindingIndex)
@@ -6885,9 +7060,12 @@ bool QVkGraphicsPipeline::create()
                 ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE
         };
         if (it->classification() == QRhiVertexInputBinding::PerInstance && it->instanceStepRate() != 1) {
+#ifdef VK_EXT_vertex_attribute_divisor
             if (rhiD->caps.vertexAttribDivisor) {
                 nonOneStepRates.append({ uint32_t(bindingIndex), it->instanceStepRate() });
-            } else {
+            } else
+#endif
+            {
                 qWarning("QRhiVulkan: Instance step rates other than 1 not supported without "
                          "VK_EXT_vertex_attribute_divisor on the device and "
                          "VK_KHR_get_physical_device_properties2 on the instance");
@@ -6913,13 +7091,15 @@ bool QVkGraphicsPipeline::create()
     vertexInputInfo.pVertexBindingDescriptions = vertexBindings.constData();
     vertexInputInfo.vertexAttributeDescriptionCount = uint32_t(vertexAttributes.size());
     vertexInputInfo.pVertexAttributeDescriptions = vertexAttributes.constData();
+#ifdef VK_EXT_vertex_attribute_divisor
     VkPipelineVertexInputDivisorStateCreateInfoEXT divisorInfo = {};
     if (!nonOneStepRates.isEmpty()) {
-        divisorInfo.sType = VkStructureType(1000190001); // VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT
+        divisorInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
         divisorInfo.vertexBindingDivisorCount = uint32_t(nonOneStepRates.size());
         divisorInfo.pVertexBindingDivisors = nonOneStepRates.constData();
         vertexInputInfo.pNext = &divisorInfo;
     }
+#endif
     pipelineInfo.pVertexInputState = &vertexInputInfo;
 
     QVarLengthArray<VkDynamicState, 8> dynEnable;
@@ -7367,11 +7547,9 @@ bool QVkSwapChain::ensureSurface()
     const bool srgbRequested = m_flags.testFlag(sRGB);
     for (int i = 0; i < int(formatCount); ++i) {
         if (formats[i].format != VK_FORMAT_UNDEFINED) {
-            bool ok = false;
-            if (m_format == SDR)
-                ok = srgbRequested == isSrgbFormat(formats[i].format);
-            else
-                ok = hdrFormatMatchesVkSurfaceFormat(m_format, formats[i]);
+            bool ok = srgbRequested == isSrgbFormat(formats[i].format);
+            if (m_format != SDR)
+                ok &= hdrFormatMatchesVkSurfaceFormat(m_format, formats[i]);
             if (ok) {
                 colorFormat = formats[i].format;
                 colorSpace = formats[i].colorSpace;

@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRandomGenerator>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QOperatingSystemVersion>
@@ -48,7 +49,7 @@ QT_END_NAMESPACE
 # include <unistd.h>
 # include <private/qcore_unix_p.h>
 #endif
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
 # include <sys/mount.h>
 #elif defined(Q_OS_LINUX)
 # include <sys/vfs.h>
@@ -171,6 +172,9 @@ private slots:
 #ifdef Q_OS_WIN
     void permissionsNtfs_data();
     void permissionsNtfs();
+#if QT_DEPRECATED_SINCE(6,6)
+    void deprecatedNtfsPermissionCheck();
+#endif
 #endif
     void setPermissions_data();
     void setPermissions();
@@ -224,6 +228,8 @@ private slots:
 #ifdef Q_OS_UNIX
     void unixPipe_data();
     void unixPipe();
+    void unixFifo_data() { unixPipe_data(); }
+    void unixFifo();
     void socketPair_data() { unixPipe_data(); }
     void socketPair();
 #endif
@@ -1267,8 +1273,7 @@ void tst_QFile::createFilePermissions()
     QFETCH(QFile::Permissions, permissions);
 
 #ifdef Q_OS_WIN
-    QScopedValueRollback<int> ntfsMode(qt_ntfs_permission_lookup);
-    ++qt_ntfs_permission_lookup;
+    QNtfsPermissionCheckGuard permissionGuard;
 #endif
 #ifdef Q_OS_UNIX
     auto restoreMask = qScopeGuard([oldMask = umask(0)] { umask(oldMask); });
@@ -1392,7 +1397,7 @@ void tst_QFile::permissions()
     }
 
 #if defined(Q_OS_WIN)
-    if (qt_ntfs_permission_lookup)
+    if (qAreNtfsPermissionChecksEnabled())
         QEXPECT_FAIL("readonly", "QTBUG-25630", Abort);
 #endif
 #ifdef Q_OS_UNIX
@@ -1414,10 +1419,26 @@ void tst_QFile::permissionsNtfs_data()
 
 void tst_QFile::permissionsNtfs()
 {
-    QScopedValueRollback<int> ntfsMode(qt_ntfs_permission_lookup);
-    qt_ntfs_permission_lookup++;
+    QNtfsPermissionCheckGuard permissionGuard;
     permissions();
 }
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+#if QT_DEPRECATED_SINCE(6,6)
+void tst_QFile::deprecatedNtfsPermissionCheck()
+{
+    QScopedValueRollback<int> guard(qt_ntfs_permission_lookup);
+
+    QCOMPARE(qAreNtfsPermissionChecksEnabled(), false);
+    qt_ntfs_permission_lookup++;
+    QCOMPARE(qAreNtfsPermissionChecksEnabled(), true);
+    qt_ntfs_permission_lookup--;
+    QCOMPARE(qAreNtfsPermissionChecksEnabled(), false);
+}
+#endif
+QT_WARNING_POP
+
 #endif
 
 void tst_QFile::setPermissions_data()
@@ -2657,6 +2678,57 @@ void tst_QFile::unixPipe()
     qt_safe_close(pipes[1]);
 }
 
+void tst_QFile::unixFifo()
+{
+    QByteArray fifopath = []() -> QByteArray {
+        QByteArray dir = qgetenv("XDG_RUNTIME_DIR");
+        if (dir.isEmpty())
+            dir = QFile::encodeName(QDir::tempPath());
+
+        // try to create a FIFO
+        for (int attempts = 10; attempts; --attempts) {
+            QByteArray fifopath = dir + "/tst_qfile_fifo." +
+                    QByteArray::number(QRandomGenerator::global()->generate());
+            int ret = mkfifo(fifopath, 0600);
+            if (ret == 0)
+                return fifopath;
+        }
+
+        qWarning("Failed to create a FIFO at %s; last error was %s",
+                 dir.constData(), strerror(errno));
+        return {};
+    }();
+    if (fifopath.isEmpty())
+        return;
+
+    auto removeFifo = qScopeGuard([&fifopath] { unlink(fifopath); });
+
+    // with a FIFO, the two open() system calls synchronize
+    QScopedPointer<QThread> thr(QThread::create([&fifopath]() {
+        int fd = qt_safe_open(fifopath, O_WRONLY);
+        QTest::qSleep(500);
+        char c = 2;
+        qt_safe_write(fd, &c, 1);
+        qt_safe_close(fd);
+    }));
+    thr->start();
+
+    QFETCH(bool, useStdio);
+    QFile f;
+    if (useStdio) {
+        FILE *fh = fopen(fifopath, "rb");
+        QVERIFY(f.open(fh, QIODevice::ReadOnly | QIODevice::Unbuffered, QFileDevice::AutoCloseHandle));
+    } else {
+        f.setFileName(QFile::decodeName(fifopath));
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Unbuffered));
+    }
+
+    char c = 0;
+    QCOMPARE(f.read(&c, 1), 1);         // this ought to block
+    QCOMPARE(c, '\2');
+    thr->wait();
+}
+
 void tst_QFile::socketPair()
 {
     int pipes[2] = { -1, -1 };
@@ -3587,7 +3659,7 @@ void tst_QFile::caseSensitivity()
 {
 #if defined(Q_OS_WIN)
     const bool caseSensitive = false;
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_DARWIN)
      const bool caseSensitive = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE);
 #else
     const bool caseSensitive = true;

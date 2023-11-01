@@ -72,10 +72,10 @@ template <typename T, typename N>
 void q_uninitialized_relocate_n(T* first, N n, T* out)
 {
     if constexpr (QTypeInfo<T>::isRelocatable) {
-        if (n != N(0)) { // even if N == 0, out == nullptr or first == nullptr are UB for memmove()
-            std::memmove(static_cast<void*>(out),
-                         static_cast<const void*>(first),
-                         n * sizeof(T));
+        if (n != N(0)) { // even if N == 0, out == nullptr or first == nullptr are UB for memcpy()
+            std::memcpy(static_cast<void *>(out),
+                        static_cast<const void *>(first),
+                        n * sizeof(T));
         }
     } else {
         q_uninitialized_move_if_noexcept_n(first, n, out);
@@ -104,6 +104,41 @@ void q_rotate(T *first, T *mid, T *last)
     } else {
         std::rotate(first, mid, last);
     }
+}
+
+/*!
+    \internal
+    Copies all elements, except the ones for which \a pred returns \c true, from
+    range [first, last), to the uninitialized memory buffer starting at \a out.
+
+    It's undefined behavior if \a out points into [first, last).
+
+    Returns a pointer one past the last copied element.
+
+    If an exception is thrown, all the already copied elements in the destination
+    buffer are destroyed.
+*/
+template <typename T, typename Predicate>
+T *q_uninitialized_remove_copy_if(T *first, T *last, T *out, Predicate &pred)
+{
+    static_assert(std::is_nothrow_destructible_v<T>,
+                  "This algorithm requires that T has a non-throwing destructor");
+    Q_ASSERT(!q_points_into_range(out, first, last));
+
+    T *dest_begin = out;
+    QT_TRY {
+        while (first != last) {
+            if (!pred(*first)) {
+                new (std::addressof(*out)) T(*first);
+                ++out;
+            }
+            ++first;
+        }
+    } QT_CATCH (...) {
+        std::destroy(std::reverse_iterator(out), std::reverse_iterator(dest_begin));
+        QT_RETHROW;
+    }
+    return out;
 }
 
 template<typename iterator, typename N>
@@ -266,6 +301,15 @@ using IfAssociativeIteratorHasKeyAndValue =
 template <typename Iterator>
 using IfAssociativeIteratorHasFirstAndSecond =
     std::enable_if_t<qxp::is_detected_v<FirstAndSecondTest, Iterator>, bool>;
+
+template <typename Iterator>
+using MoveBackwardsTest = decltype(
+    std::declval<Iterator &>().operator--()
+);
+
+template <typename Iterator>
+using IfIteratorCanMoveBackwards =
+    std::enable_if_t<qxp::is_detected_v<MoveBackwardsTest, Iterator>, bool>;
 
 template <typename T, typename U>
 using IfIsNotSame =

@@ -5,7 +5,7 @@
 #include "qwasmdom.h"
 #include "qwasmevent.h"
 #include "qwasmwindow.h"
-#include "qwasmstring.h"
+
 #include <private/qstdweb_p.h>
 
 #include <QCoreApplication>
@@ -26,12 +26,11 @@ static void commonCopyEvent(val event)
 
     // doing it this way seems to sanitize the text better that calling data() like down below
     if (_mimes->hasText()) {
-        event["clipboardData"].call<void>("setData", val("text/plain")
-                                          ,  QWasmString::fromQString(_mimes->text()));
+        event["clipboardData"].call<void>("setData", val("text/plain"),
+                                          _mimes->text().toEcmaString());
     }
     if (_mimes->hasHtml()) {
-        event["clipboardData"].call<void>("setData", val("text/html")
-                                          ,   QWasmString::fromQString(_mimes->html()));
+        event["clipboardData"].call<void>("setData", val("text/html"), _mimes->html().toEcmaString());
     }
 
     for (auto mimetype : _mimes->formats()) {
@@ -39,8 +38,8 @@ static void commonCopyEvent(val event)
             continue;
         QByteArray ba = _mimes->data(mimetype);
         if (!ba.isEmpty())
-            event["clipboardData"].call<void>("setData", QWasmString::fromQString(mimetype)
-                                              , val(ba.constData()));
+            event["clipboardData"].call<void>("setData", mimetype.toEcmaString(),
+                                              val(ba.constData()));
     }
 
     event.call<void>("preventDefault");
@@ -262,12 +261,12 @@ void QWasmClipboard::writeToClipboardApi()
 
         // we have a blob, now create a ClipboardItem
         emscripten::val type = emscripten::val::array();
-        type.set("type", val(QWasmString::fromQString(mimetype)));
+        type.set("type", mimetype.toEcmaString());
 
         emscripten::val contentBlob = emscripten::val::global("Blob").new_(contentArray, type);
 
         emscripten::val clipboardItemObject = emscripten::val::object();
-        clipboardItemObject.set(val(QWasmString::fromQString(mimetype)), contentBlob);
+        clipboardItemObject.set(mimetype.toEcmaString(), contentBlob);
 
         val clipboardItemData = val::global("ClipboardItem").new_(clipboardItemObject);
 

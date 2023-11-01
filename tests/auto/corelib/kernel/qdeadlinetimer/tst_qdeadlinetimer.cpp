@@ -27,52 +27,6 @@ template<> char *toString(const QDeadlineTimer &dt)
               dt.hasExpired() ? " (expired)" : "");
     return buf;
 }
-
-template <typename Rep, typename Period> char *toString(std::chrono::duration<Rep, Period> dur)
-{
-    using namespace std::chrono;
-    static_assert(sizeof(double) == sizeof(qlonglong));
-
-    if constexpr (Period::num == 1 && sizeof(Rep) <= sizeof(qlonglong)) {
-        // typical case: second or sub-multiple of second, in a representation
-        // we can directly use
-        char *buf = new char[128];
-        if constexpr (std::is_integral_v<Rep>) {
-            char unit[] = "ss";
-            if constexpr (std::is_same_v<Period, std::atto>) {  // from Norwegian "atten", 18
-                unit[0] = 'a';
-            } else if constexpr (std::is_same_v<Period, std::femto>) {  // Norwegian "femten", 15
-                unit[0] = 'f';
-            } else if constexpr (std::is_same_v<Period, std::pico>) {
-                unit[0] = 'p';
-            } else if constexpr (std::is_same_v<Period, std::nano>) {
-                unit[0] = 'n';
-            } else if constexpr (std::is_same_v<Period, std::micro>) {
-                unit[0] = 'u';      // µ, really, but the output may not be UTF-8-safe
-            } else if constexpr (std::is_same_v<Period, std::milli>) {
-                unit[0] = 'm';
-            } else {
-                // deci, centi, cycles of something (60 Hz, 8000 Hz, etc.)
-                static_assert(Period::den == 1,
-                        "Unsupported std::chrono::duration of a sub-multiple of second");
-                unit[1] = '\0';
-            }
-
-            // cast to qlonglong in case Rep is not int64_t
-            qsnprintf(buf, 128, "%lld %s", qlonglong(dur.count()), unit);
-        } else {
-            auto secs = duration_cast<duration<double>>(dur);
-            qsnprintf(buf, 128, "%g s", secs.count());
-        }
-        return buf;
-    } else if constexpr (std::is_integral_v<Rep> && Period::den == 1) {
-        // multiple of second, so just print it in seconds
-        return toString(std::chrono::seconds(dur));
-    } else {
-        // something else, use floating-point seconds
-        return toString(std::chrono::duration_cast<double>(dur));
-    }
-}
 }
 QT_END_NAMESPACE
 
@@ -81,7 +35,6 @@ class tst_QDeadlineTimer : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    void initTestCase_data();
     void basics();
     void foreverness();
     void current();
@@ -92,20 +45,13 @@ private Q_SLOTS:
     void stdchrono();
 };
 
-void tst_QDeadlineTimer::initTestCase_data()
-{
-    qRegisterMetaType<Qt::TimerType>();
-    QTest::addColumn<Qt::TimerType>("timerType");
-    QTest::newRow("precise") << Qt::PreciseTimer;
-    QTest::newRow("coarse") << Qt::CoarseTimer;
-}
+static constexpr auto timerType = Qt::PreciseTimer;
 
 void tst_QDeadlineTimer::basics()
 {
     QDeadlineTimer deadline;
     QCOMPARE(deadline.timerType(), Qt::CoarseTimer);
 
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
     deadline = QDeadlineTimer(timerType);
     QCOMPARE(deadline.timerType(), timerType);
     QVERIFY(!deadline.isForever());
@@ -159,9 +105,6 @@ void tst_QDeadlineTimer::basics()
 
 void tst_QDeadlineTimer::foreverness()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
-    // we don't check whether timerType() is our type since it's possible it detects it's forever
-
     QDeadlineTimer deadline = QDeadlineTimer::Forever;
     QCOMPARE(deadline.timerType(), Qt::CoarseTimer);
     QVERIFY(deadline.isForever());
@@ -271,7 +214,6 @@ void tst_QDeadlineTimer::foreverness()
 
 void tst_QDeadlineTimer::current()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
     auto deadline = QDeadlineTimer::current(timerType);
     QVERIFY(deadline.hasExpired());
     QVERIFY(!deadline.isForever());
@@ -307,8 +249,6 @@ void tst_QDeadlineTimer::current()
 
 void tst_QDeadlineTimer::deadlines()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
-
     QDeadlineTimer deadline(4 * minResolution, timerType);
     QVERIFY(!deadline.hasExpired());
     QVERIFY(!deadline.isForever());
@@ -405,7 +345,6 @@ void tst_QDeadlineTimer::deadlines()
 
 void tst_QDeadlineTimer::setDeadline()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
     auto now = QDeadlineTimer::current(timerType);
     QDeadlineTimer deadline;
 
@@ -457,7 +396,6 @@ void tst_QDeadlineTimer::setDeadline()
 
 void tst_QDeadlineTimer::overflow()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
     // Check the constructor for overflows (should also cover saturating the result of the deadline() method if overflowing)
     QDeadlineTimer now = QDeadlineTimer::current(timerType), deadline(std::numeric_limits<qint64>::max() - 1, timerType);
     QVERIFY(deadline.isForever() || deadline.deadline() >= now.deadline());
@@ -520,22 +458,43 @@ void tst_QDeadlineTimer::overflow()
 
     // Make sure setRemainingTime underflows gracefully
     deadline.setPreciseRemainingTime(std::numeric_limits<qint64>::min() / 10, 0, timerType);
-    QVERIFY(!deadline.isForever());     // On Win/macOS the above underflows, make sure we don't saturate to Forever
-    QVERIFY(deadline.remainingTime() == 0);
+    QVERIFY(deadline.isForever());      // The above could underflow, so make sure we did set to Forever
+    QCOMPARE(deadline.remainingTimeNSecs(), -1);
+    QCOMPARE(deadline.remainingTime(), -1);
     // If the timer is saturated we don't want to get a valid number of milliseconds
-    QVERIFY(deadline.deadline() == std::numeric_limits<qint64>::min());
+    QCOMPARE(deadline.deadline(), std::numeric_limits<qint64>::max());
 
     // Check that the conversion to milliseconds and nanoseconds underflows gracefully
     deadline.setPreciseDeadline(std::numeric_limits<qint64>::min() / 10, 0, timerType);
-    QVERIFY(!deadline.isForever());     // On Win/macOS the above underflows, make sure we don't saturate to Forever
+    QVERIFY(!deadline.isForever());     // The above underflows, make sure we don't saturate to Forever
     QVERIFY(deadline.deadline() == std::numeric_limits<qint64>::min());
     QVERIFY(deadline.deadlineNSecs() == std::numeric_limits<qint64>::min());
+
+    // Check that subtracting max() twice doesn't make it become positive
+    deadline.setPreciseDeadline(0);
+    deadline -= std::numeric_limits<qint64>::max();
+    deadline -= std::numeric_limits<qint64>::max();
+    QVERIFY(!deadline.isForever());
+    QCOMPARE(deadline.deadline(), std::numeric_limits<qint64>::min());
+    QCOMPARE(deadline.deadlineNSecs(), std::numeric_limits<qint64>::min());
+
+    // Ditto for adding max()
+    deadline.setPreciseDeadline(0);
+    deadline += std::numeric_limits<qint64>::max();
+    deadline += std::numeric_limits<qint64>::max();
+    QVERIFY(deadline.isForever());      // it's so far in the future it's effectively forever
+    QCOMPARE(deadline.deadline(), std::numeric_limits<qint64>::max());
+    QCOMPARE(deadline.deadlineNSecs(), std::numeric_limits<qint64>::max());
+
+    // But we don't un-become forever after saturation
+    deadline -= std::numeric_limits<qint64>::max();
+    QVERIFY(deadline.isForever());
+    QCOMPARE(deadline.deadline(), std::numeric_limits<qint64>::max());
+    QCOMPARE(deadline.deadlineNSecs(), std::numeric_limits<qint64>::max());
 }
 
 void tst_QDeadlineTimer::expire()
 {
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
-
     QDeadlineTimer deadline(minResolution, timerType);
     QVERIFY(!deadline.hasExpired());
     QVERIFY(!deadline.isForever());
@@ -557,7 +516,6 @@ void tst_QDeadlineTimer::stdchrono()
 {
     using namespace std::chrono;
     using namespace std::chrono_literals;
-    QFETCH_GLOBAL(Qt::TimerType, timerType);
 
     // create some forevers
     QDeadlineTimer deadline = milliseconds::max();
@@ -630,16 +588,13 @@ void tst_QDeadlineTimer::stdchrono()
     QTRY_VERIFY2_WITH_TIMEOUT(timersExecuted,
         "Looks like timers didn't fire on time.", 4 * minResolution);
 
-#if defined(Q_OS_DARWIN) || defined(Q_OS_LINUX) || (defined(Q_CC_MSVC) && Q_CC_MSVC >= 1900)
     {
-        // We know for these OS/compilers that the std::chrono::steady_clock uses the same
-        // reference time as QDeadlineTimer
         qint64 before = duration_cast<nanoseconds>(steady_before.time_since_epoch()).count();
         qint64 after = duration_cast<nanoseconds>(steady_after.time_since_epoch()).count();
         QCOMPARE_GT(now.deadlineNSecs(), before);
         QCOMPARE_LT(now.deadlineNSecs(), after);
     }
-#endif
+
     {
         auto diff = duration_cast<milliseconds>(steady_after - steady_deadline);
         QCOMPARE_GT(diff.count(), minResolution / 2);
@@ -681,18 +636,24 @@ void tst_QDeadlineTimer::stdchrono()
     QCOMPARE_LT(deadline.deadline<steady_clock>(), (steady_clock::now() + 5ms * minResolution));
     QCOMPARE_GT(deadline.deadline<system_clock>(), (system_clock::now() + 3ms * minResolution));
     QCOMPARE_LT(deadline.deadline<system_clock>(), (system_clock::now() + 5ms * minResolution));
-    if (timerType == Qt::CoarseTimer) {
-        QCOMPARE_GT(deadline, now + 3ms * minResolution);
-        QCOMPARE_LT(deadline, now + 5ms * minResolution);
-        QCOMPARE_GT(deadline, now + 3000000ns * minResolution);
-        QCOMPARE_LT(deadline, now + 5000000ns * minResolution);
-        QCOMPARE_GT(deadline, 3ms * minResolution);
-        QCOMPARE_LT(deadline, 5ms * minResolution);
-        QCOMPARE_GT(deadline, 3000000ns * minResolution);
-        QCOMPARE_LT(deadline, 5000000ns * minResolution);
-        QCOMPARE_GE(deadline, steady_clock::now());
-        QCOMPARE_GE(deadline, system_clock::now());
-    }
+    QCOMPARE_GT((deadline.deadline<steady_clock, milliseconds>()),
+                steady_clock::now() + 3ms * minResolution);
+    QCOMPARE_LT((deadline.deadline<steady_clock, milliseconds>()),
+                steady_clock::now() + 5ms * minResolution);
+    QCOMPARE_GT((deadline.deadline<system_clock, milliseconds>()),
+                system_clock::now() + 3ms * minResolution);
+    QCOMPARE_LT((deadline.deadline<system_clock, milliseconds>()),
+                system_clock::now() + 5ms * minResolution);
+    QCOMPARE_GT(deadline, now + 3ms * minResolution);
+    QCOMPARE_LT(deadline, now + 5ms * minResolution);
+    QCOMPARE_GT(deadline, now + 3000000ns * minResolution);
+    QCOMPARE_LT(deadline, now + 5000000ns * minResolution);
+    QCOMPARE_GT(deadline, 3ms * minResolution);
+    QCOMPARE_LT(deadline, 5ms * minResolution);
+    QCOMPARE_GT(deadline, 3000000ns * minResolution);
+    QCOMPARE_LT(deadline, 5000000ns * minResolution);
+    QCOMPARE_GE(deadline, steady_clock::now());
+    QCOMPARE_GE(deadline, system_clock::now());
 
     now = QDeadlineTimer::current(timerType);
     deadline = QDeadlineTimer(1s, timerType);
@@ -705,10 +666,8 @@ void tst_QDeadlineTimer::stdchrono()
     QCOMPARE_LE(deadline.deadline<steady_clock>(), steady_clock::now() + 1s + 1ms * minResolution);
     QCOMPARE_GT(deadline.deadline<system_clock>(), system_clock::now() + 1s - 1ms * minResolution);
     QCOMPARE_LE(deadline.deadline<system_clock>(), system_clock::now() + 1s + 1ms * minResolution);
-    if (timerType == Qt::CoarseTimer) {
-        QCOMPARE_GT(deadline, 1s - 1ms * minResolution);
-        QCOMPARE_LE(deadline, 1s);
-    }
+    QCOMPARE_GT(deadline, 1s - 1ms * minResolution);
+    QCOMPARE_LE(deadline, 1s);
 
     now = QDeadlineTimer::current(timerType);
     deadline.setRemainingTime(1h, timerType);

@@ -101,6 +101,9 @@ public:
     const B &b;
 };
 
+// This specialization is here for backwards compatibility: appending
+// two null strings must give back a null string, so we're special
+// casing this one out.
 template <>
 class QStringBuilder <QString, QString> : public QStringBuilderBase<QStringBuilder<QString, QString>, QString>
 {
@@ -118,6 +121,7 @@ class QStringBuilder <QString, QString> : public QStringBuilderBase<QStringBuild
         QStringBuilder &operator=(const QStringBuilder &) = delete;
 };
 
+// Ditto, but see QTBUG-114238
 template <>
 class QStringBuilder <QByteArray, QByteArray> : public QStringBuilderBase<QStringBuilder<QByteArray, QByteArray>, QByteArray>
 {

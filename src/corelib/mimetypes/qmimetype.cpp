@@ -285,7 +285,7 @@ QString QMimeType::genericIconName() const
         // (i.e. "video-x-generic" in the previous example).
         const QString group = name();
         QStringView groupRef(group);
-        const int slashindex = groupRef.indexOf(u'/');
+        const qsizetype slashindex = groupRef.indexOf(u'/');
         if (slashindex != -1)
             groupRef = groupRef.left(slashindex);
         return groupRef + "-x-generic"_L1;
@@ -295,7 +295,7 @@ QString QMimeType::genericIconName() const
 
 static QString make_default_icon_name_from_mimetype_name(QString iconName)
 {
-    const int slashindex = iconName.indexOf(u'/');
+    const qsizetype slashindex = iconName.indexOf(u'/');
     if (slashindex != -1)
         iconName[slashindex] = u'-';
     return iconName;

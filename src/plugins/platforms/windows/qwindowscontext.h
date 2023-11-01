@@ -14,7 +14,6 @@
 #define STRICT_TYPED_ITEMIDS
 #include <shlobj.h>
 #include <shlwapi.h>
-#include <shellscalingapi.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,94 +43,6 @@ struct QWindowsContextPrivate;
 class QPoint;
 class QKeyEvent;
 class QPointingDevice;
-
-struct QWindowsUser32DLL
-{
-    inline void init();
-    inline bool supportsPointerApi();
-
-    typedef BOOL (WINAPI *EnableMouseInPointer)(BOOL);
-    typedef BOOL (WINAPI *GetPointerType)(UINT32, PVOID);
-    typedef BOOL (WINAPI *GetPointerInfo)(UINT32, PVOID);
-    typedef BOOL (WINAPI *GetPointerDeviceRects)(HANDLE, RECT *, RECT *);
-    typedef BOOL (WINAPI *GetPointerTouchInfo)(UINT32, PVOID);
-    typedef BOOL (WINAPI *GetPointerFrameTouchInfo)(UINT32, UINT32 *, PVOID);
-    typedef BOOL (WINAPI *GetPointerFrameTouchInfoHistory)(UINT32, UINT32 *, UINT32 *, PVOID);
-    typedef BOOL (WINAPI *GetPointerPenInfo)(UINT32, PVOID);
-    typedef BOOL (WINAPI *GetPointerPenInfoHistory)(UINT32, UINT32 *, PVOID);
-    typedef BOOL (WINAPI *SkipPointerFrameMessages)(UINT32);
-    typedef BOOL (WINAPI *SetProcessDPIAware)();
-    typedef BOOL (WINAPI *SetProcessDpiAwarenessContext)(HANDLE);
-    typedef BOOL (WINAPI *AddClipboardFormatListener)(HWND);
-    typedef BOOL (WINAPI *RemoveClipboardFormatListener)(HWND);
-    typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
-    typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
-    typedef BOOL (WINAPI *AdjustWindowRectEx)(LPRECT,DWORD,BOOL,DWORD);
-    typedef BOOL (WINAPI *AdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
-    typedef BOOL (WINAPI *EnableNonClientDpiScaling)(HWND);
-    typedef int  (WINAPI *GetWindowDpiAwarenessContext)(HWND);
-    typedef int  (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
-    typedef BOOL (WINAPI *SystemParametersInfoForDpi)(UINT, UINT, PVOID, UINT, UINT);
-    typedef int  (WINAPI *GetDpiForWindow)(HWND);
-    typedef BOOL (WINAPI *GetSystemMetricsForDpi)(INT, UINT);
-    typedef BOOL (WINAPI *AreDpiAwarenessContextsEqual)(int, HANDLE);
-    typedef int (WINAPI *GetThreadDpiAwarenessContext)();
-
-    // Windows pointer functions (Windows 8 or later).
-    EnableMouseInPointer enableMouseInPointer = nullptr;
-    GetPointerType getPointerType = nullptr;
-    GetPointerInfo getPointerInfo = nullptr;
-    GetPointerDeviceRects getPointerDeviceRects = nullptr;
-    GetPointerTouchInfo getPointerTouchInfo = nullptr;
-    GetPointerFrameTouchInfo getPointerFrameTouchInfo = nullptr;
-    GetPointerFrameTouchInfoHistory getPointerFrameTouchInfoHistory = nullptr;
-    GetPointerPenInfo getPointerPenInfo = nullptr;
-    GetPointerPenInfoHistory getPointerPenInfoHistory = nullptr;
-    SkipPointerFrameMessages skipPointerFrameMessages = nullptr;
-
-    // Windows Vista onwards
-    SetProcessDPIAware setProcessDPIAware = nullptr;
-
-    // Windows 10 version 1607 onwards
-    GetDpiForWindow getDpiForWindow = nullptr;
-    GetThreadDpiAwarenessContext getThreadDpiAwarenessContext = nullptr;
-
-    // Windows 10 version 1703 onwards
-    SetProcessDpiAwarenessContext setProcessDpiAwarenessContext = nullptr;
-    AreDpiAwarenessContextsEqual areDpiAwarenessContextsEqual = nullptr;
-
-    // Clipboard listeners are present on Windows Vista onwards
-    // but missing in MinGW 4.9 stub libs. Can be removed in MinGW 5.
-    AddClipboardFormatListener addClipboardFormatListener = nullptr;
-    RemoveClipboardFormatListener removeClipboardFormatListener = nullptr;
-
-    // Rotation API
-    GetDisplayAutoRotationPreferences getDisplayAutoRotationPreferences = nullptr;
-    SetDisplayAutoRotationPreferences setDisplayAutoRotationPreferences = nullptr;
-
-    AdjustWindowRectEx adjustWindowRectEx = nullptr;
-    AdjustWindowRectExForDpi adjustWindowRectExForDpi = nullptr;
-    EnableNonClientDpiScaling enableNonClientDpiScaling = nullptr;
-    GetWindowDpiAwarenessContext getWindowDpiAwarenessContext = nullptr;
-    GetAwarenessFromDpiAwarenessContext getAwarenessFromDpiAwarenessContext = nullptr;
-    SystemParametersInfoForDpi systemParametersInfoForDpi = nullptr;
-    GetSystemMetricsForDpi getSystemMetricsForDpi = nullptr;
-};
-
-// Shell scaling library (Windows 8.1 onwards)
-struct QWindowsShcoreDLL
-{
-    void init();
-    inline bool isValid() const { return getProcessDpiAwareness && setProcessDpiAwareness && getDpiForMonitor; }
-
-    typedef HRESULT (WINAPI *GetProcessDpiAwareness)(HANDLE,PROCESS_DPI_AWARENESS *);
-    typedef HRESULT (WINAPI *SetProcessDpiAwareness)(PROCESS_DPI_AWARENESS);
-    typedef HRESULT (WINAPI *GetDpiForMonitor)(HMONITOR,int,UINT *,UINT *);
-
-    GetProcessDpiAwareness getProcessDpiAwareness = nullptr;
-    SetProcessDpiAwareness setProcessDpiAwareness = nullptr;
-    GetDpiForMonitor getDpiForMonitor = nullptr;
-};
 
 class QWindowsContext
 {
@@ -204,9 +115,10 @@ public:
     QSharedPointer<QWindowCreationContext> windowCreationContext() const;
 
     static void setTabletAbsoluteRange(int a);
-    void setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiAwareness);
-    static int processDpiAwareness();
-    bool setProcessDpiV2Awareness();
+
+    static bool setProcessDpiAwareness(QtWindows::DpiAwareness dpiAwareness);
+    static QtWindows::DpiAwareness processDpiAwareness();
+    static QtWindows::DpiAwareness windowDpiAwareness(HWND hwnd);
 
     static bool isDarkMode();
 
@@ -225,9 +137,6 @@ public:
     QWindowsMimeRegistry &mimeConverter() const;
     QWindowsScreenManager &screenManager();
     QWindowsTabletSupport *tabletSupport() const;
-
-    static QWindowsUser32DLL user32dll;
-    static QWindowsShcoreDLL shcoredll;
 
     bool asyncExpose() const;
     void setAsyncExpose(bool value);

@@ -1,19 +1,14 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qrhid3d11_p_p.h"
-#include "qshader_p.h"
+#include "qrhid3d11_p.h"
+#include "qshader.h"
 #include "vs_test_p.h"
-#include "cs_tdr_p.h"
 #include <QWindow>
 #include <qmath.h>
-#include <QtCore/private/qsystemlibrary_p.h>
 #include <QtCore/qcryptographichash.h>
 #include <QtCore/private/qsystemerror_p.h>
-
-#include <d3dcompiler.h>
-
-#include <VersionHelpers.h>
+#include "qrhid3dhelpers_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -31,9 +26,12 @@ using namespace Qt::StringLiterals;
 
 /*!
     \class QRhiD3D11InitParams
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Direct3D 11 specific initialization parameters.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
 
     A D3D11-based QRhi needs no special parameters for initialization. If
     desired, enableDebugLayer can be set to \c true to enable the Direct3D
@@ -47,9 +45,7 @@ using namespace Qt::StringLiterals;
     \endcode
 
     \note QRhiSwapChain should only be used in combination with QWindow
-    instances that have their surface type set to QSurface::OpenGLSurface.
-    There are currently no Direct3D specifics in the Windows platform support
-    of Qt and therefore there is no separate QSurface type available.
+    instances that have their surface type set to QSurface::Direct3DSurface.
 
     \section2 Working with existing Direct3D 11 devices
 
@@ -75,15 +71,45 @@ using namespace Qt::StringLiterals;
  */
 
 /*!
+    \variable QRhiD3D11InitParams::enableDebugLayer
+
+    When set to true, a debug device is created, assuming the debug layer is
+    available. The default value is false.
+*/
+
+/*!
     \class QRhiD3D11NativeHandles
-    \internal
     \inmodule QtGui
+    \since 6.6
     \brief Holds the D3D device and device context used by the QRhi.
 
     \note The class uses \c{void *} as the type since including the COM-based
     \c{d3d11.h} headers is not acceptable here. The actual types are
     \c{ID3D11Device *} and \c{ID3D11DeviceContext *}.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
+
+/*!
+    \variable QRhiD3D11NativeHandles::dev
+*/
+
+/*!
+    \variable QRhiD3D11NativeHandles::context
+*/
+
+/*!
+    \variable QRhiD3D11NativeHandles::featureLevel
+*/
+
+/*!
+    \variable QRhiD3D11NativeHandles::adapterLuidLow
+*/
+
+/*!
+    \variable QRhiD3D11NativeHandles::adapterLuidHigh
+*/
 
 // help mingw with its ancient sdk headers
 #ifndef DXGI_ADAPTER_FLAG_SOFTWARE
@@ -99,13 +125,9 @@ using namespace Qt::StringLiterals;
 #endif
 
 QRhiD3D11::QRhiD3D11(QRhiD3D11InitParams *params, QRhiD3D11NativeHandles *importParams)
-    : ofr(this),
-      deviceCurse(this)
+    : ofr(this)
 {
     debugLayer = params->enableDebugLayer;
-
-    deviceCurse.framesToActivate = params->framesUntilKillingDeviceViaTdr;
-    deviceCurse.permanent = params->repeatDeviceKill;
 
     if (importParams) {
         if (importParams->dev && importParams->context) {
@@ -133,22 +155,13 @@ inline Int aligned(Int v, Int byteAlign)
 
 static IDXGIFactory1 *createDXGIFactory2()
 {
-    typedef HRESULT(WINAPI* CreateDXGIFactory2Func) (UINT flags, REFIID riid, void** factory);
-    static CreateDXGIFactory2Func myCreateDXGIFactory2 =
-        (CreateDXGIFactory2Func)::GetProcAddress(::GetModuleHandle(L"dxgi"), "CreateDXGIFactory2");
-
     IDXGIFactory1 *result = nullptr;
-
-    if (myCreateDXGIFactory2)
-    {
-        const HRESULT hr = myCreateDXGIFactory2(0, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&result));
-        if (FAILED(hr)) {
-            qWarning("CreateDXGIFactory2() failed to create DXGI factory: %s",
-                qPrintable(QSystemError::windowsComString(hr)));
-            result = nullptr;
-        }
+    const HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&result));
+    if (FAILED(hr)) {
+        qWarning("CreateDXGIFactory2() failed to create DXGI factory: %s",
+            qPrintable(QSystemError::windowsComString(hr)));
+        result = nullptr;
     }
-    
     return result;
 }
 
@@ -333,6 +346,11 @@ bool QRhiD3D11::create(QRhi::Flags flags)
     if (FAILED(context->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), reinterpret_cast<void **>(&annotations))))
         annotations = nullptr;
 
+    if (flags.testFlag(QRhi::EnableTimestamps)) {
+        ofr.timestamps.prepare(2, this);
+        // timestamp queries are optional so we can go on even if they failed
+    }
+
     deviceLost = false;
 
     nativeHandlesStruct.dev = dev;
@@ -340,9 +358,6 @@ bool QRhiD3D11::create(QRhi::Flags flags)
     nativeHandlesStruct.featureLevel = featureLevel;
     nativeHandlesStruct.adapterLuidLow = adapterLuid.LowPart;
     nativeHandlesStruct.adapterLuidHigh = adapterLuid.HighPart;
-
-    if (deviceCurse.framesToActivate > 0)
-        deviceCurse.initResources();
 
     return true;
 }
@@ -361,7 +376,7 @@ void QRhiD3D11::destroy()
 
     clearShaderCache();
 
-    deviceCurse.releaseResources();
+    ofr.timestamps.destroy();
 
     if (annotations) {
         annotations->Release();
@@ -564,6 +579,12 @@ bool QRhiD3D11::isFeatureSupported(QRhi::Feature feature) const
     case QRhi::OneDimensionalTextures:
         return true;
     case QRhi::OneDimensionalTextureMipmaps:
+        return true;
+    case QRhi::HalfAttributes:
+        return true;
+    case QRhi::RenderToOneDimensionalTexture:
+        return true;
+    case QRhi::ThreeDimensionalTextureMipmaps:
         return true;
     default:
         Q_UNREACHABLE();
@@ -889,7 +910,7 @@ void QRhiD3D11::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
 
     bool srbUpdate = false;
     for (int i = 0, ie = srbD->sortedBindings.count(); i != ie; ++i) {
-        const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings.at(i).data();
+        const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->sortedBindings.at(i));
         QD3D11ShaderResourceBindings::BoundResourceData &bd(srbD->boundResourceData[i]);
         switch (b->type) {
         case QRhiShaderResourceBinding::UniformBuffer:
@@ -1252,6 +1273,12 @@ void QRhiD3D11::endExternal(QRhiCommandBuffer *cb)
     }
 }
 
+double QRhiD3D11::lastCompletedGpuTime(QRhiCommandBuffer *cb)
+{
+    QD3D11CommandBuffer *cbD = QRHI_RES(QD3D11CommandBuffer, cb);
+    return cbD->lastGpuTime;
+}
+
 QRhi::FrameOpResult QRhiD3D11::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginFrameFlags flags)
 {
     Q_UNUSED(flags);
@@ -1260,30 +1287,6 @@ QRhi::FrameOpResult QRhiD3D11::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginF
     contextState.currentSwapChain = swapChainD;
     const int currentFrameSlot = swapChainD->currentFrameSlot;
 
-    if (swapChainD->timestampActive[currentFrameSlot]) {
-        ID3D11Query *tsDisjoint = swapChainD->timestampDisjointQuery[currentFrameSlot];
-        const int tsIdx = QD3D11SwapChain::BUFFER_COUNT * currentFrameSlot;
-        ID3D11Query *tsStart = swapChainD->timestampQuery[tsIdx];
-        ID3D11Query *tsEnd = swapChainD->timestampQuery[tsIdx + 1];
-        quint64 timestamps[2];
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-        bool ok = true;
-        ok &= context->GetData(tsDisjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-        ok &= context->GetData(tsEnd, &timestamps[1], sizeof(quint64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-        // this above is often not ready, not even in frame_where_recorded+2,
-        // not clear why. so make the whole thing async and do not touch the
-        // queries until they are finally all available in frame this+2 or
-        // this+4 or ...
-        ok &= context->GetData(tsStart, &timestamps[0], sizeof(quint64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-        if (ok) {
-            if (!dj.Disjoint && dj.Frequency) {
-                const float elapsedMs = (timestamps[1] - timestamps[0]) / float(dj.Frequency) * 1000.0f;
-                runGpuFrameTimeCallbacks(elapsedMs);
-            }
-            swapChainD->timestampActive[currentFrameSlot] = false;
-        } // else leave timestampActive set to true, will retry in a subsequent beginFrame
-    }
-
     swapChainD->cb.resetState();
 
     swapChainD->rt.d.rtv[0] = swapChainD->sampleDesc.Count > 1 ?
@@ -1291,6 +1294,12 @@ QRhi::FrameOpResult QRhiD3D11::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginF
     swapChainD->rt.d.dsv = swapChainD->ds ? swapChainD->ds->dsv : nullptr;
 
     finishActiveReadbacks();
+
+    if (swapChainD->timestamps.active[currentFrameSlot]) {
+        double elapsedSec = 0;
+        if (swapChainD->timestamps.tryQueryTimestamps(currentFrameSlot, context, &elapsedSec))
+            swapChainD->cb.lastGpuTime = elapsedSec;
+    }
 
     return QRhi::FrameOpSuccess;
 }
@@ -1301,11 +1310,11 @@ QRhi::FrameOpResult QRhiD3D11::endFrame(QRhiSwapChain *swapChain, QRhi::EndFrame
     Q_ASSERT(contextState.currentSwapChain = swapChainD);
     const int currentFrameSlot = swapChainD->currentFrameSlot;
 
-    ID3D11Query *tsDisjoint = swapChainD->timestampDisjointQuery[currentFrameSlot];
+    ID3D11Query *tsDisjoint = swapChainD->timestamps.disjointQuery[currentFrameSlot];
     const int tsIdx = QD3D11SwapChain::BUFFER_COUNT * currentFrameSlot;
-    ID3D11Query *tsStart = swapChainD->timestampQuery[tsIdx];
-    ID3D11Query *tsEnd = swapChainD->timestampQuery[tsIdx + 1];
-    const bool recordTimestamps = tsDisjoint && tsStart && tsEnd && !swapChainD->timestampActive[currentFrameSlot];
+    ID3D11Query *tsStart = swapChainD->timestamps.query[tsIdx];
+    ID3D11Query *tsEnd = swapChainD->timestamps.query[tsIdx + 1];
+    const bool recordTimestamps = tsDisjoint && tsStart && tsEnd && !swapChainD->timestamps.active[currentFrameSlot];
 
     // send all commands to the context
     if (recordTimestamps)
@@ -1323,7 +1332,7 @@ QRhi::FrameOpResult QRhiD3D11::endFrame(QRhiSwapChain *swapChain, QRhi::EndFrame
     if (recordTimestamps) {
         context->End(tsEnd);
         context->End(tsDisjoint);
-        swapChainD->timestampActive[currentFrameSlot] = true;
+        swapChainD->timestamps.active[currentFrameSlot] = true;
     }
 
     if (!flags.testFlag(QRhi::SkipPresent)) {
@@ -1353,19 +1362,6 @@ QRhi::FrameOpResult QRhiD3D11::endFrame(QRhiSwapChain *swapChain, QRhi::EndFrame
     swapChainD->frameCount += 1;
     contextState.currentSwapChain = nullptr;
 
-    if (deviceCurse.framesToActivate > 0) {
-        deviceCurse.framesLeft -= 1;
-        if (deviceCurse.framesLeft == 0) {
-            deviceCurse.framesLeft = deviceCurse.framesToActivate;
-            if (!deviceCurse.permanent)
-                deviceCurse.framesToActivate = -1;
-
-            deviceCurse.activate();
-        } else if (deviceCurse.framesLeft % 100 == 0) {
-            qDebug("Impending doom: %d frames left", deviceCurse.framesLeft);
-        }
-    }
-
     return QRhi::FrameOpSuccess;
 }
 
@@ -1377,6 +1373,12 @@ QRhi::FrameOpResult QRhiD3D11::beginOffscreenFrame(QRhiCommandBuffer **cb, QRhi:
     ofr.cbWrapper.resetState();
     *cb = &ofr.cbWrapper;
 
+    if (ofr.timestamps.active[ofr.timestampIdx]) {
+        double elapsedSec = 0;
+        if (ofr.timestamps.tryQueryTimestamps(ofr.timestampIdx, context, &elapsedSec))
+            ofr.cbWrapper.lastGpuTime = elapsedSec;
+    }
+
     return QRhi::FrameOpSuccess;
 }
 
@@ -1385,11 +1387,26 @@ QRhi::FrameOpResult QRhiD3D11::endOffscreenFrame(QRhi::EndFrameFlags flags)
     Q_UNUSED(flags);
     ofr.active = false;
 
+    ID3D11Query *tsDisjoint = ofr.timestamps.disjointQuery[ofr.timestampIdx];
+    ID3D11Query *tsStart = ofr.timestamps.query[ofr.timestampIdx * 2];
+    ID3D11Query *tsEnd = ofr.timestamps.query[ofr.timestampIdx * 2 + 1];
+    const bool recordTimestamps = tsDisjoint && tsStart && tsEnd && !ofr.timestamps.active[ofr.timestampIdx];
+    if (recordTimestamps) {
+        context->Begin(tsDisjoint);
+        context->End(tsStart); // record timestamp; no Begin() for D3D11_QUERY_TIMESTAMP
+    }
+
     executeCommandBuffer(&ofr.cbWrapper);
+    context->Flush();
 
     finishActiveReadbacks();
 
-    context->Flush();
+    if (recordTimestamps) {
+        context->End(tsEnd);
+        context->End(tsDisjoint);
+        ofr.timestamps.active[ofr.timestampIdx] = true;
+        ofr.timestampIdx = (ofr.timestampIdx + 1) % 2;
+    }
 
     return QRhi::FrameOpSuccess;
 }
@@ -1658,6 +1675,8 @@ void QRhiD3D11::enqueueResourceUpdates(QRhiCommandBuffer *cb, QRhiResourceUpdate
             if (bufD->m_type == QRhiBuffer::Dynamic) {
                 u.result->data.resize(u.readSize);
                 memcpy(u.result->data.data(), bufD->dynBuf + u.offset, size_t(u.readSize));
+                if (u.result->completed)
+                    u.result->completed();
             } else {
                 BufferReadback readback;
                 readback.result = u.result;
@@ -1693,8 +1712,6 @@ void QRhiD3D11::enqueueResourceUpdates(QRhiCommandBuffer *cb, QRhiResourceUpdate
 
                 activeBufferReadbacks.append(readback);
             }
-            if (u.result->completed)
-                u.result->completed();
         }
     }
     for (int opIdx = 0; opIdx < ud->activeTextureOpCount; ++opIdx) {
@@ -2193,7 +2210,7 @@ void QRhiD3D11::updateShaderResourceBindings(QD3D11ShaderResourceBindings *srbD,
     } res[RBM_SUPPORTED_STAGES];
 
     for (int i = 0, ie = srbD->sortedBindings.count(); i != ie; ++i) {
-        const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings.at(i).data();
+        const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->sortedBindings.at(i));
         QD3D11ShaderResourceBindings::BoundResourceData &bd(srbD->boundResourceData[i]);
         switch (b->type) {
         case QRhiShaderResourceBinding::UniformBuffer:
@@ -2639,10 +2656,10 @@ void QRhiD3D11::executeCommandBuffer(QD3D11CommandBuffer *cbD, QD3D11SwapChain *
 
     if (timestampSwapChain) {
         const int currentFrameSlot = timestampSwapChain->currentFrameSlot;
-        ID3D11Query *tsDisjoint = timestampSwapChain->timestampDisjointQuery[currentFrameSlot];
+        ID3D11Query *tsDisjoint = timestampSwapChain->timestamps.disjointQuery[currentFrameSlot];
         const int tsIdx = QD3D11SwapChain::BUFFER_COUNT * currentFrameSlot;
-        ID3D11Query *tsStart = timestampSwapChain->timestampQuery[tsIdx];
-        if (tsDisjoint && tsStart && !timestampSwapChain->timestampActive[currentFrameSlot]) {
+        ID3D11Query *tsStart = timestampSwapChain->timestamps.query[tsIdx];
+        if (tsDisjoint && tsStart && !timestampSwapChain->timestamps.active[currentFrameSlot]) {
             // The timestamps seem to include vsync time with Present(1), except
             // when running on a non-primary gpu. This is not ideal. So try working
             // it around by issuing a semi-fake OMSetRenderTargets early and
@@ -3216,12 +3233,10 @@ bool QD3D11Texture::prepareCreate(QSize *adjustedSize)
         qWarning("Texture cannot be both 1D and 3D");
         return false;
     }
-    m_depth = qMax(1, m_depth);
     if (m_depth > 1 && !is3D) {
         qWarning("Texture cannot have a depth of %d when it is not 3D", m_depth);
         return false;
     }
-    m_arraySize = qMax(0, m_arraySize);
     if (m_arraySize > 0 && !isArray) {
         qWarning("Texture cannot have an array size of %d when it is not an array", m_arraySize);
         return false;
@@ -3261,7 +3276,7 @@ bool QD3D11Texture::finishCreate()
                     srvDesc.Texture1DArray.ArraySize = UINT(m_arrayRangeLength);
                 } else {
                     srvDesc.Texture1DArray.FirstArraySlice = 0;
-                    srvDesc.Texture1DArray.ArraySize = UINT(m_arraySize);
+                    srvDesc.Texture1DArray.ArraySize = UINT(qMax(0, m_arraySize));
                 }
             } else {
                 srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE1D;
@@ -3275,7 +3290,7 @@ bool QD3D11Texture::finishCreate()
                     srvDesc.Texture2DMSArray.ArraySize = UINT(m_arrayRangeLength);
                 } else {
                     srvDesc.Texture2DMSArray.FirstArraySlice = 0;
-                    srvDesc.Texture2DMSArray.ArraySize = UINT(m_arraySize);
+                    srvDesc.Texture2DMSArray.ArraySize = UINT(qMax(0, m_arraySize));
                 }
             } else {
                 srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
@@ -3285,7 +3300,7 @@ bool QD3D11Texture::finishCreate()
                     srvDesc.Texture2DArray.ArraySize = UINT(m_arrayRangeLength);
                 } else {
                     srvDesc.Texture2DArray.FirstArraySlice = 0;
-                    srvDesc.Texture2DArray.ArraySize = UINT(m_arraySize);
+                    srvDesc.Texture2DArray.ArraySize = UINT(qMax(0, m_arraySize));
                 }
             }
         } else {
@@ -3348,7 +3363,7 @@ bool QD3D11Texture::create()
         D3D11_TEXTURE1D_DESC desc = {};
         desc.Width = UINT(size.width());
         desc.MipLevels = mipLevelCount;
-        desc.ArraySize = isArray ? UINT(m_arraySize) : 1;
+        desc.ArraySize = isArray ? UINT(qMax(0, m_arraySize)) : 1;
         desc.Format = dxgiFormat;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = bindFlags;
@@ -3368,7 +3383,7 @@ bool QD3D11Texture::create()
         desc.Width = UINT(size.width());
         desc.Height = UINT(size.height());
         desc.MipLevels = mipLevelCount;
-        desc.ArraySize = isCube ? 6 : (isArray ? UINT(m_arraySize) : 1);
+        desc.ArraySize = isCube ? 6 : (isArray ? UINT(qMax(0, m_arraySize)) : 1);
         desc.Format = dxgiFormat;
         desc.SampleDesc = sampleDesc;
         desc.Usage = D3D11_USAGE_DEFAULT;
@@ -3387,7 +3402,7 @@ bool QD3D11Texture::create()
         D3D11_TEXTURE3D_DESC desc = {};
         desc.Width = UINT(size.width());
         desc.Height = UINT(size.height());
-        desc.Depth = UINT(m_depth);
+        desc.Depth = UINT(qMax(1, m_depth));
         desc.MipLevels = mipLevelCount;
         desc.Format = dxgiFormat;
         desc.Usage = D3D11_USAGE_DEFAULT;
@@ -3460,7 +3475,7 @@ ID3D11UnorderedAccessView *QD3D11Texture::unorderedAccessViewForLevel(int level)
         desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2DARRAY;
         desc.Texture2DArray.MipSlice = UINT(level);
         desc.Texture2DArray.FirstArraySlice = 0;
-        desc.Texture2DArray.ArraySize = UINT(m_arraySize);
+        desc.Texture2DArray.ArraySize = UINT(qMax(0, m_arraySize));
     } else if (is3D) {
         desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
         desc.Texture3D.MipSlice = UINT(level);
@@ -3729,8 +3744,7 @@ bool QD3D11TextureRenderTarget::create()
     if (rtv[0] || dsv)
         destroy();
 
-    const bool hasColorAttachments = m_desc.cbeginColorAttachments() != m_desc.cendColorAttachments();
-    Q_ASSERT(hasColorAttachments || m_desc.depthTexture());
+    Q_ASSERT(m_desc.colorAttachmentCount() > 0 || m_desc.depthTexture());
     Q_ASSERT(!m_desc.depthStencilBuffer() || !m_desc.depthTexture());
     const bool hasDepthStencil = m_desc.depthStencilBuffer() || m_desc.depthTexture();
 
@@ -3818,6 +3832,27 @@ bool QD3D11TextureRenderTarget::create()
             dsvDesc.Format = toD3DDepthTextureDSVFormat(depthTexD->format());
             dsvDesc.ViewDimension = depthTexD->sampleDesc.Count > 1 ? D3D11_DSV_DIMENSION_TEXTURE2DMS
                                                                     : D3D11_DSV_DIMENSION_TEXTURE2D;
+            if (depthTexD->flags().testFlag(QRhiTexture::TextureArray)) {
+                if (depthTexD->sampleDesc.Count > 1) {
+                    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
+                    if (depthTexD->arrayRangeStart() >= 0 && depthTexD->arrayRangeLength() >= 0) {
+                        dsvDesc.Texture2DMSArray.FirstArraySlice = UINT(depthTexD->arrayRangeStart());
+                        dsvDesc.Texture2DMSArray.ArraySize = UINT(depthTexD->arrayRangeLength());
+                    } else {
+                        dsvDesc.Texture2DMSArray.FirstArraySlice = 0;
+                        dsvDesc.Texture2DMSArray.ArraySize = UINT(qMax(0, depthTexD->arraySize()));
+                    }
+                } else {
+                    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+                    if (depthTexD->arrayRangeStart() >= 0 && depthTexD->arrayRangeLength() >= 0) {
+                        dsvDesc.Texture2DArray.FirstArraySlice = UINT(depthTexD->arrayRangeStart());
+                        dsvDesc.Texture2DArray.ArraySize = UINT(depthTexD->arrayRangeLength());
+                    } else {
+                        dsvDesc.Texture2DArray.FirstArraySlice = 0;
+                        dsvDesc.Texture2DArray.ArraySize = UINT(qMax(0, depthTexD->arraySize()));
+                    }
+                }
+            }
             HRESULT hr = rhiD->dev->CreateDepthStencilView(depthTexD->tex, &dsvDesc, &dsv);
             if (FAILED(hr)) {
                 qWarning("Failed to create dsv: %s",
@@ -3904,11 +3939,7 @@ bool QD3D11ShaderResourceBindings::create()
     rhiD->updateLayoutDesc(this);
 
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    std::sort(sortedBindings.begin(), sortedBindings.end(),
-              [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-    {
-        return a.data()->binding < b.data()->binding;
-    });
+    std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
 
     boundResourceData.resize(sortedBindings.count());
 
@@ -3917,7 +3948,7 @@ bool QD3D11ShaderResourceBindings::create()
 
     hasDynamicOffset = false;
     for (const QRhiShaderResourceBinding &b : sortedBindings) {
-        const QRhiShaderResourceBinding::Data *bd = b.data();
+        const QRhiShaderResourceBinding::Data *bd = QRhiImplementation::shaderResourceBindingData(b);
         if (bd->type == QRhiShaderResourceBinding::UniformBuffer && bd->u.ubuf.hasDynamicOffset) {
             hasDynamicOffset = true;
             break;
@@ -3933,13 +3964,8 @@ void QD3D11ShaderResourceBindings::updateResources(UpdateFlags flags)
 {
     sortedBindings.clear();
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    if (!flags.testFlag(BindingsAreSorted)) {
-        std::sort(sortedBindings.begin(), sortedBindings.end(),
-                  [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-        {
-            return a.data()->binding < b.data()->binding;
-        });
-    }
+    if (!flags.testFlag(BindingsAreSorted))
+        std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
 
     Q_ASSERT(boundResourceData.count() == sortedBindings.count());
     for (BoundResourceData &bd : boundResourceData)
@@ -4113,6 +4139,14 @@ static inline DXGI_FORMAT toD3DAttributeFormat(QRhiVertexInputAttribute::Format 
         return DXGI_FORMAT_R32G32_SINT;
     case QRhiVertexInputAttribute::SInt:
         return DXGI_FORMAT_R32_SINT;
+    case QRhiVertexInputAttribute::Half4:
+    // Note: D3D does not support half3.  Pass through half3 as half4.
+    case QRhiVertexInputAttribute::Half3:
+        return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case QRhiVertexInputAttribute::Half2:
+        return DXGI_FORMAT_R16G16_FLOAT;
+    case QRhiVertexInputAttribute::Half:
+         return DXGI_FORMAT_R16_FLOAT;
     default:
         Q_UNREACHABLE();
         return DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -4225,18 +4259,6 @@ static inline D3D11_BLEND_OP toD3DBlendOp(QRhiGraphicsPipeline::BlendOp op)
     }
 }
 
-static pD3DCompile resolveD3DCompile()
-{
-    for (const wchar_t *libraryName : {L"D3DCompiler_47", L"D3DCompiler_43"}) {
-        QSystemLibrary library(libraryName);
-        if (library.load()) {
-            if (auto symbol = library.resolve("D3DCompile"))
-                return reinterpret_cast<pD3DCompile>(symbol);
-        }
-    }
-    return nullptr;
-}
-
 static inline QByteArray sourceHash(const QByteArray &source)
 {
     // taken from the GL backend, use the same mechanism to get a key
@@ -4302,7 +4324,7 @@ QByteArray QRhiD3D11::compileHlslShaderSource(const QShader &shader, QShader::Va
             return cacheIt.value();
     }
 
-    static const pD3DCompile d3dCompile = resolveD3DCompile();
+    static const pD3DCompile d3dCompile = QRhiD3D::resolveD3DCompile();
     if (d3dCompile == nullptr) {
         qWarning("Unable to resolve function D3DCompile()");
         return QByteArray();
@@ -4670,6 +4692,92 @@ void QD3D11CommandBuffer::destroy()
     // nothing to do here
 }
 
+bool QD3D11Timestamps::prepare(int pairCount, QRhiD3D11 *rhiD)
+{
+    // Creates the query objects if not yet done, but otherwise calling this
+    // function is expected to be a no-op.
+
+    Q_ASSERT(pairCount <= MAX_TIMESTAMP_PAIRS);
+    D3D11_QUERY_DESC queryDesc = {};
+    for (int i = 0; i < pairCount; ++i) {
+        if (!disjointQuery[i]) {
+            queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+            HRESULT hr = rhiD->dev->CreateQuery(&queryDesc, &disjointQuery[i]);
+            if (FAILED(hr)) {
+                qWarning("Failed to create timestamp disjoint query: %s",
+                         qPrintable(QSystemError::windowsComString(hr)));
+                return false;
+            }
+        }
+        queryDesc.Query = D3D11_QUERY_TIMESTAMP;
+        for (int j = 0; j < 2; ++j) {
+            const int idx = pairCount * i + j;
+            if (!query[idx]) {
+                HRESULT hr = rhiD->dev->CreateQuery(&queryDesc, &query[idx]);
+                if (FAILED(hr)) {
+                    qWarning("Failed to create timestamp query: %s",
+                             qPrintable(QSystemError::windowsComString(hr)));
+                    return false;
+                }
+            }
+        }
+    }
+    this->pairCount = pairCount;
+    return true;
+}
+
+void QD3D11Timestamps::destroy()
+{
+    for (int i = 0; i < MAX_TIMESTAMP_PAIRS; ++i) {
+        active[i] = false;
+        if (disjointQuery[i]) {
+            disjointQuery[i]->Release();
+            disjointQuery[i] = nullptr;
+        }
+        for (int j = 0; j < 2; ++j) {
+            const int idx = MAX_TIMESTAMP_PAIRS * i + j;
+            if (query[idx]) {
+                query[idx]->Release();
+                query[idx] = nullptr;
+            }
+        }
+    }
+}
+
+bool QD3D11Timestamps::tryQueryTimestamps(int idx, ID3D11DeviceContext *context, double *elapsedSec)
+{
+    bool result = false;
+    if (!active[idx])
+        return result;
+
+    ID3D11Query *tsDisjoint = disjointQuery[idx];
+    const int tsIdx = pairCount * idx;
+    ID3D11Query *tsStart = query[tsIdx];
+    ID3D11Query *tsEnd = query[tsIdx + 1];
+    quint64 timestamps[2];
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+
+    bool ok = true;
+    ok &= context->GetData(tsDisjoint, &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+    ok &= context->GetData(tsEnd, &timestamps[1], sizeof(quint64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+    // this above is often not ready, not even in frame_where_recorded+2,
+    // not clear why. so make the whole thing async and do not touch the
+    // queries until they are finally all available in frame this+2 or
+    // this+4 or ...
+    ok &= context->GetData(tsStart, &timestamps[0], sizeof(quint64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+
+    if (ok) {
+        if (!dj.Disjoint && dj.Frequency) {
+            const float elapsedMs = (timestamps[1] - timestamps[0]) / float(dj.Frequency) * 1000.0f;
+            *elapsedSec = elapsedMs / 1000.0;
+            result = true;
+        }
+        active[idx] = false;
+    } // else leave active set, will retry in a subsequent beginFrame or similar
+
+    return result;
+}
+
 QD3D11SwapChain::QD3D11SwapChain(QRhiImplementation *rhi)
     : QRhiSwapChain(rhi),
       rt(rhi, this),
@@ -4680,10 +4788,6 @@ QD3D11SwapChain::QD3D11SwapChain(QRhiImplementation *rhi)
     for (int i = 0; i < BUFFER_COUNT; ++i) {
         msaaTex[i] = nullptr;
         msaaRtv[i] = nullptr;
-        timestampActive[i] = false;
-        timestampDisjointQuery[i] = nullptr;
-        timestampQuery[2 * i] = nullptr;
-        timestampQuery[2 * i + 1] = nullptr;
     }
 }
 
@@ -4721,19 +4825,7 @@ void QD3D11SwapChain::destroy()
 
     releaseBuffers();
 
-    for (int i = 0; i < BUFFER_COUNT; ++i) {
-        if (timestampDisjointQuery[i]) {
-            timestampDisjointQuery[i]->Release();
-            timestampDisjointQuery[i] = nullptr;
-        }
-        for (int j = 0; j < 2; ++j) {
-            const int idx = BUFFER_COUNT * i + j;
-            if (timestampQuery[idx]) {
-                timestampQuery[idx]->Release();
-                timestampQuery[idx] = nullptr;
-            }
-        }
-    }
+    timestamps.destroy();
 
     swapChain->Release();
     swapChain = nullptr;
@@ -4830,7 +4922,7 @@ bool QD3D11SwapChain::isFormatSupported(Format f)
 QRhiSwapChainHdrInfo QD3D11SwapChain::hdrInfo()
 {
     QRhiSwapChainHdrInfo info = QRhiSwapChain::hdrInfo();
-    if (m_format != QRhiSwapChain::SDR && m_window) {
+    if (m_window) {
         QRHI_RES_RHI(QRhiD3D11);
         DXGI_OUTPUT_DESC1 hdrOutputDesc;
         if (outputDesc1ForWindow(m_window, rhiD->activeAdapter, &hdrOutputDesc)) {
@@ -4887,36 +4979,13 @@ bool QD3D11SwapChain::newColorBuffer(const QSize &size, DXGI_FORMAT format, DXGI
     return true;
 }
 
-static IDCompositionDevice *createDirectCompositionDevice()
-{
-    QSystemLibrary dcomplib(QStringLiteral("dcomp"));
-    typedef HRESULT (__stdcall *DCompositionCreateDeviceFuncPtr)(
-        _In_opt_ IDXGIDevice *dxgiDevice,
-        _In_ REFIID iid,
-        _Outptr_ void **dcompositionDevice);
-    DCompositionCreateDeviceFuncPtr func = reinterpret_cast<DCompositionCreateDeviceFuncPtr>(
-        dcomplib.resolve("DCompositionCreateDevice"));
-    if (!func) {
-        qWarning("Unable to resolve DCompositionCreateDevice, perhaps dcomp.dll is missing?");
-        return nullptr;
-    }
-    IDCompositionDevice *device = nullptr;
-    HRESULT hr = func(nullptr, __uuidof(IDCompositionDevice), reinterpret_cast<void **>(&device));
-    if (FAILED(hr)) {
-        qWarning("Failed to Direct Composition device: %s",
-                 qPrintable(QSystemError::windowsComString(hr)));
-        return nullptr;
-    }
-    return device;
-}
-
 bool QRhiD3D11::ensureDirectCompositionDevice()
 {
     if (dcompDevice)
         return true;
 
     qCDebug(QRHI_LOG_INFO, "Creating Direct Composition device (needed for semi-transparent windows)");
-    dcompDevice = createDirectCompositionDevice();
+    dcompDevice = QRhiD3D::createDirectCompositionDevice();
     return dcompDevice ? true : false;
 }
 
@@ -4925,15 +4994,6 @@ static const DXGI_FORMAT DEFAULT_SRGB_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 bool QD3D11SwapChain::createOrResize()
 {
-    if (IsWindows10OrGreater())
-    {
-        // continue
-    }
-    else
-    {
-        return createOrResizeWin7();
-    }
-
     // Can be called multiple times due to window resizes - that is not the
     // same as a simple destroy+create (as with other resources). Just need to
     // resize the buffers then.
@@ -5097,6 +5157,9 @@ bool QD3D11SwapChain::createOrResize()
                     qWarning("Failed to set content for Direct Composition visual: %s",
                              qPrintable(QSystemError::windowsComString(hr)));
                 }
+            } else {
+                // disable Alt+Enter; not relevant when using DirectComposition
+                rhiD->dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES);
             }
         }
         if (FAILED(hr)) {
@@ -5104,7 +5167,6 @@ bool QD3D11SwapChain::createOrResize()
                 qPrintable(QSystemError::windowsComString(hr)));
             return false;
         }
-        rhiD->dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES);
     } else {
         releaseBuffers();
         // flip model -> buffer count is the real buffer count, not 1 like with the legacy modes
@@ -5189,31 +5251,8 @@ bool QD3D11SwapChain::createOrResize()
     rtD->d.colorAttCount = 1;
     rtD->d.dsAttCount = m_depthStencil ? 1 : 0;
 
-    if (rhiD->hasGpuFrameTimeCallback()) {
-        D3D11_QUERY_DESC queryDesc = {};
-        for (int i = 0; i < BUFFER_COUNT; ++i) {
-            if (!timestampDisjointQuery[i]) {
-                queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-                hr = rhiD->dev->CreateQuery(&queryDesc, &timestampDisjointQuery[i]);
-                if (FAILED(hr)) {
-                    qWarning("Failed to create timestamp disjoint query: %s",
-                        qPrintable(QSystemError::windowsComString(hr)));
-                    break;
-                }
-            }
-            queryDesc.Query = D3D11_QUERY_TIMESTAMP;
-            for (int j = 0; j < 2; ++j) {
-                const int idx = BUFFER_COUNT * i + j; // one pair per buffer (frame)
-                if (!timestampQuery[idx]) {
-                    hr = rhiD->dev->CreateQuery(&queryDesc, &timestampQuery[idx]);
-                    if (FAILED(hr)) {
-                        qWarning("Failed to create timestamp query: %s",
-                            qPrintable(QSystemError::windowsComString(hr)));
-                        break;
-                    }
-                }
-            }
-        }
+    if (rhiD->rhiFlags.testFlag(QRhi::EnableTimestamps)) {
+        timestamps.prepare(BUFFER_COUNT, rhiD);
         // timestamp queries are optional so we can go on even if they failed
     }
 
@@ -5221,326 +5260,6 @@ bool QD3D11SwapChain::createOrResize()
         rhiD->registerResource(this);
 
     return true;
-}
-
-bool QD3D11SwapChain::createOrResizeWin7()
-{
-    // Can be called multiple times due to window resizes - that is not the
-    // same as a simple destroy+create (as with other resources). Just need to
-    // resize the buffers then.
-
-    const bool needsRegistration = !window || window != m_window;
-
-    // except if the window actually changes
-    if (window && window != m_window)
-        destroy();
-
-    window = m_window;
-    m_currentPixelSize = surfacePixelSize();
-    pixelSize = m_currentPixelSize;
-
-    if (pixelSize.isEmpty())
-        return false;
-
-    QRHI_RES_RHI(QRhiD3D11);
-    bool useFlipModel = rhiD->supportsFlipSwapchain;
-
-    // Take a shortcut for alpha: whatever the platform plugin does to enable
-    // transparency for our QWindow will be sufficient on the legacy (DISCARD)
-    // path. For FLIP_* we'd need to use DirectComposition (create a
-    // IDCompositionDevice/Target/Visual), avoid that for now. (this though
-    // means HDR and semi-transparent windows cannot be combined)
-    if (m_flags.testFlag(SurfaceHasPreMulAlpha) || m_flags.testFlag(SurfaceHasNonPreMulAlpha)) {
-        useFlipModel = false;
-        if (window->requestedFormat().alphaBufferSize() <= 0)
-            qWarning("Swapchain says surface has alpha but the window has no alphaBufferSize set. "
-                     "This may lead to problems.");
-    }
-
-    swapInterval = m_flags.testFlag(QRhiSwapChain::NoVSync) ? 0 : 1;
-    swapChainFlags = 0;
-
-    // A non-flip swapchain can do Present(0) as expected without
-    // ALLOW_TEARING, and ALLOW_TEARING is not compatible with it at all so the
-    // flag must not be set then. Whereas for flip we should use it, if
-    // supported, to get better results for 'unthrottled' presentation.
-    if (swapInterval == 0 && useFlipModel && rhiD->supportsAllowTearing)
-        swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-
-    if (!swapChain) {
-        HWND hwnd = reinterpret_cast<HWND>(window->winId());
-        sampleDesc = rhiD->effectiveSampleCount(m_sampleCount);
-        colorFormat = DEFAULT_FORMAT;
-        srgbAdjustedColorFormat = m_flags.testFlag(sRGB) ? DEFAULT_SRGB_FORMAT : DEFAULT_FORMAT;
-
-        HRESULT hr;
-        if (useFlipModel) {
-            DXGI_COLOR_SPACE_TYPE hdrColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709; // SDR
-            DXGI_OUTPUT_DESC1 hdrOutputDesc;
-            if (outputDesc1ForWindow(m_window, rhiD->activeAdapter, &hdrOutputDesc) && m_format != SDR) {
-                // https://docs.microsoft.com/en-us/windows/win32/direct3darticles/high-dynamic-range
-                if (hdrOutputDesc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020) {
-                    switch (m_format) {
-                    case HDRExtendedSrgbLinear:
-                        colorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
-                        hdrColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
-                        srgbAdjustedColorFormat = colorFormat;
-                        break;
-                    case HDR10:
-                        colorFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
-                        hdrColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-                        srgbAdjustedColorFormat = colorFormat;
-                        break;
-                    default:
-                        break;
-                    }
-                } else {
-                    // This happens also when Use HDR is set to Off in the Windows
-                    // Display settings. Show a helpful warning, but continue with the
-                    // default non-HDR format.
-                    qWarning("The output associated with the window is not HDR capable "
-                             "(or Use HDR is Off in the Display Settings), ignoring HDR format request");
-                }
-            }
-
-            // We use a FLIP model swapchain which implies a buffer count of 2
-            // (as opposed to the old DISCARD with back buffer count == 1).
-            // This makes no difference for the rest of the stuff except that
-            // automatic MSAA is unsupported and needs to be implemented via a
-            // custom multisample render target and an explicit resolve.
-
-            DXGI_SWAP_CHAIN_DESC1 desc;
-            memset(&desc, 0, sizeof(desc));
-            desc.Width = UINT(pixelSize.width());
-            desc.Height = UINT(pixelSize.height());
-            desc.Format = colorFormat;
-            desc.SampleDesc.Count = 1;
-            desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            desc.BufferCount = BUFFER_COUNT;
-
-            // Normally we'd want FLIP_DISCARD, but that comes with the default
-            // SCALING_STRETCH, as SCALING_NONE is documented to be only
-            // available for FLIP_SEQUENTIAl. The problem with stretch is that
-            // Qt Quick and similar apps typically running in resizable windows
-            // will not like how that looks in practice: the content will
-            // appear to be "jumping" around during a window resize. So choose
-            // sequential/none by default.
-            if (rhiD->forceFlipDiscard) {
-                desc.Scaling = DXGI_SCALING_STRETCH;
-                desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-            } else {
-                desc.Scaling = DXGI_SCALING_NONE;
-                desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-            }
-
-            // Do not bother with AlphaMode, if won't work unless we go through
-            // DirectComposition. Instead, we just take the other (DISCARD)
-            // path for now when alpha is requested.
-            desc.Flags = swapChainFlags;
-
-            IDXGIFactory2 *fac = static_cast<IDXGIFactory2 *>(rhiD->dxgiFactory);
-            IDXGISwapChain1 *sc1;
-            hr = fac->CreateSwapChainForHwnd(rhiD->dev, hwnd, &desc, nullptr, nullptr, &sc1);
-
-            // If failed and we tried a HDR format, then try with SDR. This
-            // matches other backends, such as Vulkan where if the format is
-            // not supported, the default one is used instead.
-            if (FAILED(hr) && m_format != SDR) {
-                colorFormat = DEFAULT_FORMAT;
-                desc.Format = DEFAULT_FORMAT;
-                hr = fac->CreateSwapChainForHwnd(rhiD->dev, hwnd, &desc, nullptr, nullptr, &sc1);
-            }
-
-            if (SUCCEEDED(hr)) {
-                swapChain = sc1;
-                if (m_format != SDR) {
-                    IDXGISwapChain3 *sc3 = nullptr;
-                    if (SUCCEEDED(sc1->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void **>(&sc3)))) {
-                        hr = sc3->SetColorSpace1(hdrColorSpace);
-                        if (FAILED(hr))
-                            qWarning("Failed to set color space on swapchain: %s",
-                                qPrintable(QSystemError::windowsComString(hr)));
-                        sc3->Release();
-                    } else {
-                        qWarning("IDXGISwapChain3 not available, HDR swapchain will not work as expected");
-                    }
-                }
-            }
-        } else {
-            // Fallback: use DISCARD mode. Regardless, keep on using our manual
-            // resolve for symmetry with the FLIP_* code path when MSAA is
-            // requested. This has no HDR support.
-
-            DXGI_SWAP_CHAIN_DESC desc;
-            memset(&desc, 0, sizeof(desc));
-            desc.BufferDesc.Width = UINT(pixelSize.width());
-            desc.BufferDesc.Height = UINT(pixelSize.height());
-            desc.BufferDesc.RefreshRate.Numerator = 60;
-            desc.BufferDesc.RefreshRate.Denominator = 1;
-            desc.BufferDesc.Format = colorFormat;
-            desc.SampleDesc.Count = 1;
-            desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            desc.BufferCount = 1;
-            desc.OutputWindow = hwnd;
-            desc.Windowed = true;
-            desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-            desc.Flags = swapChainFlags;
-
-            hr = rhiD->dxgiFactory->CreateSwapChain(rhiD->dev, &desc, &swapChain);
-        }
-        if (FAILED(hr)) {
-            qWarning("Failed to create D3D11 swapchain: %s",
-                qPrintable(QSystemError::windowsComString(hr)));
-            return false;
-        }
-        rhiD->dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES);
-    } else {
-        releaseBuffers();
-        const UINT count = useFlipModel ? BUFFER_COUNT : 1;
-        HRESULT hr = swapChain->ResizeBuffers(count, UINT(pixelSize.width()), UINT(pixelSize.height()),
-                                              colorFormat, swapChainFlags);
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-            qWarning("Device loss detected in ResizeBuffers()");
-            rhiD->deviceLost = true;
-            return false;
-        } else if (FAILED(hr)) {
-            qWarning("Failed to resize D3D11 swapchain: %s",
-                qPrintable(QSystemError::windowsComString(hr)));
-            return false;
-        }
-    }
-
-    // This looks odd (for FLIP_*, esp. compared with backends for Vulkan
-    // & co.) but the backbuffer is always at index 0, with magic underneath.
-    // Some explanation from
-    // https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-4-improvements
-    //
-    // "In Direct3D 11, applications could call GetBuffer( 0, … ) only once.
-    // Every call to Present implicitly changed the resource identity of the
-    // returned interface. Direct3D 12 no longer supports that implicit
-    // resource identity change, due to the CPU overhead required and the
-    // flexible resource descriptor design. As a result, the application must
-    // manually call GetBuffer for every each buffer created with the
-    // swapchain."
-
-    // So just query index 0 once (per resize) and be done with it.
-    HRESULT hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&backBufferTex));
-    if (FAILED(hr)) {
-        qWarning("Failed to query swapchain backbuffer: %s",
-            qPrintable(QSystemError::windowsComString(hr)));
-        return false;
-    }
-    D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-    rtvDesc.Format = srgbAdjustedColorFormat;
-    rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    hr = rhiD->dev->CreateRenderTargetView(backBufferTex, &rtvDesc, &backBufferRtv);
-    if (FAILED(hr)) {
-        qWarning("Failed to create rtv for swapchain backbuffer: %s",
-            qPrintable(QSystemError::windowsComString(hr)));
-        return false;
-    }
-
-    // Try to reduce stalls by having a dedicated MSAA texture per swapchain buffer.
-    for (int i = 0; i < BUFFER_COUNT; ++i) {
-        if (sampleDesc.Count > 1) {
-            if (!newColorBuffer(pixelSize, srgbAdjustedColorFormat, sampleDesc, &msaaTex[i], &msaaRtv[i]))
-                return false;
-        }
-    }
-
-    if (m_depthStencil && m_depthStencil->sampleCount() != m_sampleCount) {
-        qWarning("Depth-stencil buffer's sampleCount (%d) does not match color buffers' sample count (%d). Expect problems.",
-                 m_depthStencil->sampleCount(), m_sampleCount);
-    }
-    if (m_depthStencil && m_depthStencil->pixelSize() != pixelSize) {
-        if (m_depthStencil->flags().testFlag(QRhiRenderBuffer::UsedWithSwapChainOnly)) {
-            m_depthStencil->setPixelSize(pixelSize);
-            if (!m_depthStencil->create())
-                qWarning("Failed to rebuild swapchain's associated depth-stencil buffer for size %dx%d",
-                         pixelSize.width(), pixelSize.height());
-        } else {
-            qWarning("Depth-stencil buffer's size (%dx%d) does not match the surface size (%dx%d). Expect problems.",
-                     m_depthStencil->pixelSize().width(), m_depthStencil->pixelSize().height(),
-                     pixelSize.width(), pixelSize.height());
-        }
-    }
-
-    currentFrameSlot = 0;
-    frameCount = 0;
-    ds = m_depthStencil ? QRHI_RES(QD3D11RenderBuffer, m_depthStencil) : nullptr;
-
-    rt.setRenderPassDescriptor(m_renderPassDesc); // for the public getter in QRhiRenderTarget
-    QD3D11SwapChainRenderTarget *rtD = QRHI_RES(QD3D11SwapChainRenderTarget, &rt);
-    rtD->d.rp = QRHI_RES(QD3D11RenderPassDescriptor, m_renderPassDesc);
-    rtD->d.pixelSize = pixelSize;
-    rtD->d.dpr = float(window->devicePixelRatio());
-    rtD->d.sampleCount = int(sampleDesc.Count);
-    rtD->d.colorAttCount = 1;
-    rtD->d.dsAttCount = m_depthStencil ? 1 : 0;
-
-    if (rhiD->hasGpuFrameTimeCallback()) {
-        D3D11_QUERY_DESC queryDesc = {};
-        for (int i = 0; i < BUFFER_COUNT; ++i) {
-            if (!timestampDisjointQuery[i]) {
-                queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-                hr = rhiD->dev->CreateQuery(&queryDesc, &timestampDisjointQuery[i]);
-                if (FAILED(hr)) {
-                    qWarning("Failed to create timestamp disjoint query: %s",
-                        qPrintable(QSystemError::windowsComString(hr)));
-                    break;
-                }
-            }
-            queryDesc.Query = D3D11_QUERY_TIMESTAMP;
-            for (int j = 0; j < 2; ++j) {
-                const int idx = BUFFER_COUNT * i + j; // one pair per buffer (frame)
-                if (!timestampQuery[idx]) {
-                    hr = rhiD->dev->CreateQuery(&queryDesc, &timestampQuery[idx]);
-                    if (FAILED(hr)) {
-                        qWarning("Failed to create timestamp query: %s",
-                            qPrintable(QSystemError::windowsComString(hr)));
-                        break;
-                    }
-                }
-            }
-        }
-        // timestamp queries are optional so we can go on even if they failed
-    }
-
-    if (needsRegistration)
-        rhiD->registerResource(this);
-
-    return true;
-}
-
-void QRhiD3D11::DeviceCurse::initResources()
-{
-    framesLeft = framesToActivate;
-
-    HRESULT hr = q->dev->CreateComputeShader(g_killDeviceByTimingOut, sizeof(g_killDeviceByTimingOut), nullptr, &cs);
-    if (FAILED(hr)) {
-        qWarning("Failed to create compute shader: %s",
-            qPrintable(QSystemError::windowsComString(hr)));
-        return;
-    }
-}
-
-void QRhiD3D11::DeviceCurse::releaseResources()
-{
-    if (cs) {
-        cs->Release();
-        cs = nullptr;
-    }
-}
-
-void QRhiD3D11::DeviceCurse::activate()
-{
-    if (!cs)
-        return;
-
-    qDebug("Activating Curse. Goodbye Cruel World.");
-
-    q->context->CSSetShader(cs, nullptr, 0);
-    q->context->Dispatch(256, 1, 1);
 }
 
 QT_END_NAMESPACE

@@ -2,10 +2,12 @@
 // Copyright (C) 2016 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include <QtCore/qglobal.h>
-
 #ifndef QSYSINFO_H
 #define QSYSINFO_H
+
+#include <QtCore/qtconfigmacros.h>
+#include <QtCore/qprocessordetection.h>
+#include <QtCore/qtcoreexports.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -13,10 +15,9 @@ QT_BEGIN_NAMESPACE
    System information
 */
 
-#ifdef Q_QDOC
-class QByteArray;
-#endif
 class QString;
+class QByteArray;
+
 class Q_CORE_EXPORT QSysInfo
 {
 public:

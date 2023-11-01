@@ -125,7 +125,6 @@ public:
     int stmtCount = 0;
     mutable bool pendingNotifyCheck = false;
     bool hasBackslashEscape = false;
-    bool isUtf8 = false;
 
     void appendTables(QStringList &tl, QSqlQuery &t, QChar type);
     PGresult *exec(const char *stmt);
@@ -175,7 +174,7 @@ PGresult *QPSQLDriverPrivate::exec(const char *stmt)
 
 PGresult *QPSQLDriverPrivate::exec(const QString &stmt)
 {
-    return exec((isUtf8 ? stmt.toUtf8() : stmt.toLocal8Bit()).constData());
+    return exec(stmt.toUtf8().constData());
 }
 
 StatementId QPSQLDriverPrivate::sendQuery(const QString &stmt)
@@ -183,8 +182,7 @@ StatementId QPSQLDriverPrivate::sendQuery(const QString &stmt)
     // Discard any prior query results that the application didn't eat.
     // This is required for PQsendQuery()
     discardResults();
-    const int result = PQsendQuery(connection,
-                                   (isUtf8 ? stmt.toUtf8() : stmt.toLocal8Bit()).constData());
+    const int result = PQsendQuery(connection, stmt.toUtf8().constData());
     currentStmtId = result ? generateStatementId() : InvalidStatementId;
     return currentStmtId;
 }
@@ -256,7 +254,7 @@ public:
     Q_DECLARE_SQLDRIVER_PRIVATE(QPSQLDriver)
     using QSqlResultPrivate::QSqlResultPrivate;
 
-    QString fieldSerial(int i) const override { return u'$' + QString::number(i + 1); }
+    QString fieldSerial(qsizetype i) const override { return u'$' + QString::number(i + 1); }
     void deallocatePreparedStmt();
 
     std::queue<PGresult*> nextResultSets;
@@ -274,7 +272,7 @@ static QSqlError qMakeError(const QString &err, QSqlError::ErrorType type,
                             const QPSQLDriverPrivate *p, PGresult *result = nullptr)
 {
     const char *s = PQerrorMessage(p->connection);
-    QString msg = p->isUtf8 ? QString::fromUtf8(s) : QString::fromLocal8Bit(s);
+    QString msg = QString::fromUtf8(s);
     QString errorCode;
     if (result) {
         errorCode = QString::fromLatin1(PQresultErrorField(result, PG_DIAG_SQLSTATE));
@@ -382,8 +380,10 @@ void QPSQLResultPrivate::deallocatePreparedStmt()
         const QString stmt = QStringLiteral("DEALLOCATE ") + preparedStmtId;
         PGresult *result = drv_d_func()->exec(stmt);
 
-        if (PQresultStatus(result) != PGRES_COMMAND_OK)
-            qWarning("Unable to free statement: %s", PQerrorMessage(drv_d_func()->connection));
+        if (PQresultStatus(result) != PGRES_COMMAND_OK) {
+            const QString msg = QString::fromUtf8(PQerrorMessage(drv_d_func()->connection));
+            qWarning("Unable to free statement: %ls", qUtf16Printable(msg));
+        }
         PQclear(result);
     }
     preparedStmtId.clear();
@@ -606,7 +606,7 @@ QVariant QPSQLResult::data(int i)
     case QMetaType::Bool:
         return QVariant((bool)(val[0] == 't'));
     case QMetaType::QString:
-        return d->drv_d_func()->isUtf8 ? QString::fromUtf8(val) : QString::fromLatin1(val);
+        return QString::fromUtf8(val);
     case QMetaType::LongLong:
         if (val[0] == '-')
             return QByteArray::fromRawData(val, qstrlen(val)).toLongLong();
@@ -747,10 +747,7 @@ QSqlRecord QPSQLResult::record() const
     int count = PQnfields(d->result);
     QSqlField f;
     for (int i = 0; i < count; ++i) {
-        if (d->drv_d_func()->isUtf8)
-            f.setName(QString::fromUtf8(PQfname(d->result, i)));
-        else
-            f.setName(QString::fromLocal8Bit(PQfname(d->result, i)));
+        f.setName(QString::fromUtf8(PQfname(d->result, i)));
         const int tableOid = PQftable(d->result, i);
         // WARNING: We cannot execute any other SQL queries on
         // the same db connection while forward-only mode is active
@@ -918,7 +915,7 @@ void QPSQLDriverPrivate::setDatestyle()
     PGresult *result = exec("SET DATESTYLE TO 'ISO'");
     int status =  PQresultStatus(result);
     if (status != PGRES_COMMAND_OK)
-        qWarning("%s", PQerrorMessage(connection));
+        qWarning() << QString::fromUtf8(PQerrorMessage(connection));
     PQclear(result);
 }
 
@@ -931,7 +928,7 @@ void QPSQLDriverPrivate::setByteaOutput()
         PGresult *result = exec("SET bytea_output TO escape");
         int status = PQresultStatus(result);
         if (status != PGRES_COMMAND_OK)
-            qWarning("%s", PQerrorMessage(connection));
+            qWarning() << QString::fromUtf8(PQerrorMessage(connection));
         PQclear(result);
     }
 }
@@ -1125,6 +1122,7 @@ bool QPSQLDriver::hasFeature(DriverFeature f) const
     case EventNotifications:
     case MultipleResultSets:
     case BLOB:
+    case Unicode:
         return true;
     case PreparedQueries:
     case PositionalPlaceholders:
@@ -1135,8 +1133,6 @@ bool QPSQLDriver::hasFeature(DriverFeature f) const
     case FinishQuery:
     case CancelQuery:
         return false;
-    case Unicode:
-        return d->isUtf8;
     }
     return false;
 }
@@ -1194,7 +1190,13 @@ bool QPSQLDriver::open(const QString &db,
 
     d->pro = d->getPSQLVersion();
     d->detectBackslashEscape();
-    d->isUtf8 = d->setEncodingUtf8();
+    if (!d->setEncodingUtf8()) {
+        setLastError(qMakeError(tr("Unable to set client encoding to 'UNICODE'"), QSqlError::ConnectionError, d));
+        setOpenError(true);
+        PQfinish(d->connection);
+        d->connection = nullptr;
+        return false;
+    }
     d->setDatestyle();
     d->setByteaOutput();
 
@@ -1516,8 +1518,8 @@ QString QPSQLDriver::escapeIdentifier(const QString &identifier, IdentifierType)
     QString res = identifier;
     if (!identifier.isEmpty() && !identifier.startsWith(u'"') && !identifier.endsWith(u'"') ) {
         res.replace(u'"', "\"\""_L1);
-        res.prepend(u'"').append(u'"');
         res.replace(u'.', "\".\""_L1);
+        res = u'"' + res + u'"';
     }
     return res;
 }
@@ -1583,8 +1585,8 @@ bool QPSQLDriver::unsubscribeFromNotification(const QString &name)
     }
 
     if (!d->seid.contains(name)) {
-        qWarning("QPSQLDriver::unsubscribeFromNotificationImplementation: not subscribed to '%s'.",
-            qPrintable(name));
+        qWarning("QPSQLDriver::unsubscribeFromNotificationImplementation: not subscribed to '%ls'.",
+            qUtf16Printable(name));
         return false;
     }
 
@@ -1627,14 +1629,14 @@ void QPSQLDriver::_q_handleNotification()
             QString payload;
 #if defined PG_VERSION_NUM && PG_VERSION_NUM-0 >= 70400
             if (notify->extra)
-                payload = d->isUtf8 ? QString::fromUtf8(notify->extra) : QString::fromLatin1(notify->extra);
+                payload = QString::fromUtf8(notify->extra);
 #endif
             QSqlDriver::NotificationSource source = (notify->be_pid == PQbackendPID(d->connection)) ? QSqlDriver::SelfSource : QSqlDriver::OtherSource;
             emit notification(name, source, payload);
         }
         else
-            qWarning("QPSQLDriver: received notification for '%s' which isn't subscribed to.",
-                    qPrintable(name));
+            qWarning("QPSQLDriver: received notification for '%ls' which isn't subscribed to.",
+                    qUtf16Printable(name));
 
         qPQfreemem(notify);
     }

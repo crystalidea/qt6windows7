@@ -294,6 +294,7 @@ int QStyleHints::keyboardAutoRepeatRate() const
 
 /*!
     \property QStyleHints::keyboardAutoRepeatRateF
+    \since 6.5
     \brief the rate, in events per second, in which additional repeated key
     presses will automatically be generated if a key is being held down.
 */
@@ -376,6 +377,8 @@ bool QStyleHints::showIsMaximized() const
 
     Since Qt 5.13, the setShowShortcutsInContextMenus() function can be used to
     override the platform default.
+
+    \sa Qt::AA_DontShowShortcutsInContextMenus
 */
 bool QStyleHints::showShortcutsInContextMenus() const
 {

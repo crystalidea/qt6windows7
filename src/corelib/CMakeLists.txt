@@ -81,9 +81,11 @@ qt_internal_add_module(Core
         global/qsysinfo.cpp global/qsysinfo.h
         global/qsystemdetection.h
         global/qtclasshelpermacros.h
+        global/qtconfiginclude.h
         global/qtconfigmacros.h
         global/qtdeprecationmarkers.h
         global/qtenvironmentvariables.cpp global/qtenvironmentvariables.h
+        global/qtenvironmentvariables_p.h
         global/qtnoop.h
         global/qtpreprocessorsupport.h
         global/qtrace_p.h
@@ -97,13 +99,19 @@ qt_internal_add_module(Core
         ${core_version_tagging_files}
         global/qvolatile_p.h
         global/q20algorithm.h
+        global/q20chrono.h
         global/q20functional.h
         global/q20iterator.h
         global/q20memory.h
         global/q20type_traits.h
         global/q23functional.h
+        global/q23utility.cpp # remove once we have a user that tests this
+        global/q23utility.h
         global/qxpfunctional.h
         global/qxptype_traits.h
+        ipc/qsharedmemory.cpp ipc/qsharedmemory.h ipc/qsharedmemory_p.h
+        ipc/qsystemsemaphore.cpp ipc/qsystemsemaphore.h ipc/qsystemsemaphore_p.h
+        ipc/qtipccommon.cpp ipc/qtipccommon.h ipc/qtipccommon_p.h
         io/qabstractfileengine.cpp io/qabstractfileengine_p.h
         io/qbuffer.cpp io/qbuffer.h
         io/qdataurl.cpp io/qdataurl_p.h
@@ -138,6 +146,7 @@ qt_internal_add_module(Core
         io/qurlidna.cpp
         io/qurlquery.cpp io/qurlquery.h
         io/qurlrecode.cpp
+        io/qzipreader_p.h io/qzipwriter_p.h io/qzip.cpp
         kernel/qabstracteventdispatcher.cpp kernel/qabstracteventdispatcher.h kernel/qabstracteventdispatcher_p.h
         kernel/qabstractnativeeventfilter.cpp kernel/qabstractnativeeventfilter.h
         kernel/qapplicationstatic.h
@@ -148,7 +157,7 @@ qt_internal_add_module(Core
         kernel/qcoreapplication_platform.h
         kernel/qcorecmdlineargs_p.h
         kernel/qcoreevent.cpp kernel/qcoreevent.h
-        kernel/qdeadlinetimer.cpp kernel/qdeadlinetimer.h kernel/qdeadlinetimer_p.h
+        kernel/qdeadlinetimer.cpp kernel/qdeadlinetimer.h
         kernel/qelapsedtimer.cpp kernel/qelapsedtimer.h
         kernel/qeventloop.cpp kernel/qeventloop.h kernel/qeventloop_p.h
         kernel/qfunctions_p.h
@@ -170,15 +179,13 @@ qt_internal_add_module(Core
         kernel/qproperty.cpp kernel/qproperty.h kernel/qproperty_p.h
         kernel/qpropertyprivate.h
         kernel/qsequentialiterable.cpp kernel/qsequentialiterable.h
-        kernel/qsharedmemory.cpp kernel/qsharedmemory.h kernel/qsharedmemory_p.h
         kernel/qsignalmapper.cpp kernel/qsignalmapper.h
         kernel/qsocketnotifier.cpp kernel/qsocketnotifier.h
         kernel/qsystemerror.cpp kernel/qsystemerror_p.h
-        kernel/qsystemsemaphore.cpp kernel/qsystemsemaphore.h kernel/qsystemsemaphore_p.h
         kernel/qtestsupport_core.cpp kernel/qtestsupport_core.h
         kernel/qtimer.cpp kernel/qtimer.h kernel/qtimer_p.h
         kernel/qtranslator.cpp kernel/qtranslator.h kernel/qtranslator_p.h
-        kernel/qvariant.cpp kernel/qvariant.h
+        kernel/qvariant.cpp kernel/qvariant.h kernel/qvariant_p.h
         kernel/qvariantmap.h kernel/qvarianthash.h kernel/qvariantlist.h
         plugin/qfactoryinterface.cpp plugin/qfactoryinterface.h
         plugin/qfactoryloader.cpp plugin/qfactoryloader_p.h
@@ -201,9 +208,6 @@ qt_internal_add_module(Core
         serialization/qjsonvalue.cpp serialization/qjsonvalue.h
         serialization/qjsonwriter.cpp serialization/qjsonwriter_p.h
         serialization/qtextstream.cpp serialization/qtextstream.h serialization/qtextstream_p.h
-        serialization/qxmlstream.cpp serialization/qxmlstream.h serialization/qxmlstream_p.h
-        serialization/qxmlstreamgrammar.cpp serialization/qxmlstreamgrammar_p.h
-        serialization/qxmlstreamparser_p.h
         serialization/qxmlutils.cpp serialization/qxmlutils_p.h
         text/qanystringview.h
         text/qbytearray.cpp text/qbytearray.h text/qbytearray_p.h
@@ -216,6 +220,7 @@ qt_internal_add_module(Core
         text/qcollator.cpp text/qcollator.h text/qcollator_p.h
         text/qdoublescanprint_p.h
         text/qlatin1stringmatcher.cpp text/qlatin1stringmatcher.h
+        text/qlatin1stringview.h
         text/qlocale.cpp text/qlocale.h text/qlocale_p.h
         text/qlocale_data_p.h
         text/qlocale_tools.cpp text/qlocale_tools_p.h
@@ -274,6 +279,7 @@ qt_internal_add_module(Core
         tools/qduplicatetracker_p.h
         tools/qflatmap_p.h
         tools/qfreelist.cpp tools/qfreelist_p.h
+        tools/qfunctionaltools_impl.h
         tools/qhashfunctions.h
         tools/qiterator.h
         tools/qline.cpp tools/qline.h
@@ -298,6 +304,7 @@ qt_internal_add_module(Core
         tools/qsharedpointer.cpp tools/qsharedpointer.h
         tools/qsharedpointer_impl.h
         tools/qsize.cpp tools/qsize.h
+        tools/qspan_p.h
         tools/qstack.h
         tools/qtaggedpointer.h
         tools/qtools_p.h
@@ -341,6 +348,8 @@ qt_internal_add_module(Core
     "${CMAKE_CURRENT_SOURCE_DIR}/Qt6CoreDeploySupport.cmake"
     "${config_build_dir}/QtInstallPaths.cmake"
     ${corelib_extra_cmake_files}
+    POLICIES
+        QTP0002
 )
 _qt_internal_setup_deploy_support()
 
@@ -455,9 +464,6 @@ qt_internal_extend_target(Core
 )
 
 qt_internal_extend_target(Core CONDITION ANDROID
-    SOURCES
-        kernel/qsharedmemory_android.cpp
-        kernel/qsystemsemaphore_android.cpp
     DEFINES
         LIBS_SUFFIX="_${ANDROID_ABI}.so"
 )
@@ -467,12 +473,11 @@ qt_internal_extend_target(Core CONDITION MSVC AND (TEST_architecture_arch STREQU
         "/BASE:0x67000000"
 )
 
-# QtCore can't be compiled with -Wl,-no-undefined because it uses the
-# "environ" variable and FreeBSD does not include a weak symbol for it
-# in libc.
-qt_internal_extend_target(Core CONDITION FREEBSD
-    LINK_OPTIONS
-      "LINKER:--warn-unresolved-symbols"
+qt_internal_extend_target(Core CONDITION QT_FEATURE_xmlstream
+    SOURCES
+        serialization/qxmlstream.cpp serialization/qxmlstream.h serialization/qxmlstream_p.h
+        serialization/qxmlstreamgrammar.cpp serialization/qxmlstreamgrammar_p.h
+        serialization/qxmlstreamparser_p.h
 )
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_animation
@@ -510,11 +515,10 @@ qt_internal_extend_target(Core CONDITION WIN32
         io/qwindowspipewriter.cpp io/qwindowspipewriter_p.h
         io/qntdll_p.h
         kernel/qcoreapplication_win.cpp
-        kernel/qelapsedtimer_win.cpp
         kernel/qeventdispatcher_win.cpp kernel/qeventdispatcher_win_p.h
         kernel/qfunctions_win.cpp kernel/qfunctions_win_p.h kernel/qfunctions_winrt_p.h
-        kernel/qsharedmemory_win.cpp
-        kernel/qsystemsemaphore_win.cpp
+        ipc/qsharedmemory_win.cpp
+        ipc/qsystemsemaphore_win.cpp
         kernel/qwineventnotifier.cpp kernel/qwineventnotifier.h kernel/qwineventnotifier_p.h
         kernel/qwinregistry.cpp kernel/qwinregistry_p.h
         plugin/qsystemlibrary.cpp plugin/qsystemlibrary_p.h
@@ -571,7 +575,6 @@ qt_internal_extend_target(Core CONDITION APPLE
         kernel/qcore_foundation.mm
         kernel/qcore_mac.mm kernel/qcore_mac_p.h
         kernel/qcoreapplication_mac.cpp
-        kernel/qelapsedtimer_mac.cpp
         kernel/qeventdispatcher_cf.mm kernel/qeventdispatcher_cf_p.h
     LIBRARIES
         ${FWCoreFoundation}
@@ -667,10 +670,6 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_thread
 qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND UNIX
     SOURCES
         thread/qwaitcondition_unix.cpp
-    NO_UNITY_BUILD_SOURCES
-        thread/qwaitcondition_unix.cpp
-        # Temporary exclusion until this, https://codereview.qt-project.org/c/qt/qtbase/+/472013,
-        # or this, https://codereview.qt-project.org/c/qt/qtbase/+/471184 addresses the issue.
 )
 
 qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_thread
@@ -817,7 +816,7 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_regularexpression
         WrapPCRE2::WrapPCRE2
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_openssl_linked AND QT_FEATURE_opensslv30
+qt_internal_extend_target(Core CONDITION QT_FEATURE_openssl_hash
     LIBRARIES
         WrapOpenSSL::WrapOpenSSL
 )
@@ -971,11 +970,6 @@ qt_internal_extend_target(Core CONDITION APPLE AND NOT MACOS
         ${FWMobileCoreServices}
 )
 
-qt_internal_extend_target(Core CONDITION UNIX AND NOT APPLE
-    SOURCES
-        kernel/qelapsedtimer_unix.cpp
-)
-
 qt_internal_extend_target(Core CONDITION ANDROID
     SOURCES
         io/qstandardpaths_android.cpp
@@ -1098,19 +1092,30 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_glib AND UNIX
         GLIB2::GLIB2
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_clock_gettime AND UNIX
+qt_internal_extend_target(Core CONDITION QT_FEATURE_clock_gettime
     LIBRARIES
         WrapRt::WrapRt
 )
 
-qt_internal_extend_target(Core CONDITION UNIX AND NOT ANDROID
+qt_internal_extend_target(Core CONDITION QT_FEATURE_posix_shm AND UNIX
     SOURCES
-        kernel/qsharedmemory_posix.cpp
-        kernel/qsharedmemory_systemv.cpp
-        kernel/qsharedmemory_unix.cpp
-        kernel/qsystemsemaphore_posix.cpp
-        kernel/qsystemsemaphore_systemv.cpp
-        kernel/qsystemsemaphore_unix.cpp
+        ipc/qsharedmemory_posix.cpp
+    LIBRARIES
+        WrapRt::WrapRt
+)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_sysv_shm
+    SOURCES
+        ipc/qsharedmemory_systemv.cpp
+)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_posix_sem
+    SOURCES
+        ipc/qsystemsemaphore_posix.cpp
+    LIBRARIES
+        WrapRt::WrapRt
+)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_sysv_sem
+    SOURCES
+        ipc/qsystemsemaphore_systemv.cpp
 )
 
 qt_internal_extend_target(Core CONDITION VXWORKS
@@ -1305,10 +1310,11 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_ctf AND QT_FEATURE_library
         tracing
 )
 
+# These files are included by qmutex.cpp
 set_source_files_properties(
     thread/qmutex_mac.cpp
     thread/qmutex_unix.cpp
-    PROPERTIES HEADER_FILE_ONLY ON)  # special case: These files are included by qmutex.cpp!
+    PROPERTIES HEADER_FILE_ONLY ON)
 
 # Remove QT_NO_CAST_TO_ASCII to ensure that the symbols are included in the library.
 if(WIN32)

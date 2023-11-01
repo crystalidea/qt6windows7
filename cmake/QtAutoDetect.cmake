@@ -8,6 +8,9 @@
 # Make sure to not run detection when building standalone tests, because the detection was already
 # done when initially configuring qtbase.
 
+# This needs to be here because QtAutoDetect loads before any other modules
+option(QT_USE_VCPKG "Enable the use of vcpkg" ON)
+
 function(qt_internal_ensure_static_qt_config)
     if(NOT DEFINED BUILD_SHARED_LIBS)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Qt statically or dynamically" FORCE)
@@ -161,7 +164,7 @@ function(qt_auto_detect_android)
 endfunction()
 
 function(qt_auto_detect_vcpkg)
-    if(DEFINED ENV{VCPKG_ROOT})
+    if(QT_USE_VCPKG AND DEFINED ENV{VCPKG_ROOT})
         set(vcpkg_toolchain_file "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
         get_filename_component(vcpkg_toolchain_file "${vcpkg_toolchain_file}" ABSOLUTE)
 
@@ -174,8 +177,8 @@ function(qt_auto_detect_vcpkg)
         endif()
         set(CMAKE_TOOLCHAIN_FILE "${vcpkg_toolchain_file}" CACHE STRING "" FORCE)
         message(STATUS "Using vcpkg from $ENV{VCPKG_ROOT}")
-        if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
-            set(VCPKG_TARGET_TRIPLET "$ENV{VCPKG_DEFAULT_TRIPLET}" CACHE STRING "")
+        if(DEFINED ENV{QT_VCPKG_TARGET_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
+            set(VCPKG_TARGET_TRIPLET "$ENV{QT_VCPKG_TARGET_TRIPLET}" CACHE STRING "")
             message(STATUS "Using vcpkg triplet ${VCPKG_TARGET_TRIPLET}")
         endif()
         unset(vcpkg_toolchain_file)
@@ -229,7 +232,9 @@ function(qt_auto_detect_ios)
         endif()
         set(CMAKE_OSX_ARCHITECTURES "${osx_architectures}" CACHE STRING "")
 
-        qt_internal_ensure_static_qt_config()
+        if(NOT DEFINED BUILD_SHARED_LIBS)
+            qt_internal_ensure_static_qt_config()
+        endif()
 
         # Disable qt rpaths for iOS, just like mkspecs/common/uikit.conf does, due to those
         # bundles not being able to use paths outside the app bundle. Not sure this is strictly
@@ -239,7 +244,15 @@ function(qt_auto_detect_ios)
 endfunction()
 
 function(qt_auto_detect_cmake_config)
-    if(CMAKE_CONFIGURATION_TYPES)
+    # If CMAKE_CONFIGURATION_TYPES are not set for the multi-config generator use Release and
+    # Debug configurations by default, instead of those are proposed by the CMake internal logic.
+    get_property(is_multi GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if(is_multi)
+        if(NOT CMAKE_CONFIGURATION_TYPES)
+            set(CMAKE_CONFIGURATION_TYPES Release Debug)
+            set(CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES}" PARENT_SCOPE)
+        endif()
+
         # Allow users to specify this option.
         if(NOT QT_MULTI_CONFIG_FIRST_CONFIG)
             list(GET CMAKE_CONFIGURATION_TYPES 0 first_config_type)
@@ -476,6 +489,12 @@ function(qt_auto_detect_integrity)
     endif()
 endfunction()
 
+# Save the build type before project() might set one.
+# This allows us to determine if the user has set an explicit build type that we should use.
+function(qt_auto_detect_cmake_build_type)
+    set(__qt_auto_detect_cmake_build_type_before_project_call "${CMAKE_BUILD_TYPE}" PARENT_SCOPE)
+endfunction()
+
 # Let CMake load our custom platform modules.
 # CMake-provided platform modules take precedence.
 if(NOT QT_AVOID_CUSTOM_PLATFORM_MODULES)
@@ -495,3 +514,4 @@ qt_auto_detect_wasm()
 qt_auto_detect_win32_arm()
 qt_auto_detect_linux_x86()
 qt_auto_detect_integrity()
+qt_auto_detect_cmake_build_type()

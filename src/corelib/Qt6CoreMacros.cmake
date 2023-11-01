@@ -93,24 +93,32 @@ function(_qt_internal_create_moc_command infile outfile moc_flags moc_options
         set(extra_output_files "${outfile}.json")
         set(${out_json_file} "${extra_output_files}" PARENT_SCOPE)
     endif()
-    string (REPLACE ";" "\n" _moc_parameters "${_moc_parameters}")
 
     if(moc_target)
         set(_moc_parameters_file ${_moc_parameters_file}$<$<BOOL:$<CONFIG>>:_$<CONFIG>>)
         set(targetincludes "$<TARGET_PROPERTY:${moc_target},INCLUDE_DIRECTORIES>")
         set(targetdefines "$<TARGET_PROPERTY:${moc_target},COMPILE_DEFINITIONS>")
 
-        set(targetincludes "$<$<BOOL:${targetincludes}>:-I$<JOIN:$<REMOVE_DUPLICATES:${targetincludes}>,\n-I>\n>")
-        set(targetdefines "$<$<BOOL:${targetdefines}>:-D$<JOIN:$<REMOVE_DUPLICATES:${targetdefines}>,\n-D>\n>")
+        set(targetincludes "$<$<BOOL:${targetincludes}>:-I$<JOIN:${targetincludes},;-I>>")
+        set(targetdefines "$<$<BOOL:${targetdefines}>:-D$<JOIN:${targetdefines},;-D>>")
+        string(REPLACE ">" "$<ANGLE-R>" _moc_escaped_parameters "${_moc_parameters}")
+        string(REPLACE "," "$<COMMA>"   _moc_escaped_parameters "${_moc_escaped_parameters}")
+
+        set(concatenated "$<$<BOOL:${targetincludes}>:${targetincludes};>$<$<BOOL:${targetdefines}>:${targetdefines};>$<$<BOOL:${_moc_escaped_parameters}>:${_moc_escaped_parameters};>")
+
+        set(concatenated "$<FILTER:$<REMOVE_DUPLICATES:${concatenated}>,EXCLUDE,^-[DI]$>")
+        set(concatenated "$<JOIN:${concatenated},\n>")
 
         file (GENERATE
             OUTPUT ${_moc_parameters_file}
-            CONTENT "${targetdefines}${targetincludes}${_moc_parameters}\n"
+            CONTENT "${concatenated}"
         )
 
+        set(concatenated)
         set(targetincludes)
         set(targetdefines)
     else()
+        string (REPLACE ";" "\n" _moc_parameters "${_moc_parameters}")
         file(WRITE ${_moc_parameters_file} "${_moc_parameters}\n")
     endif()
 
@@ -121,8 +129,12 @@ function(_qt_internal_create_moc_command infile outfile moc_flags moc_options
                        ${_moc_working_dir}
                        VERBATIM)
     set_source_files_properties(${infile} PROPERTIES SKIP_AUTOMOC ON)
-    set_source_files_properties(${outfile} PROPERTIES SKIP_AUTOMOC ON)
-    set_source_files_properties(${outfile} PROPERTIES SKIP_AUTOUIC ON)
+    set_source_files_properties(${outfile} PROPERTIES SKIP_AUTOMOC ON
+                                                      SKIP_AUTOUIC ON
+    )
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.27")
+        set_source_files_properties(${outfile} PROPERTIES SKIP_LINTING ON)
+    endif()
 endfunction()
 
 function(qt6_generate_moc infile outfile )
@@ -434,6 +446,9 @@ function(qt6_add_big_resources outfiles )
 
         _qt6_parse_qrc_file(${infile} _out_depends _rc_depends)
         set_source_files_properties(${infile} PROPERTIES SKIP_AUTOGEN ON)
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.27")
+            set_source_files_properties(${tmpoutfile} PROPERTIES SKIP_LINTING ON)
+        endif()
         add_custom_command(OUTPUT ${tmpoutfile}
                            COMMAND ${QT_CMAKE_EXPORT_NAMESPACE}::rcc ${rcc_options} --name ${outfilename} --pass 1 --output ${tmpoutfile} ${infile}
                            DEPENDS ${infile} ${_rc_depends} "${out_depends}" ${QT_CMAKE_EXPORT_NAMESPACE}::rcc
@@ -660,6 +675,26 @@ function(_qt_internal_finalize_executable target)
     endif()
 endfunction()
 
+function(_cat IN_FILE OUT_FILE)
+  file(READ ${IN_FILE} CONTENTS)
+  file(APPEND ${OUT_FILE} "${CONTENTS}\n")
+endfunction()
+
+function(_qt_internal_finalize_batch name)
+    find_package(Qt6 ${PROJECT_VERSION} CONFIG REQUIRED COMPONENTS Core)
+
+    set(generated_blacklist_file "${CMAKE_CURRENT_BINARY_DIR}/BLACKLIST")
+    get_target_property(blacklist_files "${name}" _qt_blacklist_files)
+    file(WRITE "${generated_blacklist_file}" "")
+    foreach(blacklist_file ${blacklist_files})
+        _cat("${blacklist_file}" "${generated_blacklist_file}")
+    endforeach()
+    qt_internal_add_resource(${name} "batch_blacklist"
+        PREFIX "/"
+        FILES "${CMAKE_CURRENT_BINARY_DIR}/BLACKLIST"
+        BASE ${CMAKE_CURRENT_BINARY_DIR})
+endfunction()
+
 # If a task needs to run before any targets are finalized in the current directory
 # scope, call this function and pass the ID of that task as the argument.
 function(_qt_internal_delay_finalization_until_after defer_id)
@@ -667,6 +702,7 @@ function(_qt_internal_delay_finalization_until_after defer_id)
 endfunction()
 
 function(qt6_finalize_target target)
+    set_property(TARGET ${target} PROPERTY _qt_expects_finalization FALSE)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
         cmake_language(DEFER GET_CALL_IDS ids_queued)
         get_directory_property(wait_for_ids qt_internal_finalizers_wait_for_ids)
@@ -1025,9 +1061,23 @@ function(qt6_extract_metatypes target)
             add_dependencies(${target}_automoc_json_extraction ${target}_autogen)
             _qt_internal_assign_to_internal_targets_folder(${target}_automoc_json_extraction)
         else()
-            set(cmake_autogen_timestamp_file
-                "${target_autogen_build_dir}/timestamp"
-            )
+            set(use_better_automoc_graph FALSE)
+            if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.28.0"
+                AND CMAKE_CROSS_CONFIGS)
+                if(DEFINED QT_USE_BETTER_AUTOMOC_GRAPH)
+                    set(use_better_automoc_graph ${QT_USE_BETTER_AUTOMOC_GRAPH})
+                else()
+                    set(use_better_automoc_graph TRUE)
+                endif()
+            endif()
+
+            if(use_better_automoc_graph)
+                set(cmake_autogen_timestamp_file
+                    "${target_autogen_build_dir}/timestamp_$<CONFIG>")
+            else()
+                set(cmake_autogen_timestamp_file
+                    "${target_autogen_build_dir}/timestamp")
+            endif()
 
             add_custom_command(OUTPUT ${type_list_file}
                 DEPENDS ${QT_CMAKE_EXPORT_NAMESPACE}::cmake_automoc_parser
@@ -1485,6 +1535,13 @@ function(__qt_get_relative_resource_path_for_file output_alias file)
     get_property(alias SOURCE ${file} PROPERTY QT_RESOURCE_ALIAS)
     if (NOT alias)
         set(alias "${file}")
+        if(IS_ABSOLUTE "${file}")
+            message(FATAL_ERROR
+                "The source file '${file}' was specified with an absolute path and is used in a Qt "
+                "resource. Please set the QT_RESOURCE_ALIAS property on that source file to a "
+                "relative path to make the file properly accessible via the resource system."
+            )
+        endif()
     endif()
     set(${output_alias} ${alias} PARENT_SCOPE)
 endfunction()
@@ -1887,6 +1944,7 @@ function(_qt_internal_process_resource target resourceName)
         return()
     endif()
     set(generatedResourceFile "${CMAKE_CURRENT_BINARY_DIR}/.rcc/${resourceName}.qrc")
+    _qt_internal_expose_source_file_to_ide(${target} ${generatedResourceFile})
 
     # Generate .qrc file:
 
@@ -1907,10 +1965,15 @@ function(_qt_internal_process_resource target resourceName)
             set(file "${CMAKE_CURRENT_SOURCE_DIR}/${file}")
         endif()
 
+        get_property(is_empty SOURCE ${file} PROPERTY QT_DISCARD_FILE_CONTENTS)
+
         ### FIXME: escape file paths to be XML conform
         # <file ...>...</file>
-        string(APPEND qrcContents "    <file alias=\"${file_resource_path}\">")
-        string(APPEND qrcContents "${file}</file>\n")
+        string(APPEND qrcContents "    <file alias=\"${file_resource_path}\"")
+        if(is_empty)
+            string(APPEND qrcContents " empty=\"true\"")
+        endif()
+        string(APPEND qrcContents ">${file}</file>\n")
         list(APPEND files "${file}")
 
         set(scope_args)
@@ -2017,6 +2080,9 @@ function(_qt_internal_process_resource target resourceName)
         SKIP_UNITY_BUILD_INCLUSION TRUE
         SKIP_PRECOMPILE_HEADERS TRUE
     )
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.27")
+        set_source_files_properties(${generatedOutfile} ${scope_args} PROPERTIES SKIP_LINTING ON)
+    endif()
 
     get_target_property(target_source_dir ${target} SOURCE_DIR)
     if(NOT target_source_dir STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -2804,8 +2870,8 @@ macro(qt6_standard_project_setup)
             endif()
         endforeach()
 
-        # Enable folder support for IDEs. A future CMake version might enable this by default.
-        # See CMake issue #21695.
+        # Enable folder support for IDEs. CMake >= 3.26 enables USE_FOLDERS by default but this is
+        # guarded by CMake policy CMP0143.
         get_property(__qt_use_folders GLOBAL PROPERTY USE_FOLDERS)
         if(__qt_use_folders OR "${__qt_use_folders}" STREQUAL "")
             set_property(GLOBAL PROPERTY USE_FOLDERS ON)

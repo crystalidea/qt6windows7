@@ -19,7 +19,7 @@ QDebug operator<<(QDebug dbg, const QSqlError &s)
 }
 #endif
 
-class QSqlErrorPrivate
+class QSqlErrorPrivate : public QSharedData
 {
 public:
     QString driverError;
@@ -27,7 +27,7 @@ public:
     QSqlError::ErrorType errorType;
     QString errorCode;
 };
-
+QT_DEFINE_QESDP_SPECIALIZATION_DTOR(QSqlErrorPrivate)
 
 /*!
     \class QSqlError
@@ -88,9 +88,6 @@ public:
     Constructs an error containing the driver error text \a
     driverText, the database-specific error text \a databaseText, the
     type \a type and the error code \a code.
-
-    \note DB2: It is possible for DB2 to report more than one error code.
-    When this happens, \c ; is used as separator between the error codes.
 */
 QSqlError::QSqlError(const QString &driverText, const QString &databaseText,
                      ErrorType type, const QString &code)
@@ -107,44 +104,37 @@ QSqlError::QSqlError(const QString &driverText, const QString &databaseText,
     Creates a copy of \a other.
 */
 QSqlError::QSqlError(const QSqlError &other)
-    : d(new QSqlErrorPrivate(*other.d))
-{
-}
+    = default;
 
 /*!
     Assigns the \a other error's values to this error.
 */
 
 QSqlError &QSqlError::operator=(const QSqlError &other)
-{
-    if (&other == this)
-        return *this;
-    if (d && other.d)
-        *d = *other.d;
-    else if (d)
-        *d = QSqlErrorPrivate();
-    else if (other.d)
-        d = new QSqlErrorPrivate(*other.d);
-    return *this;
-}
+    = default;
+
 
 /*!
-    Compare the \a other error's values to this error and returns \c true, if it equal.
+    Compare the \a other error's type() and nativeErrorCode()
+    to this error and returns \c true, if it equal.
 */
 
 bool QSqlError::operator==(const QSqlError &other) const
 {
-    return (d->errorType == other.d->errorType);
+    return (d->errorType == other.d->errorType &&
+            d->errorCode == other.d->errorCode);
 }
 
 
 /*!
-    Compare the \a other error's values to this error and returns \c true if it is not equal.
+    Compare the \a other error's type() and nativeErrorCode()
+    to this error and returns \c true if it is not equal.
 */
 
 bool QSqlError::operator!=(const QSqlError &other) const
 {
-    return (d->errorType != other.d->errorType);
+    return (d->errorType != other.d->errorType ||
+            d->errorCode != other.d->errorCode);
 }
 
 
@@ -153,9 +143,7 @@ bool QSqlError::operator!=(const QSqlError &other) const
 */
 
 QSqlError::~QSqlError()
-{
-    delete d;
-}
+    = default;
 
 /*!
     Returns the text of the error as reported by the driver. This may
@@ -192,6 +180,9 @@ QSqlError::ErrorType QSqlError::type() const
 /*!
     Returns the database-specific error code, or an empty string if
     it cannot be determined.
+    \note Some drivers (like DB2 or ODBC) may return more than one
+    error code. When this happens, \c ; is used as separator between
+    the error codes.
 */
 
 QString QSqlError::nativeErrorCode() const

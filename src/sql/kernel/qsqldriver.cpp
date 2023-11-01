@@ -7,8 +7,8 @@
 #include "qsqlerror.h"
 #include "qsqlfield.h"
 #include "qsqlindex.h"
-#include "private/qobject_p.h"
 #include "private/qsqldriver_p.h"
+#include "private/qtools_p.h"
 
 #include <limits.h>
 
@@ -215,6 +215,7 @@ bool QSqlDriver::isOpenError() const
     \value SQLite
     \value Interbase
     \value DB2
+    \value [since 6.6] MimerSQL
 */
 
 /*!
@@ -446,12 +447,11 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
 {
     const auto tableNameString = tableName.isEmpty() ? QString()
                                     : prepareIdentifier(tableName, QSqlDriver::TableName, this);
-    int i;
     QString s;
     s.reserve(128);
     switch (type) {
     case SelectStatement:
-        for (i = 0; i < rec.count(); ++i) {
+        for (qsizetype i = 0; i < rec.count(); ++i) {
             if (rec.isGenerated(i))
                 s.append(prepareIdentifier(rec.fieldName(i), QSqlDriver::FieldName, this)).append(", "_L1);
         }
@@ -464,7 +464,7 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
     {
         const QString tableNamePrefix = tableNameString.isEmpty()
                                             ? QString() : tableNameString + u'.';
-        for (int i = 0; i < rec.count(); ++i) {
+        for (qsizetype i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
                 continue;
             s.append(s.isEmpty() ? "WHERE "_L1 : " AND "_L1);
@@ -481,7 +481,7 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
     }
     case UpdateStatement:
         s = s + "UPDATE "_L1 + tableNameString + " SET "_L1;
-        for (i = 0; i < rec.count(); ++i) {
+        for (qsizetype i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
                 continue;
             s.append(prepareIdentifier(rec.fieldName(i), QSqlDriver::FieldName, this)).append(u'=');
@@ -502,7 +502,7 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
     case InsertStatement: {
         s = s + "INSERT INTO "_L1 + tableNameString + " ("_L1;
         QString vals;
-        for (i = 0; i < rec.count(); ++i) {
+        for (qsizetype i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
                 continue;
             s.append(prepareIdentifier(rec.fieldName(i), QSqlDriver::FieldName, this)).append(", "_L1);
@@ -613,15 +613,15 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
             break;
         case QMetaType::QByteArray : {
             if (hasFeature(BLOB)) {
-                QByteArray ba = field.value().toByteArray();
-                QString res;
-                static const char hexchars[] = "0123456789abcdef";
-                for (int i = 0; i < ba.size(); ++i) {
-                    uchar s = (uchar) ba[i];
-                    res += QLatin1Char(hexchars[s >> 4]);
-                    res += QLatin1Char(hexchars[s & 0x0f]);
+                const QByteArray ba = field.value().toByteArray();
+                r.reserve((ba.size() + 1) * 2);
+                r += u'\'';
+                for (const char c : ba) {
+                    const uchar s = uchar(c);
+                    r += QLatin1Char(QtMiscUtils::toHexLower(s >> 4));
+                    r += QLatin1Char(QtMiscUtils::toHexLower(s & 0x0f));
                 }
-                r = u'\'' + res +  u'\'';
+                r += u'\'';
                 break;
             }
         }

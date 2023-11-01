@@ -4,6 +4,7 @@
 #ifndef QUUID_H
 #define QUUID_H
 
+#include <QtCore/qendian.h>
 #include <QtCore/qstring.h>
 
 #if defined(Q_OS_WIN) || defined(Q_QDOC)
@@ -25,7 +26,6 @@ Q_FORWARD_DECLARE_OBJC_CLASS(NSUUID);
 #endif
 
 QT_BEGIN_NAMESPACE
-
 
 class Q_CORE_EXPORT QUuid
 {
@@ -55,11 +55,37 @@ public:
         Id128           = 3
     };
 
+    union alignas(16) Id128Bytes {
+        quint8 data[16];
+        quint16 data16[8];
+        quint32 data32[4];
+        quint64 data64[2];
+#ifdef QT_SUPPORTS_INT128
+        quint128 data128[1];
+#endif
+
+        constexpr explicit operator QByteArrayView() const noexcept
+        {
+            return QByteArrayView(data, sizeof(data));
+        }
+
+        friend constexpr Id128Bytes qbswap(Id128Bytes b) noexcept
+        {
+            // 128-bit byte swap
+            auto b0 = qbswap(b.data64[0]);
+            auto b1 = qbswap(b.data64[1]);
+            b.data64[0] = b1;
+            b.data64[1] = b0;
+            return b;
+        }
+    };
+
     constexpr QUuid() noexcept : data1(0), data2(0), data3(0), data4{0,0,0,0,0,0,0,0} {}
 
     constexpr QUuid(uint l, ushort w1, ushort w2, uchar b1, uchar b2, uchar b3,
                            uchar b4, uchar b5, uchar b6, uchar b7, uchar b8) noexcept
         : data1(l), data2(w1), data3(w2), data4{b1, b2, b3, b4, b5, b6, b7, b8} {}
+    explicit inline QUuid(Id128Bytes id128, QSysInfo::Endian order = QSysInfo::BigEndian) noexcept;
 
     explicit QUuid(QAnyStringView string) noexcept
         : QUuid{fromString(string)} {}
@@ -73,12 +99,21 @@ public:
 #endif
     QString toString(StringFormat mode = WithBraces) const;
     QByteArray toByteArray(StringFormat mode = WithBraces) const;
+    inline Id128Bytes toBytes(QSysInfo::Endian order = QSysInfo::BigEndian) const noexcept;
     QByteArray toRfc4122() const;
+
+    static inline QUuid fromBytes(const void *bytes, QSysInfo::Endian order = QSysInfo::BigEndian);
 #if QT_CORE_REMOVED_SINCE(6, 3)
     static QUuid fromRfc4122(const QByteArray &);
 #endif
     static QUuid fromRfc4122(QByteArrayView) noexcept;
+
     bool isNull() const noexcept;
+
+#ifdef QT_SUPPORTS_INT128
+    static constexpr QUuid fromUInt128(quint128 uuid, QSysInfo::Endian order = QSysInfo::BigEndian) noexcept;
+    constexpr quint128 toUInt128(QSysInfo::Endian order = QSysInfo::BigEndian) const noexcept;
+#endif
 
     constexpr bool operator==(const QUuid &orig) const noexcept
     {
@@ -177,10 +212,91 @@ Q_CORE_EXPORT QDebug operator<<(QDebug, const QUuid &);
 
 Q_CORE_EXPORT size_t qHash(const QUuid &uuid, size_t seed = 0) noexcept;
 
+QUuid::QUuid(Id128Bytes uuid, QSysInfo::Endian order) noexcept
+{
+    if (order == QSysInfo::LittleEndian)
+        uuid = qbswap(uuid);
+    data1 = qFromBigEndian<quint32>(&uuid.data[0]);
+    data2 = qFromBigEndian<quint16>(&uuid.data[4]);
+    data3 = qFromBigEndian<quint16>(&uuid.data[6]);
+    memcpy(data4, &uuid.data[8], sizeof(data4));
+}
+
+QUuid::Id128Bytes QUuid::toBytes(QSysInfo::Endian order) const noexcept
+{
+    Id128Bytes result = {};
+    qToBigEndian(data1, &result.data[0]);
+    qToBigEndian(data2, &result.data[4]);
+    qToBigEndian(data3, &result.data[6]);
+    memcpy(&result.data[8], data4, sizeof(data4));
+    if (order == QSysInfo::LittleEndian)
+        return qbswap(result);
+    return result;
+}
+
+QUuid QUuid::fromBytes(const void *bytes, QSysInfo::Endian order)
+{
+    Id128Bytes result = {};
+    memcpy(result.data, bytes, sizeof(result));
+    return QUuid(result, order);
+}
+
+#ifdef QT_SUPPORTS_INT128
+constexpr QUuid QUuid::fromUInt128(quint128 uuid, QSysInfo::Endian order) noexcept
+{
+    QUuid result = {};
+    if (order == QSysInfo::BigEndian) {
+        result.data1 = qFromBigEndian<quint32>(int(uuid));
+        result.data2 = qFromBigEndian<quint16>(ushort(uuid >> 32));
+        result.data3 = qFromBigEndian<quint16>(ushort(uuid >> 48));
+        for (int i = 0; i < 8; ++i)
+            result.data4[i] = uchar(uuid >> (64 + i * 8));
+    } else {
+        result.data1 = qFromLittleEndian<quint32>(uint(uuid >> 96));
+        result.data2 = qFromLittleEndian<quint16>(ushort(uuid >> 80));
+        result.data3 = qFromLittleEndian<quint16>(ushort(uuid >> 64));
+        for (int i = 0; i < 8; ++i)
+            result.data4[i] = uchar(uuid >> (56 - i * 8));
+    }
+    return result;
+}
+
+constexpr quint128 QUuid::toUInt128(QSysInfo::Endian order) const noexcept
+{
+    quint128 result = {};
+    if (order == QSysInfo::BigEndian) {
+        for (int i = 0; i < 8; ++i)
+            result |= quint64(data4[i]) << (i * 8);
+        result = result << 64;
+        result |= quint64(qToBigEndian<quint16>(data3)) << 48;
+        result |= quint64(qToBigEndian<quint16>(data2)) << 32;
+        result |= qToBigEndian<quint32>(data1);
+    } else {
+        result = qToLittleEndian<quint32>(data1);
+        result = result << 32;
+        result |= quint64(qToLittleEndian<quint16>(data2)) << 16;
+        result |= quint64(qToLittleEndian<quint16>(data3));
+        result = result << 64;
+        for (int i = 0; i < 8; ++i)
+            result |= quint64(data4[i]) << (56 - i * 8);
+    }
+    return result;
+}
+#endif
+
 inline bool operator<=(const QUuid &lhs, const QUuid &rhs) noexcept
 { return !(rhs < lhs); }
 inline bool operator>=(const QUuid &lhs, const QUuid &rhs) noexcept
 { return !(lhs < rhs); }
+
+#if defined(Q_QDOC)
+// provide fake declarations of qXXXEndian() functions, so that qDoc could
+// distinguish them from the general template
+QUuid::Id128Bytes qFromBigEndian(QUuid::Id128Bytes src);
+QUuid::Id128Bytes qFromLittleEndian(QUuid::Id128Bytes src);
+QUuid::Id128Bytes qToBigEndian(QUuid::Id128Bytes src);
+QUuid::Id128Bytes qToLittleEndian(QUuid::Id128Bytes src);
+#endif
 
 QT_END_NAMESPACE
 

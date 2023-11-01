@@ -16,6 +16,7 @@ Window::Window(QRhi::Implementation graphicsApi)
         setSurfaceType(VulkanSurface);
         break;
     case QRhi::D3D11:
+    case QRhi::D3D12:
         setSurfaceType(Direct3DSurface);
         break;
     case QRhi::Metal:
@@ -81,7 +82,7 @@ bool Window::event(QEvent *e)
 
 void Window::init()
 {
-    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers | QRhi::EnableProfiling;
+    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers;
 
     if (m_graphicsApi == QRhi::Null) {
         QRhiNullInitParams params;
@@ -112,6 +113,10 @@ void Window::init()
         QRhiD3D11InitParams params;
         params.enableDebugLayer = true;
         m_rhi.reset(QRhi::create(QRhi::D3D11, &params, rhiFlags));
+    } else if (m_graphicsApi == QRhi::D3D12) {
+        QRhiD3D12InitParams params;
+        params.enableDebugLayer = true;
+        m_rhi.reset(QRhi::create(QRhi::D3D12, &params, rhiFlags));
     }
 #endif
 

@@ -8,18 +8,14 @@
 set(QT_BUILDING_QT TRUE CACHE BOOL
         "When this is present and set to true, it signals that we are building Qt from source.")
 
-# Pre-calculate the developer_build feature if it's set by the user via INPUT_developer_build
-if(NOT FEATURE_developer_build AND INPUT_developer_build
-        AND NOT "${INPUT_developer_build}" STREQUAL "undefined")
-    set(FEATURE_developer_build ON)
-endif()
+# Pre-calculate the developer_build feature if it's set by the user via the INPUT_developer_build
+# variable when using the configure script. When not using configure, don't take the INPUT variable
+# into account, so that users can toggle the feature directly in the cache or via IDE.
+qt_internal_compute_feature_value_from_possible_input(developer_build)
 
 # Pre-calculate the no_prefix feature if it's set by configure via INPUT_no_prefix.
 # This needs to be done before qtbase/configure.cmake is processed.
-if(NOT FEATURE_no_prefix AND INPUT_no_prefix
-        AND NOT "${INPUT_no_prefix}" STREQUAL "undefined")
-    set(FEATURE_no_prefix ON)
-endif()
+qt_internal_compute_feature_value_from_possible_input(no_prefix)
 
 set(_default_build_type "Release")
 if(FEATURE_developer_build)
@@ -49,7 +45,20 @@ unset(QT_EXTRA_BUILD_INTERNALS_VARS)
 # Save the global property in a variable to make it available to feature conditions.
 get_property(QT_GENERATOR_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+# Try to detect if an explicit CMAKE_BUILD_TYPE was set by the user.
+# CMake sets CMAKE_BUILD_TYPE_INIT to Debug on most Windows platforms and doesn't set
+# anything for UNIXes. CMake assigns CMAKE_BUILD_TYPE_INIT to CMAKE_BUILD_TYPE during
+# first project() if CMAKE_BUILD_TYPE has no previous value.
+# We use extra information about the state of CMAKE_BUILD_TYPE before the first
+# project() call that's set in QtAutodetect.
+# STREQUAL check needs to have expanded variables because an undefined var is not equal
+# to an empty defined var.
+# See also qt_internal_force_set_cmake_build_type_conditionally which is used
+# to set the build type when building other repos or tests.
+if("${CMAKE_BUILD_TYPE}" STREQUAL "${CMAKE_BUILD_TYPE_INIT}"
+    AND NOT __qt_auto_detect_cmake_build_type_before_project_call
+    AND NOT __qt_build_internals_cmake_build_type
+    AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "Setting build type to '${_default_build_type}' as none was specified.")
   set(CMAKE_BUILD_TYPE "${_default_build_type}" CACHE STRING "Choose the type of build." FORCE)
   set_property(CACHE CMAKE_BUILD_TYPE
@@ -193,6 +202,8 @@ else()
     set(QT_INTERNAL_CONFIGURE_FROM_IDE FALSE CACHE INTERNAL "Configuring Qt Project from IDE")
 endif()
 
+set(_qt_sync_headers_at_configure_time_default ${QT_INTERNAL_CONFIGURE_FROM_IDE})
+
 if(FEATURE_developer_build)
     if(DEFINED QT_CMAKE_EXPORT_COMPILE_COMMANDS)
         set(CMAKE_EXPORT_COMPILE_COMMANDS ${QT_CMAKE_EXPORT_COMPILE_COMMANDS})
@@ -213,9 +224,24 @@ if(FEATURE_developer_build)
     if (CMAKE_BUILD_TYPE AND CMAKE_BUILD_TYPE STREQUAL Debug)
         set(__build_benchmarks OFF)
     endif()
+
+    # Sync headers during the initial configuration of a -developer-build to facilitate code
+    # navigation for code editors that use an LSP-based code model.
+    set(_qt_sync_headers_at_configure_time_default TRUE)
 else()
     set(_qt_build_tests_default OFF)
     set(__build_benchmarks OFF)
+endif()
+
+# Sync Qt header files at configure time
+option(QT_SYNC_HEADERS_AT_CONFIGURE_TIME "Run syncqt at configure time already"
+    ${_qt_sync_headers_at_configure_time_default})
+unset(_qt_sync_headers_at_configure_time_default)
+
+# In static Ninja Multi-Config builds the sync_headers dependencies(and other autogen dependencies
+# are not added to '_autogen/timestamp' targets. See QTBUG-113974.
+if(CMAKE_GENERATOR STREQUAL "Ninja Multi-Config" AND NOT QT_BUILD_SHARED_LIBS)
+    set(QT_SYNC_HEADERS_AT_CONFIGURE_TIME TRUE CACHE BOOL "" FORCE)
 endif()
 
 # Build Benchmarks
@@ -255,10 +281,10 @@ endif()
 
 option(QT_BUILD_TESTS_BATCHED "Link all tests into a single binary." ${_qt_batch_tests})
 
-if(QT_BUILD_TESTS AND QT_BUILD_TESTS_BATCHED AND CMAKE_VERSION VERSION_LESS "3.18")
+if(QT_BUILD_TESTS AND QT_BUILD_TESTS_BATCHED AND CMAKE_VERSION VERSION_LESS "3.19")
     message(FATAL_ERROR
-        "Test batching requires at least CMake 3.18, due to requiring per-source "
-        "TARGET_DIRECTORY assignments.")
+        "Test batching requires at least CMake 3.19, due to requiring per-source "
+        "TARGET_DIRECTORY assignments and DEFER calls.")
 endif()
 
 # QT_BUILD_TOOLS_WHEN_CROSSCOMPILING -> QT_FORCE_BUILD_TOOLS
@@ -285,6 +311,9 @@ enable_testing()
 
 option(QT_BUILD_EXAMPLES "Build Qt examples" OFF)
 option(QT_BUILD_EXAMPLES_BY_DEFAULT "Should examples be built as part of the default 'all' target." ON)
+option(QT_INSTALL_EXAMPLES_SOURCES "Install example sources" OFF)
+option(QT_INSTALL_EXAMPLES_SOURCES_BY_DEFAULT
+    "Install example sources as part of the default 'install' target" ON)
 
 # FIXME: Support prefix builds as well QTBUG-96232
 if(QT_WILL_INSTALL)
@@ -354,31 +383,11 @@ endif()
 
 option(QT_ALLOW_SYMLINK_IN_PATHS "Allows symlinks in paths." OFF)
 
-# We need to clean up QT_FEATURE_*, but only once per configuration cycle
-get_property(qt_feature_clean GLOBAL PROPERTY _qt_feature_clean)
-if(NOT qt_feature_clean)
-    message(STATUS "Check for feature set changes")
-    set_property(GLOBAL PROPERTY _qt_feature_clean TRUE)
-    foreach(feature ${QT_KNOWN_FEATURES})
-        if(DEFINED "FEATURE_${feature}" AND
-            NOT "${QT_FEATURE_${feature}}" STREQUAL "${FEATURE_${feature}}")
-            message("    '${feature}' is changed from ${QT_FEATURE_${feature}} \
-to ${FEATURE_${feature}}")
-            set(dirty_build TRUE)
-        endif()
-        unset("QT_FEATURE_${feature}" CACHE)
-    endforeach()
-
-    set(QT_KNOWN_FEATURES "" CACHE INTERNAL "" FORCE)
-
-    if(dirty_build)
-        set_property(GLOBAL PROPERTY _qt_dirty_build TRUE)
-        message(WARNING "Re-configuring in existing build folder. \
-Some features will be re-evaluated automatically.")
-    endif()
-endif()
+qt_internal_detect_dirty_features()
 
 if(NOT QT_BUILD_EXAMPLES)
     # Disable deployment setup to avoid warnings about missing patchelf with CMake < 3.21.
     set(QT_SKIP_SETUP_DEPLOYMENT ON)
 endif()
+
+option(QT_ALLOW_DOWNLOAD "Allows files to be downloaded when building Qt." OFF)

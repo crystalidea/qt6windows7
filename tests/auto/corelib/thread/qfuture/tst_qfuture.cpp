@@ -11,6 +11,7 @@
 #include <QVarLengthArray>
 #include <QSet>
 #include <QList>
+#include <private/qobject_p.h>
 
 #include <QTest>
 #include <qfuture.h>
@@ -22,13 +23,19 @@
 #include <QtConcurrent/qtconcurrentrun.h>
 #include <private/qfutureinterface_p.h>
 
+#include <forward_list>
+#include <list>
 #include <vector>
 #include <memory>
+#include <set>
 
 // COM interface macro.
 #if defined(Q_OS_WIN) && defined(interface)
 #  undef interface
 #endif
+
+using namespace std::chrono_literals;
+static constexpr auto DefaultWaitTime = 2s;
 
 using namespace Qt::StringLiterals;
 
@@ -133,6 +140,18 @@ private:
     std::function<void ()> m_fn;
 };
 
+// Emulates QWidget behavior by deleting its children early in the destructor
+// instead of leaving it to ~QObject()
+class FakeQWidget : public QObject
+{
+    Q_OBJECT
+public:
+    ~FakeQWidget() override {
+        auto *d = QObjectPrivate::get(this);
+        d->deleteChildren();
+    }
+};
+
 using UniquePtr = std::unique_ptr<int>;
 
 class tst_QFuture: public QObject
@@ -203,6 +222,7 @@ private slots:
     void rejectPendingResultOverwrite();
 
     void createReadyFutures();
+    void continuationsAfterReadyFutures();
 
     void getFutureInterface();
     void convertQMetaType();
@@ -1957,7 +1977,7 @@ void tst_QFuture::nonGlobalThreadPool()
         void run() override
         {
             const int ms = 100 + (QRandomGenerator::global()->bounded(100) - 100/2);
-            QThread::msleep(ulong(ms));
+            QThread::sleep(std::chrono::milliseconds{ms});
             reportResult(Answer);
             reportFinished();
         }
@@ -3046,7 +3066,7 @@ void tst_QFuture::cancelContinuations()
 
     // The chain is cancelled before the execution of continuations
     {
-        auto f = QtFuture::makeReadyFuture(42);
+        auto f = QtFuture::makeReadyValueFuture(42);
         f.cancel();
 
         int checkpoint = 0;
@@ -3257,6 +3277,40 @@ void tst_QFuture::continuationsWithContext()
         QCOMPARE(future.result(), 2);
     }
 
+    // Cancellation when the context object is destroyed
+    {
+        // Use something like QWidget which deletes its children early, i.e.
+        // before ~QObject() runs. This behavior can lead to side-effects
+        // like QPointers to the parent not being set to nullptr during child
+        // object destruction.
+        QPointer shortLivedContext = new FakeQWidget();
+        shortLivedContext->moveToThread(&thread);
+
+        QPromise<int> promise;
+        auto future = promise.future()
+                              .then(shortLivedContext, [&](int val) {
+                                  if (QThread::currentThread() != &thread)
+                                      return 0;
+                                  return val + 1000;
+                              })
+                              .onCanceled([&, ptr=QPointer(shortLivedContext)] {
+                                  if (QThread::currentThread() != &thread)
+                                      return 0;
+                                  if (ptr)
+                                      return 1;
+                                  return 2;
+                              });
+        promise.start();
+
+        QMetaObject::invokeMethod(shortLivedContext, [&]() {
+            delete shortLivedContext;
+        }, Qt::BlockingQueuedConnection);
+
+        promise.finish();
+
+        QCOMPARE(future.result(), 2);
+    }
+
 #ifndef QT_NO_EXCEPTIONS
     // .onFaled()
     {
@@ -3295,7 +3349,8 @@ void tst_QFuture::continuationsWithMoveOnlyLambda()
     // .then()
     {
         std::unique_ptr<int> uniquePtr(new int(42));
-        auto future = QtFuture::makeReadyFuture().then([p = std::move(uniquePtr)] { return *p; });
+        auto future = QtFuture::makeReadyVoidFuture()
+                .then([p = std::move(uniquePtr)] { return *p; });
         QCOMPARE(future.result(), 42);
     }
     // .then() with thread pool
@@ -3303,8 +3358,8 @@ void tst_QFuture::continuationsWithMoveOnlyLambda()
         QThreadPool pool;
 
         std::unique_ptr<int> uniquePtr(new int(42));
-        auto future =
-                QtFuture::makeReadyFuture().then(&pool, [p = std::move(uniquePtr)] { return *p; });
+        auto future = QtFuture::makeReadyVoidFuture()
+                .then(&pool, [p = std::move(uniquePtr)] { return *p; });
         QCOMPARE(future.result(), 42);
     }
     // .then() with context
@@ -3312,8 +3367,8 @@ void tst_QFuture::continuationsWithMoveOnlyLambda()
         QObject object;
 
         std::unique_ptr<int> uniquePtr(new int(42));
-        auto future = QtFuture::makeReadyFuture().then(&object,
-                                                       [p = std::move(uniquePtr)] { return *p; });
+        auto future = QtFuture::makeReadyVoidFuture()
+                .then(&object, [p = std::move(uniquePtr)] { return *p; });
         QCOMPARE(future.result(), 42);
     }
 
@@ -3464,7 +3519,7 @@ void tst_QFuture::runAndTake()
     auto rabbit = [](){
         // Let's wait a bit to give the test below some time
         // to sync up with us with its watcher.
-        QThread::currentThread()->msleep(100);
+        QThread::currentThread()->sleep(std::chrono::milliseconds{100});
         return UniquePtr(new int(10));
     };
 
@@ -3477,7 +3532,7 @@ void tst_QFuture::runAndTake()
     auto gotcha = QtConcurrent::run(rabbit);
     watcha.setFuture(gotcha);
 
-    loop.enterLoopMSecs(500);
+    loop.enterLoop(500ms);
     if (loop.timeout())
         QSKIP("Failed to run the task, nothing to test");
 
@@ -3548,7 +3603,7 @@ void tst_QFuture::resultsReadyAt()
 
     // Run event loop, QCoreApplication::postEvent is in use
     // in QFutureInterface:
-    eventProcessor.enterLoopMSecs(2000);
+    eventProcessor.enterLoop(DefaultWaitTime);
     QVERIFY(!eventProcessor.timeout());
     if (QTest::currentTestFailed()) // Failed in our lambda observing 'ready at'
         return;
@@ -3921,7 +3976,7 @@ void tst_QFuture::rejectResultOverwrite()
     });
     // Run event loop, QCoreApplication::postEvent is in use
     // in QFutureInterface:
-    eventProcessor.enterLoopMSecs(2000);
+    eventProcessor.enterLoop(DefaultWaitTime);
     QVERIFY(!eventProcessor.timeout());
     QCOMPARE(resultCounter.size(), 1);
     f.resume();
@@ -3960,7 +4015,7 @@ void tst_QFuture::rejectResultOverwrite()
     QTimer::singleShot(50, [&f]() {
         f.suspend(); // should exit the loop
     });
-    eventProcessor.enterLoopMSecs(2000);
+    eventProcessor.enterLoop(DefaultWaitTime);
     QVERIFY(!eventProcessor.timeout());
     QCOMPARE(resultCounter.size(), 1);
     f.resume();
@@ -3999,7 +4054,7 @@ void tst_QFuture::rejectPendingResultOverwrite()
         });
         // Run event loop, QCoreApplication::postEvent is in use
         // in QFutureInterface:
-        eventProcessor.enterLoopMSecs(2000);
+        eventProcessor.enterLoop(DefaultWaitTime);
         QVERIFY(!eventProcessor.timeout());
         QCOMPARE(resultCounter.size(), 1);
         f.resume();
@@ -4043,7 +4098,7 @@ void tst_QFuture::rejectPendingResultOverwrite()
         QTimer::singleShot(50, [&f]() {
             f.suspend(); // should exit the loop
         });
-        eventProcessor.enterLoopMSecs(2000);
+        eventProcessor.enterLoop(DefaultWaitTime);
         QVERIFY(!eventProcessor.timeout());
         QCOMPARE(resultCounter.size(), 1);
         f.resume();
@@ -4058,6 +4113,9 @@ void tst_QFuture::rejectPendingResultOverwrite()
 
 void tst_QFuture::createReadyFutures()
 {
+#if QT_DEPRECATED_SINCE(6, 10)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     // using const T &
     {
         const int val = 42;
@@ -4093,6 +4151,30 @@ void tst_QFuture::createReadyFutures()
         QCOMPARE(f.resultCount(), 3);
         QCOMPARE(f.results(), values);
     }
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(6, 10)
+
+    // test makeReadyValueFuture<T>()
+    {
+        const int val = 42;
+        auto f = QtFuture::makeReadyValueFuture(val);
+        QCOMPARE_EQ(f.result(), val);
+
+        int otherVal = 42;
+        f = QtFuture::makeReadyValueFuture(otherVal);
+        QCOMPARE_EQ(f.result(), otherVal);
+    }
+    {
+        auto f = QtFuture::makeReadyValueFuture(std::make_unique<int>(42));
+        QCOMPARE(*f.takeResult(), 42);
+    }
+    // test makeReadyVoidFuture()
+    {
+        auto f = QtFuture::makeReadyVoidFuture();
+        QVERIFY(f.isStarted());
+        QVERIFY(!f.isRunning());
+        QVERIFY(f.isFinished());
+    }
 
 #ifndef QT_NO_EXCEPTIONS
     // using QException
@@ -4121,12 +4203,205 @@ void tst_QFuture::createReadyFutures()
         QVERIFY(caught);
     }
 #endif
+
+    // testing makeReadyRangeFuture with various containers
+    {
+        const QList<int> expectedResult{1, 2, 3};
+
+        const QList<int> list{1, 2, 3};
+        auto f = QtFuture::makeReadyRangeFuture(list);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        QVarLengthArray<int> varArray{1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(varArray);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        std::vector<int> vec{1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(std::move(vec));
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        f = QtFuture::makeReadyRangeFuture(std::array<int, 3>{1, 2, 3});
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        f = QtFuture::makeReadyRangeFuture(std::list<int>{1, 2, 3});
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        std::forward_list<int> fwdlist{1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(fwdlist);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        const QSet<int> qset{1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(qset);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        auto result = f.results();
+        std::sort(result.begin(), result.end());
+        QCOMPARE_EQ(result, expectedResult);
+
+        const QMap<QString, int> qmap{
+            {"one", 1},
+            {"two", 2},
+            {"three", 3}
+        };
+        f = QtFuture::makeReadyRangeFuture(qmap);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        result = f.results();
+        std::sort(result.begin(), result.end());
+        QCOMPARE_EQ(result, expectedResult);
+
+        std::set<int> stdset{1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(stdset);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        result = f.results();
+        std::sort(result.begin(), result.end());
+        QCOMPARE_EQ(result, expectedResult);
+
+        // testing ValueType[N] overload
+        const int c_array[] = {1, 2, 3};
+        f = QtFuture::makeReadyRangeFuture(c_array);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        f = QtFuture::makeReadyRangeFuture({1, 2, 3});
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+    }
+    // testing makeReadyRangeFuture with a more complex underlying type
+    {
+        QObject obj1;
+        QObject obj2;
+        QObject obj3;
+
+        const QList<QObject*> expectedResult{&obj1, &obj2, &obj3};
+
+        const QList<QObject*> list{&obj1, &obj2, &obj3};
+        auto f = QtFuture::makeReadyRangeFuture(list);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        std::list<QObject*> stdlist{&obj1, &obj2, &obj3};
+        f = QtFuture::makeReadyRangeFuture(std::move(stdlist));
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+
+        QObject* const c_array[] = {&obj1, &obj2, &obj3};
+        f = QtFuture::makeReadyRangeFuture(c_array);
+        QCOMPARE_EQ(f.resultCount(), 3);
+        QCOMPARE_EQ(f.results(), expectedResult);
+    }
+}
+
+void tst_QFuture::continuationsAfterReadyFutures()
+{
+    // continuations without a context
+    {
+        QFuture<int> f = QtFuture::makeReadyValueFuture(42)
+                .then([](int val) {
+                    return val + 10;
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 52);
+    }
+    {
+        auto rangeF = QtFuture::makeReadyRangeFuture({1, 2, 3});
+        QFuture<int> f = rangeF
+                .then([vals = rangeF.results()](auto) {
+                    return vals.last();
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 3);
+    }
+    {
+        QFuture<int> f = QtFuture::makeReadyVoidFuture()
+                .then([]() {
+                    return 1;
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 1);
+    }
+#ifndef QT_NO_EXCEPTIONS
+    {
+        QException e;
+        QFuture<int> f = QtFuture::makeExceptionalFuture<int>(e)
+                .then([](int) {
+                    return 1;
+                })
+                .onCanceled([]() {
+                    return -1;
+                })
+                .onFailed([](const QException &) {
+                    return -2;
+                });
+        QCOMPARE(f.result(), -2);
+    }
+#endif
+
+    // continuations with a context
+    QObject context;
+    {
+        QFuture<int> f = QtFuture::makeReadyValueFuture(42)
+                .then(&context, [](int val) {
+                    return val + 10;
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 52);
+    }
+    {
+        auto rangeF = QtFuture::makeReadyRangeFuture({1, 2, 3});
+        QFuture<int> f = rangeF
+                .then(&context, [vals = rangeF.results()](auto) {
+                    return vals.last();
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 3);
+    }
+    {
+        QFuture<int> f = QtFuture::makeReadyVoidFuture()
+                .then(&context, []() {
+                    return 1;
+                })
+                .onCanceled([]() {
+                    return -1;
+                });
+        QCOMPARE(f.result(), 1);
+    }
+#ifndef QT_NO_EXCEPTIONS
+    {
+        QException e;
+        QFuture<int> f = QtFuture::makeExceptionalFuture<int>(e)
+                .then(&context, [](int) {
+                    return 1;
+                })
+                .onCanceled([]() {
+                    return -1;
+                })
+                .onFailed([](const QException &) {
+                    return -2;
+                });
+        QCOMPARE(f.result(), -2);
+    }
+#endif
 }
 
 void tst_QFuture::getFutureInterface()
 {
     const int val = 42;
-    QFuture<int> f = QtFuture::makeReadyFuture(val);
+    QFuture<int> f = QtFuture::makeReadyValueFuture(val);
 
     auto interface = QFutureInterfaceBase::get(f);
     QCOMPARE(interface.resultCount(), 1);
@@ -4140,7 +4415,7 @@ void tst_QFuture::convertQMetaType()
     QVERIFY(QMetaType::canConvert(intType, voidType));
 
     const int val = 42;
-    QFuture<int> f = QtFuture::makeReadyFuture(val);
+    QFuture<int> f = QtFuture::makeReadyValueFuture(val);
     auto variant = QVariant::fromValue(f);
     QVERIFY(variant.convert(voidType));
 
@@ -4737,6 +5012,40 @@ void tst_QFuture::continuationsDontLeak()
         QVERIFY(continuationIsRun);
     }
     QCOMPARE(InstanceCounter::count, 0);
+
+    {
+        // QTBUG-116731: Must pass with ASan enabled
+        bool continuationIsRun = false;
+        auto f = QtFuture::makeReadyValueFuture(42);
+        QtFuture::whenAll(f).then([&](auto) { continuationIsRun = true; });
+        QVERIFY(continuationIsRun);
+    }
+
+    {
+        // QTBUG-116731: Must pass with ASan enabled
+        bool continuationIsRun = false;
+        auto f = QtFuture::makeReadyValueFuture(42);
+        QList fs{f};
+        QtFuture::whenAll(fs.begin(), fs.end()).then([&](auto) { continuationIsRun = true; });
+        QVERIFY(continuationIsRun);
+    }
+
+    {
+        // QTBUG-116731: Must pass with ASan enabled
+        bool continuationIsRun = false;
+        auto f = QtFuture::makeReadyValueFuture(42);
+        QtFuture::whenAny(f).then([&](auto) { continuationIsRun = true; });
+        QVERIFY(continuationIsRun);
+    }
+
+    {
+        // QTBUG-116731: Must pass with ASan enabled
+        bool continuationIsRun = false;
+        auto f = QtFuture::makeReadyValueFuture(42);
+        QList fs{f};
+        QtFuture::whenAny(fs.begin(), fs.end()).then([&](auto) { continuationIsRun = true; });
+        QVERIFY(continuationIsRun);
+    }
 }
 
 // This test checks that we do not get use-after-free

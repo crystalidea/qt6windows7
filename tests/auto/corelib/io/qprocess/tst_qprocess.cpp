@@ -21,6 +21,7 @@
 #include <qplatformdefs.h>
 #ifdef Q_OS_UNIX
 #  include <private/qcore_unix_p.h>
+#  include <sys/wait.h>
 #endif
 
 #include <QtTest/private/qemulationdetector_p.h>
@@ -111,7 +112,13 @@ private slots:
     void createProcessArgumentsModifier();
 #endif // Q_OS_WIN
 #if defined(Q_OS_UNIX)
+    void setChildProcessModifier_data();
     void setChildProcessModifier();
+    void throwInChildProcessModifier();
+    void unixProcessParameters_data();
+    void unixProcessParameters();
+    void unixProcessParametersAndChildModifier();
+    void unixProcessParametersOtherFileDescriptors();
 #endif
     void exitCodeTest();
     void systemEnvironment();
@@ -152,6 +159,7 @@ protected slots:
 private:
     qint64 bytesAvailable;
     QTemporaryDir m_temporaryDir;
+    bool haveWorkingVFork = false;
 };
 
 void tst_QProcess::initTestCase()
@@ -163,6 +171,12 @@ void tst_QProcess::initTestCase()
     // chdir to our testdata path and execute helper apps relative to that.
     QString testdata_dir = QFileInfo(QFINDTESTDATA("testProcessNormal")).absolutePath();
     QVERIFY2(QDir::setCurrent(testdata_dir), qPrintable("Could not chdir to " + testdata_dir));
+
+#if defined(Q_OS_LINUX) && QT_CONFIG(forkfd_pidfd)
+    // see detect_clone_pidfd_support() in forkfd_linux.c for explanation
+    waitid(/*P_PIDFD*/ idtype_t(3), INT_MAX, NULL, WEXITED|WNOHANG);
+    haveWorkingVFork = (errno == EBADF);
+#endif
 }
 
 void tst_QProcess::cleanupTestCase()
@@ -1445,8 +1459,16 @@ static void childProcessModifier(int fd)
     QT_CLOSE(fd);
 }
 
+void tst_QProcess::setChildProcessModifier_data()
+{
+    QTest::addColumn<bool>("detached");
+    QTest::newRow("normal") << false;
+    QTest::newRow("detached") << true;
+}
+
 void tst_QProcess::setChildProcessModifier()
 {
+    QFETCH(bool, detached);
     int pipes[2] = { -1 , -1 };
     QVERIFY(qt_safe_pipe(pipes) == 0);
 
@@ -1454,20 +1476,215 @@ void tst_QProcess::setChildProcessModifier()
     process.setChildProcessModifier([pipes]() {
         ::childProcessModifier(pipes[1]);
     });
-    process.start("testProcessNormal/testProcessNormal");
-    if (process.state() != QProcess::Starting)
-        QCOMPARE(process.state(), QProcess::Running);
-    QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
+    process.setProgram("testProcessNormal/testProcessNormal");
+    if (detached) {
+        process.startDetached();
+    } else {
+        process.start("testProcessNormal/testProcessNormal");
+        if (process.state() != QProcess::Starting)
+            QCOMPARE(process.state(), QProcess::Running);
+        QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
+        QVERIFY2(process.waitForFinished(5000), qPrintable(process.errorString()));
+        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(process.exitCode(), 0);
+    }
 
     char buf[sizeof messageFromChildProcess] = {};
     qt_safe_close(pipes[1]);
     QCOMPARE(qt_safe_read(pipes[0], buf, sizeof(buf)), qint64(sizeof(messageFromChildProcess)) - 1);
     QCOMPARE(buf, messageFromChildProcess);
     qt_safe_close(pipes[0]);
+}
 
-    QVERIFY2(process.waitForFinished(5000), qPrintable(process.errorString()));
-    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+void tst_QProcess::throwInChildProcessModifier()
+{
+#ifndef __cpp_exceptions
+    Q_SKIP("Exceptions disabled.");
+#else
+    QProcess process;
+    process.setChildProcessModifier([]() {
+        throw 42;
+    });
+    process.setProgram("testProcessNormal/testProcessNormal");
+
+    process.start();
+    QVERIFY(!process.waitForStarted(5000));
+    QCOMPARE(process.state(), QProcess::NotRunning);
+    QCOMPARE(process.error(), QProcess::FailedToStart);
+    QVERIFY2(process.errorString().contains("childProcessModifier"),
+             qPrintable(process.errorString()));
+
+    // try again, to ensure QProcess internal state wasn't corrupted
+    process.start();
+    QVERIFY(!process.waitForStarted(5000));
+    QCOMPARE(process.state(), QProcess::NotRunning);
+    QCOMPARE(process.error(), QProcess::FailedToStart);
+    QVERIFY2(process.errorString().contains("childProcessModifier"),
+             qPrintable(process.errorString()));
+#endif
+}
+
+void tst_QProcess::unixProcessParameters_data()
+{
+    QTest::addColumn<QProcess::UnixProcessParameters>("params");
+    QTest::addColumn<QString>("cmd");
+    QTest::newRow("defaults") << QProcess::UnixProcessParameters{} << QString();
+
+    auto addRow = [](const char *cmd, QProcess::UnixProcessFlags flags) {
+        QProcess::UnixProcessParameters params = {};
+        params.flags = flags;
+        QTest::addRow("%s", cmd) << params << cmd;
+    };
+    using P = QProcess::UnixProcessFlag;
+    addRow("reset-sighand", P::ResetSignalHandlers);
+    addRow("ignore-sigpipe", P::IgnoreSigPipe);
+    addRow("file-descriptors", P::CloseFileDescriptors);
+}
+
+void tst_QProcess::unixProcessParameters()
+{
+    QFETCH(QProcess::UnixProcessParameters, params);
+    QFETCH(QString, cmd);
+
+    // set up a few things
+    struct Scope {
+        int devnull;
+        struct sigaction old_sigusr1, old_sigpipe;
+        Scope()
+        {
+            int fd = open("/dev/null", O_RDONLY);
+            devnull = fcntl(fd, F_DUPFD, 100);
+            close(fd);
+
+            // we ignore SIGUSR1 and reset SIGPIPE to Terminate
+            struct sigaction act = {};
+            sigemptyset(&act.sa_mask);
+            act.sa_handler = SIG_IGN;
+            sigaction(SIGUSR1, &act, &old_sigusr1);
+            act.sa_handler = SIG_DFL;
+            sigaction(SIGPIPE, &act, &old_sigpipe);
+
+            // and we block SIGUSR2
+            sigset_t *set = &act.sa_mask;               // reuse this sigset_t
+            sigaddset(set, SIGUSR2);
+            sigprocmask(SIG_BLOCK, set, nullptr);
+        }
+        ~Scope()
+        {
+            if (devnull != -1)
+                dismiss();
+        }
+        void dismiss()
+        {
+            close(devnull);
+            sigaction(SIGUSR1, &old_sigusr1, nullptr);
+            sigaction(SIGPIPE, &old_sigpipe, nullptr);
+            devnull = -1;
+
+            sigset_t *set = &old_sigusr1.sa_mask;       // reuse this sigset_t
+            sigaddset(set, SIGUSR2);
+            sigprocmask(SIG_BLOCK, set, nullptr);
+        }
+    } scope;
+
+    QProcess process;
+    process.setUnixProcessParameters(params);
+    process.setStandardInputFile(QProcess::nullDevice());   // so we can't mess with SIGPIPE
+    process.setProgram("testUnixProcessParameters/testUnixProcessParameters");
+    process.setArguments({ cmd, QString::number(scope.devnull) });
+    process.start();
+    QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
+    QVERIFY(process.waitForFinished(5000));
+
+    const QString stdErr = process.readAllStandardError();
+    QCOMPARE(stdErr, QString());
+    QCOMPARE(process.readAll(), QString());
     QCOMPARE(process.exitCode(), 0);
+    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+}
+
+void tst_QProcess::unixProcessParametersAndChildModifier()
+{
+    static constexpr char message[] = "Message from the handler function\n";
+    static_assert(std::char_traits<char>::length(message) <= PIPE_BUF);
+    QProcess process;
+    QAtomicInt vforkControl;
+    int pipes[2];
+
+    QVERIFY2(pipe(pipes) == 0, qPrintable(qt_error_string()));
+    auto pipeGuard0 = qScopeGuard([=] { close(pipes[0]); });
+    {
+        auto pipeGuard1 = qScopeGuard([=] { close(pipes[1]); });
+
+        // verify that our modifier runs before the parameters are applied
+        process.setChildProcessModifier([=, &vforkControl] {
+            write(pipes[1], message, strlen(message));
+            vforkControl.storeRelaxed(1);
+        });
+        auto flags = QProcess::UnixProcessFlag::CloseFileDescriptors |
+                QProcess::UnixProcessFlag::UseVFork;
+        process.setUnixProcessParameters({ flags });
+        process.setProgram("testUnixProcessParameters/testUnixProcessParameters");
+        process.setArguments({ "file-descriptors", QString::number(pipes[1]) });
+        process.start();
+        QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
+    } // closes the writing end of the pipe
+
+    QVERIFY(process.waitForFinished(5000));
+    QCOMPARE(process.readAllStandardError(), QString());
+    QCOMPARE(process.readAll(), QString());
+
+    char buf[2 * sizeof(message)];
+    int r = read(pipes[0], buf, sizeof(buf));
+    QVERIFY2(r >= 0, qPrintable(qt_error_string()));
+    QCOMPARE(QByteArrayView(buf, r), message);
+
+    if (haveWorkingVFork)
+        QVERIFY2(vforkControl.loadRelaxed(), "QProcess doesn't appear to have used vfork()");
+}
+
+void tst_QProcess::unixProcessParametersOtherFileDescriptors()
+{
+    constexpr int TargetFileDescriptor = 3;
+    int pipes[2];
+    int fd1 = open("/dev/null", O_RDONLY);
+    int devnull = fcntl(fd1, F_DUPFD, 100); // instead of F_DUPFD_CLOEXEC
+    qt_safe_pipe(pipes);                    // implied O_CLOEXEC
+    close(fd1);
+
+    auto closeFds = qScopeGuard([&] {
+        close(devnull);
+        close(pipes[0]);
+        // we'll close pipe[1] before any QCOMPARE
+    });
+
+    QProcess process;
+    QProcess::UnixProcessParameters params;
+    params.flags = QProcess::UnixProcessFlag::CloseFileDescriptors
+            | QProcess::UnixProcessFlag::UseVFork;
+    params.lowestFileDescriptorToClose = 4;
+    process.setUnixProcessParameters(params);
+    process.setChildProcessModifier([devnull, pipes]() {
+        if (dup2(devnull, TargetFileDescriptor) == TargetFileDescriptor)
+            return;
+        write(pipes[1], &errno, sizeof(errno));
+        _exit(255);
+    });
+    process.setProgram("testUnixProcessParameters/testUnixProcessParameters");
+    process.setArguments({ "file-descriptors2", QString::number(TargetFileDescriptor),
+                           QString::number(devnull) });
+    process.start();
+    close(pipes[1]);
+
+    if (int duperror; read(pipes[0], &duperror, sizeof(duperror)) == sizeof(duperror))
+        QFAIL(QByteArray("dup2 failed: ") + strerror(duperror));
+
+    QVERIFY2(process.waitForStarted(5000), qPrintable(process.errorString()));
+    QVERIFY(process.waitForFinished(5000));
+    QCOMPARE(process.readAllStandardError(), QString());
+    QCOMPARE(process.readAll(), QString());
+    QCOMPARE(process.exitCode(), 0);
+    QCOMPARE(process.exitStatus(), QProcess::NormalExit);
 }
 #endif
 
@@ -1500,7 +1717,7 @@ void tst_QProcess::failToStart()
 // to many processes here will cause test failures later on.
 #if defined Q_OS_HPUX
    const int attempts = 15;
-#elif defined Q_OS_MAC
+#elif defined Q_OS_DARWIN
    const int attempts = 15;
 #else
    const int attempts = 50;
@@ -2362,7 +2579,7 @@ public:
 public slots:
     void block()
     {
-        QThread::sleep(1);
+        QThread::sleep(std::chrono::seconds{1});
     }
 };
 

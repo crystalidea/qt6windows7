@@ -8,6 +8,7 @@
 #include "qabstracteventdispatcher.h"
 #include "qcoreapplication.h"
 #include "qcoreapplication_p.h"
+#include "qdeadlinetimer.h"
 #include "qmetaobject_p.h"
 #include "qobject_p.h"
 #include "qproperty_p.h"
@@ -188,7 +189,7 @@ void QTimer::start()
     Q_D(QTimer);
     if (d->id != QTimerPrivate::INV_TIMER) // stop running timer
         stop();
-    d->id = QObject::startTimer(d->inter, d->type);
+    d->id = QObject::startTimer(std::chrono::milliseconds{d->inter}, d->type);
     d->isActiveData.notify();
 }
 
@@ -199,7 +200,13 @@ void QTimer::start()
     If the timer is already running, it will be
     \l{QTimer::stop()}{stopped} and restarted.
 
-    If \l singleShot is true, the timer will be activated only once.
+    If \l singleShot is true, the timer will be activated only once. This is
+    equivalent to:
+
+    \code
+        timer.setInterval(msec);
+        timer.start();
+    \endcode
 
     \note   Keeping the event loop busy with a zero-timer is bound to
             cause trouble and highly erratic behavior of the UI.
@@ -249,11 +256,13 @@ void QTimer::timerEvent(QTimerEvent *e)
 class QSingleShotTimer : public QObject
 {
     Q_OBJECT
-    int timerId;
+    int timerId = -1;
 public:
     ~QSingleShotTimer();
     QSingleShotTimer(int msec, Qt::TimerType timerType, const QObject *r, const char * m);
     QSingleShotTimer(int msec, Qt::TimerType timerType, const QObject *r, QtPrivate::QSlotObjectBase *slotObj);
+
+    void startTimerForReceiver(int msec, Qt::TimerType timerType, const QObject *receiver);
 
 Q_SIGNALS:
     void timeout();
@@ -264,27 +273,20 @@ protected:
 QSingleShotTimer::QSingleShotTimer(int msec, Qt::TimerType timerType, const QObject *r, const char *member)
     : QObject(QAbstractEventDispatcher::instance())
 {
-    timerId = startTimer(msec, timerType);
     connect(this, SIGNAL(timeout()), r, member);
+
+    startTimerForReceiver(msec, timerType, r);
 }
 
 QSingleShotTimer::QSingleShotTimer(int msec, Qt::TimerType timerType, const QObject *r, QtPrivate::QSlotObjectBase *slotObj)
     : QObject(QAbstractEventDispatcher::instance())
 {
-    timerId = startTimer(msec, timerType);
-
     int signal_index = QMetaObjectPrivate::signalOffset(&staticMetaObject);
     Q_ASSERT(QMetaObjectPrivate::signal(&staticMetaObject, signal_index).name() == "timeout");
     QObjectPrivate::connectImpl(this, signal_index, r ? r : this, nullptr, slotObj,
                                 Qt::AutoConnection, nullptr, &staticMetaObject);
 
-    // ### Why is this here? Why doesn't the case above need it?
-    if (r && thread() != r->thread()) {
-        // Avoid leaking the QSingleShotTimer instance in case the application exits before the timer fires
-        connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, &QObject::deleteLater);
-        setParent(nullptr);
-        moveToThread(r->thread());
-    }
+    startTimerForReceiver(msec, timerType, r);
 }
 
 QSingleShotTimer::~QSingleShotTimer()
@@ -292,6 +294,32 @@ QSingleShotTimer::~QSingleShotTimer()
     if (timerId > 0)
         killTimer(timerId);
 }
+
+/*
+    Move the timer, and the dispatching and handling of the timer event, into
+    the same thread as where it will be handled, so that it fires reliably even
+    if the thread that set up the timer is busy.
+*/
+void QSingleShotTimer::startTimerForReceiver(int msec, Qt::TimerType timerType, const QObject *receiver)
+{
+    if (receiver && receiver->thread() != thread()) {
+        // Avoid leaking the QSingleShotTimer instance in case the application exits before the timer fires
+        connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, &QObject::deleteLater);
+        setParent(nullptr);
+        moveToThread(receiver->thread());
+
+        QDeadlineTimer deadline(std::chrono::milliseconds{msec}, timerType);
+        QMetaObject::invokeMethod(this, [this, deadline, timerType]{
+            if (deadline.hasExpired())
+                emit timeout();
+            else
+                timerId = startTimer(std::chrono::milliseconds{deadline.remainingTime()}, timerType);
+        }, Qt::QueuedConnection);
+    } else {
+        timerId = startTimer(std::chrono::milliseconds{msec}, timerType);
+    }
+}
+
 
 void QSingleShotTimer::timerEvent(QTimerEvent *)
 {
@@ -420,125 +448,28 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
     }
 }
 
-/*! \fn template<typename PointerToMemberFunction> void QTimer::singleShot(int msec, const QObject *receiver, PointerToMemberFunction method)
-
+/*! \fn template<typename Duration, typename Functor> void QTimer::singleShot(Duration msec, const QObject *context, Functor &&functor)
+    \fn template<typename Duration, typename Functor> void QTimer::singleShot(Duration msec, Qt::TimerType timerType, const QObject *context, Functor &&functor)
+    \fn template<typename Duration, typename Functor> void QTimer::singleShot(Duration msec, Functor &&functor)
+    \fn template<typename Duration, typename Functor> void QTimer::singleShot(Duration msec, Qt::TimerType timerType, Functor &&functor)
     \since 5.4
 
-    \overload
     \reentrant
-    This static function calls a member function of a QObject after a given time interval.
+    This static function calls \a functor after \a msec milliseconds.
 
     It is very convenient to use this function because you do not need
     to bother with a \l{QObject::timerEvent()}{timerEvent} or
     create a local QTimer object.
 
-    The \a receiver is the receiving object and the \a method is the member function. The
-    time interval is \a msec milliseconds.
+    If \a context is specified, then the \a functor will be called only if the
+    \a context object has not been destroyed before the interval occurs. The functor
+    will then be run the thread of \a context. The context's thread must have a
+    running Qt event loop.
 
-    If \a receiver is destroyed before the interval occurs, the method will not be called.
-    The function will be run in the thread of \a receiver. The receiver's thread must have
-    a running Qt event loop.
+    If \a functor is a member
+    function of \a context, then the function will be called on the object.
 
-    \sa start()
-*/
-
-/*! \fn template<typename PointerToMemberFunction> void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiver, PointerToMemberFunction method)
-
-    \since 5.4
-
-    \overload
-    \reentrant
-    This static function calls a member function of a QObject after a given time interval.
-
-    It is very convenient to use this function because you do not need
-    to bother with a \l{QObject::timerEvent()}{timerEvent} or
-    create a local QTimer object.
-
-    The \a receiver is the receiving object and the \a method is the member function. The
-    time interval is \a msec milliseconds. The \a timerType affects the
-    accuracy of the timer.
-
-    If \a receiver is destroyed before the interval occurs, the method will not be called.
-    The function will be run in the thread of \a receiver. The receiver's thread must have
-    a running Qt event loop.
-
-    \sa start()
-*/
-
-/*! \fn template<typename Functor> void QTimer::singleShot(int msec, Functor functor)
-
-    \since 5.4
-
-    \overload
-    \reentrant
-    This static function calls \a functor after a given time interval.
-
-    It is very convenient to use this function because you do not need
-    to bother with a \l{QObject::timerEvent()}{timerEvent} or
-    create a local QTimer object.
-
-    The time interval is \a msec milliseconds.
-
-    \sa start()
-*/
-
-/*! \fn template<typename Functor> void QTimer::singleShot(int msec, Qt::TimerType timerType, Functor functor)
-
-    \since 5.4
-
-    \overload
-    \reentrant
-    This static function calls \a functor after a given time interval.
-
-    It is very convenient to use this function because you do not need
-    to bother with a \l{QObject::timerEvent()}{timerEvent} or
-    create a local QTimer object.
-
-    The time interval is \a msec milliseconds. The \a timerType affects the
-    accuracy of the timer.
-
-    \sa start()
-*/
-
-/*! \fn template<typename Functor> void QTimer::singleShot(int msec, const QObject *context, Functor functor)
-
-    \since 5.4
-
-    \overload
-    \reentrant
-    This static function calls \a functor after a given time interval.
-
-    It is very convenient to use this function because you do not need
-    to bother with a \l{QObject::timerEvent()}{timerEvent} or
-    create a local QTimer object.
-
-    The time interval is \a msec milliseconds.
-
-    If \a context is destroyed before the interval occurs, the method will not be called.
-    The function will be run in the thread of \a context. The context's thread must have
-    a running Qt event loop.
-
-    \sa start()
-*/
-
-/*! \fn template<typename Functor> void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *context, Functor functor)
-
-    \since 5.4
-
-    \overload
-    \reentrant
-    This static function calls \a functor after a given time interval.
-
-    It is very convenient to use this function because you do not need
-    to bother with a \l{QObject::timerEvent()}{timerEvent} or
-    create a local QTimer object.
-
-    The time interval is \a msec milliseconds. The \a timerType affects the
-    accuracy of the timer.
-
-    If \a context is destroyed before the interval occurs, the method will not be called.
-    The function will be run in the thread of \a context. The context's thread must have
-    a running Qt event loop.
+    The \a msec parameter can be an \c int or a \c std::chrono::milliseconds value.
 
     \sa start()
 */
@@ -583,7 +514,6 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
 /*!
     \fn template <typename Functor> QMetaObject::Connection QTimer::callOnTimeout(Functor &&slot)
     \since 5.12
-    \overload
 
     Creates a connection from the timer's timeout() signal to \a slot.
     Returns a handle to the connection.
@@ -597,7 +527,7 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
 */
 
 /*!
-    \fn template <typename Functor> QMetaObject::Connection QTimer::callOnTimeout(const QObject *context, Functor slot, Qt::ConnectionType connectionType = Qt::AutoConnection)
+    \fn template <typename Functor> QMetaObject::Connection QTimer::callOnTimeout(const QObject *context, Functor &&slot, Qt::ConnectionType connectionType = Qt::AutoConnection)
     \since 5.12
     \overload callOnTimeout()
 
@@ -606,20 +536,6 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
 
     This method is provided for convenience. It's equivalent to calling
     \c {QObject::connect(timer, &QTimer::timeout, context, slot, connectionType)}.
-
-    \sa QObject::connect(), timeout()
-*/
-
-/*!
-    \fn template <typename MemberFunction> QMetaObject::Connection QTimer::callOnTimeout(const QObject *receiver, MemberFunction *slot, Qt::ConnectionType connectionType = Qt::AutoConnection)
-    \since 5.12
-    \overload callOnTimeout()
-
-    Creates a connection from the timeout() signal to the \a slot in the \a receiver object. Returns
-    a handle to the connection.
-
-    This method is provided for convenience. It's equivalent to calling
-    \c {QObject::connect(timer, &QTimer::timeout, receiver, slot, connectionType)}.
 
     \sa QObject::connect(), timeout()
 */
@@ -634,7 +550,13 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
     If the timer is already running, it will be
     \l{QTimer::stop()}{stopped} and restarted.
 
-    If \l singleShot is true, the timer will be activated only once.
+    If \l singleShot is true, the timer will be activated only once. This is
+    equivalent to:
+
+    \code
+        timer.setInterval(msec);
+        timer.start();
+    \endcode
 */
 
 /*!
@@ -705,7 +627,7 @@ void QTimer::setInterval(int msec)
     d->inter.setValueBypassingBindings(msec);
     if (d->id != QTimerPrivate::INV_TIMER) { // create new timer
         QObject::killTimer(d->id);                        // restart timer
-        d->id = QObject::startTimer(msec, d->type);
+        d->id = QObject::startTimer(std::chrono::milliseconds{msec}, d->type);
         // No need to call markDirty() for d->isActiveData here,
         // as timer state actually does not change
     }

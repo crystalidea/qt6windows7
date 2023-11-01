@@ -1369,17 +1369,6 @@ or the character \a ch
     \since 6.0
 */
 
-/*!
-    \fn int QLatin1StringView::compare(QUtf8StringView str, Qt::CaseSensitivity cs) const
-    \since 6.5
-
-    Returns an integer that compares to zero as this string view compares to the
-    string view \a str.
-
-    \include qstring.qdocinc {search-comparison-case-sensitivity} {comparison}
-
-    \sa operator==(), operator<(), operator>()
-*/
 
 /*!
     \fn template <typename Needle, typename...Flags> auto QStringView::tokenize(Needle &&sep, Flags...flags) const

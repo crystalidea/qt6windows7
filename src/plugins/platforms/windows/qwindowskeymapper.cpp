@@ -751,28 +751,15 @@ static inline QString messageKeyText(const MSG &msg)
 
 [[nodiscard]] static inline int getTitleBarHeight(const HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow && QWindowsContext::user32dll.getSystemMetricsForDpi)
-    {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const int captionHeight = QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYCAPTION, dpi);
-        if (IsZoomed(hwnd))
-            return captionHeight;
-        // The frame height should also be taken into account if the window
-        // is not maximized.
-        const int frameHeight = QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
-                                + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-        return captionHeight + frameHeight;    
-    }
-    else
-    {
-        const int captionHeight = GetSystemMetrics(SM_CYCAPTION);
-        if (IsZoomed(hwnd))
-            return captionHeight;
-        // The frame height should also be taken into account if the window
-        // is not maximized.
-        const int frameHeight = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-        return captionHeight + frameHeight;    
-    }
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const int captionHeight = GetSystemMetricsForDpi(SM_CYCAPTION, dpi);
+    if (IsZoomed(hwnd))
+        return captionHeight;
+    // The frame height should also be taken into account if the window
+    // is not maximized.
+    const int frameHeight = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
+                            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    return captionHeight + frameHeight;
 }
 
 [[nodiscard]] static inline bool isSystemMenuOffsetNeeded(const Qt::WindowFlags flags)

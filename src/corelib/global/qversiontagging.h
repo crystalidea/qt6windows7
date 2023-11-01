@@ -1,11 +1,13 @@
 // Copyright (C) 2022 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-// qglobal.h includes this header, so keep it outside of our include guards
-#include <QtCore/qglobal.h>
-
 #if !defined(QVERSIONTAGGING_H)
 #define QVERSIONTAGGING_H
+
+#include <QtCore/qcompilerdetection.h>
+#include <QtCore/qtconfigmacros.h>
+#include <QtCore/qtversionchecks.h>
+#include <QtCore/qtypes.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -86,7 +88,7 @@ struct QVersionTag
 //   Calling convention on other architectures does not prepend a _
 #    define QT_MANGLE_IMPORT_PREFIX     __imp_
 #  endif
-#  ifdef Q_CC_MSVC
+#  if defined(Q_CC_MSVC_ONLY)
 #    pragma section(".qtversion",read,shared)
 #    define QT_VERSION_TAG_SECTION      __declspec(allocate(".qtversion"))
 #    define QT_VERSION_TAG_ATTRIBUTE    __declspec(selectany) extern const

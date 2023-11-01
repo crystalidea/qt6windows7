@@ -149,6 +149,7 @@ private slots:
     void objectNameBinding();
     void emitToDestroyedClass();
     void declarativeData();
+    void asyncCallbackHelper();
 };
 
 struct QObjectCreatedOnShutdown
@@ -6074,6 +6075,7 @@ void tst_QObject::connectFunctorArgDifference()
 
     connect(&timer, &QTimer::timeout, [=](){});
     connect(&timer, &QTimer::objectNameChanged, [=](const QString &){});
+    connect(&timer, &QTimer::objectNameChanged, this, [](){});
     connect(qApp, &QCoreApplication::aboutToQuit, [=](){});
 
     connect(&timer, &QTimer::objectNameChanged, [=](){});
@@ -6812,7 +6814,11 @@ struct QmlReceiver : public QtPrivate::QSlotObjectBase
         , magic(0)
     {}
 
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     static void impl(int which, QSlotObjectBase *this_, QObject *, void **metaArgs, bool *ret)
+#else
+    static void impl(QSlotObjectBase *this_, QObject *, void **metaArgs, int which, bool *ret)
+#endif
     {
         switch (which) {
         case Destroy: delete static_cast<QmlReceiver*>(this_); return;
@@ -8363,6 +8369,241 @@ void tst_QObject::declarativeData()
     QtDeclarative::Object *child = new QtDeclarative::Object;
     child->setParent(&p);
 #endif
+}
+
+/*
+    Compile-time test for the helpers in qobjectdefs_impl.h.
+*/
+class AsyncCaller : public QObject
+{
+    Q_OBJECT
+public:
+    ~AsyncCaller()
+    {
+        if (slotObject)
+            slotObject->destroyIfLastRef();
+    }
+    void callback0() {}
+    void callback1(const QString &) {}
+    void callbackInt(int) {}
+    int returnInt() const { return 0; }
+
+    static int staticCallback0() { return 0; }
+    static void staticCallback1(const QString &) {}
+
+    using Prototype0 = int(*)();
+    using Prototype1 = void(*)(QString);
+
+    template<typename Functor>
+    bool callMe0(const typename QtPrivate::ContextTypeForFunctor<Functor>::ContextType *, Functor &&func)
+    {
+        if (slotObject) {
+            slotObject->destroyIfLastRef();
+            slotObject = nullptr;
+        }
+        QtPrivate::AssertCompatibleFunctions<Prototype0, Functor>();
+        slotObject = QtPrivate::makeCallableObject<Prototype0>(std::forward<Functor>(func));
+        return true;
+    }
+
+    template<typename Functor>
+    bool callMe0(Functor &&func)
+    {
+        return callMe0(nullptr, std::forward<Functor>(func));
+    }
+
+    template<typename Functor>
+    bool callMe1(const typename QtPrivate::ContextTypeForFunctor<Functor>::ContextType *, Functor &&func)
+    {
+        if (slotObject) {
+            slotObject->destroyIfLastRef();
+            slotObject = nullptr;
+        }
+        QtPrivate::AssertCompatibleFunctions<Prototype1, Functor>();
+        slotObject = QtPrivate::makeCallableObject<Prototype1>(std::forward<Functor>(func));
+        return true;
+    }
+
+    template<typename Functor>
+    bool callMe1(Functor &&func)
+    {
+        return callMe1(nullptr, std::forward<Functor>(func));
+    }
+
+    QtPrivate::QSlotObjectBase *slotObject = nullptr;
+};
+
+static void freeFunction0() {}
+static void freeFunction1(QString) {}
+static void freeFunctionVariant(QVariant) {}
+
+template<typename Prototype, typename Functor>
+inline constexpr bool compiles(Functor &&) {
+    return QtPrivate::AreFunctionsCompatible<Prototype, Functor>::value;
+}
+
+void tst_QObject::asyncCallbackHelper()
+{
+    int result = 0;
+    QString arg1 = "Parameter";
+    void *argv[] = { &result, &arg1 };
+
+    auto lambda0 = []{};
+    auto lambda1 = [](const QString &) {};
+    auto lambda2 = [](const QString &, int) {};
+    const auto constLambda = [](const QString &) {};
+    auto moveOnlyLambda = [u = std::unique_ptr<int>()]{};
+    auto moveOnlyLambda1 = [u = std::unique_ptr<int>()](const QString &){};
+
+    SlotFunctor functor0;
+    SlotFunctorString functor1;
+
+    // no parameters provided or needed
+    static_assert(compiles<AsyncCaller::Prototype0>(&AsyncCaller::callback0));
+    static_assert(compiles<AsyncCaller::Prototype0>(&AsyncCaller::staticCallback0));
+    static_assert(compiles<AsyncCaller::Prototype0>(lambda0));
+    static_assert(compiles<AsyncCaller::Prototype0>(std::move(moveOnlyLambda)));
+    static_assert(compiles<AsyncCaller::Prototype0>(freeFunction0));
+    static_assert(compiles<AsyncCaller::Prototype0>(functor0));
+
+    // more parameters than needed
+    static_assert(compiles<AsyncCaller::Prototype1>(&AsyncCaller::callback0));
+    static_assert(compiles<AsyncCaller::Prototype1>(&AsyncCaller::staticCallback0));
+    static_assert(compiles<AsyncCaller::Prototype1>(lambda0));
+    static_assert(compiles<AsyncCaller::Prototype1>(freeFunction0));
+    static_assert(compiles<AsyncCaller::Prototype1>(functor0));
+
+    // matching parameter
+    static_assert(compiles<AsyncCaller::Prototype1>(&AsyncCaller::callback1));
+    static_assert(compiles<AsyncCaller::Prototype1>(&AsyncCaller::staticCallback1));
+    static_assert(compiles<AsyncCaller::Prototype1>(lambda1));
+    static_assert(compiles<AsyncCaller::Prototype1>(std::move(moveOnlyLambda1)));
+    static_assert(compiles<AsyncCaller::Prototype1>(constLambda));
+    static_assert(compiles<AsyncCaller::Prototype1>(freeFunction1));
+    static_assert(compiles<AsyncCaller::Prototype1>(functor1));
+
+    // not enough parameters
+    static_assert(!compiles<AsyncCaller::Prototype0>(&AsyncCaller::callback1));
+    static_assert(!compiles<AsyncCaller::Prototype0>(&AsyncCaller::staticCallback1));
+    static_assert(!compiles<AsyncCaller::Prototype0>(lambda1));
+    static_assert(!compiles<AsyncCaller::Prototype0>(constLambda));
+    static_assert(!compiles<AsyncCaller::Prototype0>(lambda2));
+    static_assert(!compiles<AsyncCaller::Prototype0>(freeFunction1));
+    static_assert(!compiles<AsyncCaller::Prototype0>(functor1));
+
+    // wrong parameter type
+    static_assert(!compiles<AsyncCaller::Prototype1>(&AsyncCaller::callbackInt));
+
+    // old-style slot name
+    static_assert(!compiles<AsyncCaller::Prototype0>("callback1"));
+
+    // slot with return value is ok, we just don't pass
+    // the return value through to anything.
+    static_assert(compiles<AsyncCaller::Prototype0>(&AsyncCaller::returnInt));
+
+    static_assert(compiles<AsyncCaller::Prototype1>(freeFunctionVariant));
+
+    std::function<int()> stdFunction0(&AsyncCaller::staticCallback0);
+    std::function<void(QString)> stdFunction1(&AsyncCaller::staticCallback1);
+    static_assert(compiles<AsyncCaller::Prototype0>(stdFunction0));
+    static_assert(compiles<AsyncCaller::Prototype1>(stdFunction1));
+
+    AsyncCaller caller;
+    // with context
+    QVERIFY(caller.callMe0(&caller, &AsyncCaller::callback0));
+    QVERIFY(caller.callMe0(&caller, &AsyncCaller::returnInt));
+    QVERIFY(caller.callMe0(&caller, &AsyncCaller::staticCallback0));
+    QVERIFY(caller.callMe0(&caller, lambda0));
+    QVERIFY(caller.callMe0(&caller, freeFunction0));
+    QVERIFY(caller.callMe0(&caller, std::move(moveOnlyLambda)));
+    QVERIFY(caller.callMe0(&caller, stdFunction0));
+
+    QVERIFY(caller.callMe1(&caller, &AsyncCaller::callback1));
+    QVERIFY(caller.callMe1(&caller, &AsyncCaller::staticCallback1));
+    QVERIFY(caller.callMe1(&caller, lambda1));
+    QVERIFY(caller.callMe1(&caller, freeFunction1));
+    QVERIFY(caller.callMe1(&caller, constLambda));
+    QVERIFY(caller.callMe1(&caller, stdFunction1));
+
+    // without context
+    QVERIFY(caller.callMe0(&AsyncCaller::staticCallback0));
+    QVERIFY(caller.callMe0(lambda0));
+    QVERIFY(caller.callMe0(freeFunction0));
+    QVERIFY(caller.callMe0(stdFunction0));
+
+    QVERIFY(caller.callMe1(&AsyncCaller::staticCallback1));
+    QVERIFY(caller.callMe1(lambda1));
+    QVERIFY(caller.callMe1(constLambda));
+    QVERIFY(caller.callMe1(std::move(moveOnlyLambda1)));
+    QVERIFY(caller.callMe1(freeFunction1));
+    QVERIFY(caller.callMe1(stdFunction1));
+
+    static const char *expectedPayload = "Hello World!";
+    {
+        struct MoveOnlyFunctor {
+            MoveOnlyFunctor() = default;
+            MoveOnlyFunctor(MoveOnlyFunctor &&) = default;
+            MoveOnlyFunctor(const MoveOnlyFunctor &) = delete;
+            ~MoveOnlyFunctor() = default;
+
+            int operator()() const {
+                qDebug().noquote() << payload;
+                return int(payload.length());
+            }
+            QString payload = expectedPayload;
+        } moveOnlyFunctor;
+        QVERIFY(caller.callMe0(std::move(moveOnlyFunctor)));
+    }
+    QTest::ignoreMessage(QtDebugMsg, expectedPayload);
+    caller.slotObject->call(nullptr, argv);
+    QCOMPARE(result, QLatin1String(expectedPayload).length());
+
+    // mutable lambda; same behavior as mutableFunctor - we copy the functor
+    // in the QCallableObject, so the original is not modified
+    int status = 0;
+    auto mutableLambda1 = [&status, calls = 0]() mutable { status = ++calls; };
+
+    mutableLambda1();
+    QCOMPARE(status, 1);
+    QVERIFY(caller.callMe0(mutableLambda1)); // this copies the lambda with count == 1
+    caller.slotObject->call(nullptr, argv);  // this doesn't change mutableLambda1, but the copy
+    QCOMPARE(status, 2);
+    mutableLambda1();
+    QCOMPARE(status, 2);                     // and we are still at two
+
+    auto mutableLambda2 = [calls = 0]() mutable { return ++calls; };
+    QCOMPARE(mutableLambda2(), 1);
+    QVERIFY(caller.callMe0(mutableLambda2)); // this copies the lambda
+    caller.slotObject->call(nullptr, argv);  // this call doesn't change mutableLambda2
+    QCOMPARE(mutableLambda2(), 2);           // so we are still at 2
+
+    {
+        int called = -1;
+        struct MutableFunctor {
+            void operator()() { called = 0; }
+            int &called;
+        };
+        struct ConstFunctor
+        {
+            void operator()() const { called = 1; }
+            int &called;
+        };
+
+        MutableFunctor mf{called};
+        QMetaObject::invokeMethod(this, mf);
+        QCOMPARE(called, 0);
+        ConstFunctor cf{called};
+        QMetaObject::invokeMethod(this, cf);
+        QCOMPARE(called, 1);
+        QMetaObject::invokeMethod(this, [&called, u = std::unique_ptr<int>()]{ called = 2; });
+        QCOMPARE(called, 2);
+        QMetaObject::invokeMethod(this, [&called, count = 0]() mutable {
+            if (!count)
+                called = 3;
+            ++count;
+        });
+        QCOMPARE(called, 3);
+    }
 }
 
 QTEST_MAIN(tst_QObject)

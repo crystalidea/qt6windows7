@@ -1248,10 +1248,6 @@ static void init_platform(const QString &pluginNamesWithArguments, const QString
         QGuiApplicationPrivate::platform_integration = QPlatformIntegrationFactory::create(name, arguments, argc, argv, platformPluginPath);
         if (Q_UNLIKELY(!QGuiApplicationPrivate::platform_integration)) {
             if (availablePlugins.contains(name)) {
-                if (name == QStringLiteral("xcb") && QVersionNumber::compare(QLibraryInfo::version(), QVersionNumber(6, 5, 0)) >= 0) {
-                    qCWarning(lcQpaPluginLoading).nospace().noquote()
-                            << "From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin.";
-                }
                 qCInfo(lcQpaPluginLoading).nospace().noquote()
                         << "Could not load the Qt platform plugin \"" << name << "\" in \""
                         << QDir::toNativeSeparators(platformPluginPath) << "\" even though it was found.";
@@ -1353,7 +1349,7 @@ static void init_platform(const QString &pluginNamesWithArguments, const QString
     const auto platformIntegration = QGuiApplicationPrivate::platformIntegration();
     fontSmoothingGamma = platformIntegration->styleHint(QPlatformIntegration::FontSmoothingGamma).toReal();
     QCoreApplication::setAttribute(Qt::AA_DontShowShortcutsInContextMenus,
-        !platformIntegration->styleHint(QPlatformIntegration::ShowShortcutsInContextMenus).toBool());
+        !QGuiApplication::styleHints()->showShortcutsInContextMenus());
 }
 
 static void init_plugins(const QList<QByteArray> &pluginList)
@@ -2091,6 +2087,9 @@ void Q_TRACE_INSTRUMENT(qtgui) QGuiApplicationPrivate::processWindowSystemEvent(
     case QWindowSystemInterfacePrivate::WindowScreenChanged:
         QGuiApplicationPrivate::processWindowScreenChangedEvent(static_cast<QWindowSystemInterfacePrivate::WindowScreenChangedEvent *>(e));
         break;
+    case QWindowSystemInterfacePrivate::WindowDevicePixelRatioChanged:
+        QGuiApplicationPrivate::processWindowDevicePixelRatioChangedEvent(static_cast<QWindowSystemInterfacePrivate::WindowDevicePixelRatioChangedEvent *>(e));
+        break;
     case QWindowSystemInterfacePrivate::SafeAreaMarginsChanged:
         QGuiApplicationPrivate::processSafeAreaMarginsChangedEvent(static_cast<QWindowSystemInterfacePrivate::SafeAreaMarginsChangedEvent *>(e));
         break;
@@ -2592,26 +2591,26 @@ void QGuiApplicationPrivate::processWindowStateChangedEvent(QWindowSystemInterfa
 
 void QGuiApplicationPrivate::processWindowScreenChangedEvent(QWindowSystemInterfacePrivate::WindowScreenChangedEvent *wse)
 {
-    if (QWindow *window  = wse->window.data()) {
-        if (window->screen() == wse->screen.data())
-            return;
-        if (QWindow *topLevelWindow = window->d_func()->topLevelWindow(QWindow::ExcludeTransients)) {
-            if (QScreen *screen = wse->screen.data())
-                topLevelWindow->d_func()->setTopLevelScreen(screen, false /* recreate */);
-            else // Fall back to default behavior, and try to find some appropriate screen
-                topLevelWindow->setScreen(nullptr);
-        }
+    QWindow *window = wse->window.data();
+    if (!window)
+        return;
 
-        // We may have changed scaling; trigger resize event if needed,
-        // except on Windows, where we send resize events during WM_DPICHANGED
-        // event handling. FIXME: unify DPI change handling across all platforms.
-#ifndef Q_OS_WIN
-        if (window->handle()) {
-            QWindowSystemInterfacePrivate::GeometryChangeEvent gce(window, QHighDpi::fromNativePixels(window->handle()->geometry(), window));
-            processGeometryChangeEvent(&gce);
-        }
-#endif
+    if (window->screen() == wse->screen.data())
+        return;
+
+    if (QWindow *topLevelWindow = window->d_func()->topLevelWindow(QWindow::ExcludeTransients)) {
+        if (QScreen *screen = wse->screen.data())
+            topLevelWindow->d_func()->setTopLevelScreen(screen, false /* recreate */);
+        else // Fall back to default behavior, and try to find some appropriate screen
+            topLevelWindow->setScreen(nullptr);
     }
+}
+
+void QGuiApplicationPrivate::processWindowDevicePixelRatioChangedEvent(QWindowSystemInterfacePrivate::WindowDevicePixelRatioChangedEvent *wde)
+{
+    if (wde->window.isNull())
+        return;
+    QWindowPrivate::get(wde->window)->updateDevicePixelRatio();
 }
 
 void QGuiApplicationPrivate::processSafeAreaMarginsChangedEvent(QWindowSystemInterfacePrivate::SafeAreaMarginsChangedEvent *wse)
@@ -3198,6 +3197,10 @@ void QGuiApplicationPrivate::processScreenLogicalDotsPerInchChange(QWindowSystem
         s->d_func()->logicalDpi = QDpi(e->dpiX, e->dpiY);
         s->d_func()->updateGeometry();
     }
+
+    for (QWindow *window : QGuiApplication::allWindows())
+        if (window->screen() == e->screen)
+            QWindowPrivate::get(window)->updateDevicePixelRatio();
 
     resetCachedDevicePixelRatio();
 }

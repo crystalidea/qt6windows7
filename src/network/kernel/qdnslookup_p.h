@@ -1,4 +1,5 @@
 // Copyright (C) 2012 Jeremy Lainé <jeremy.laine@m4x.org>
+// Copyright (C) 2023 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QDNSLOOKUP_P_H
@@ -18,13 +19,13 @@
 #include <QtNetwork/private/qtnetworkglobal_p.h>
 #include "QtCore/qmutex.h"
 #include "QtCore/qrunnable.h"
-#include "QtCore/qsharedpointer.h"
 #if QT_CONFIG(thread)
 #include "QtCore/qthreadpool.h"
 #endif
 #include "QtNetwork/qdnslookup.h"
 #include "QtNetwork/qhostaddress.h"
 #include "private/qobject_p.h"
+#include "private/qurl_p.h"
 
 QT_REQUIRE_CONFIG(dnslookup);
 
@@ -33,16 +34,15 @@ QT_BEGIN_NAMESPACE
 //#define QDNSLOOKUP_DEBUG
 
 constexpr qsizetype MaxDomainNameLength = 255;
+constexpr quint16 DnsPort = 53;
+
 class QDnsLookupRunnable;
+QDebug operator<<(QDebug &, QDnsLookupRunnable *);
 
 class QDnsLookupReply
 {
 public:
-    QDnsLookupReply()
-        : error(QDnsLookup::NoError)
-    { }
-
-    QDnsLookup::Error error;
+    QDnsLookup::Error error = QDnsLookup::NoError;
     QString errorString;
 
     QList<QDnsDomainNameRecord> canonicalNameRecords;
@@ -52,22 +52,85 @@ public:
     QList<QDnsDomainNameRecord> pointerRecords;
     QList<QDnsServiceRecord> serviceRecords;
     QList<QDnsTextRecord> textRecords;
+
+    // helper methods
+    void setError(QDnsLookup::Error err, QString &&msg)
+    {
+        error = err;
+        errorString = std::move(msg);
+    }
+
+    void makeResolverSystemError(int code = -1)
+    {
+        Q_ASSERT(allAreEmpty());
+        setError(QDnsLookup::ResolverError, qt_error_string(code));
+    }
+
+    void makeTimeoutError()
+    {
+        Q_ASSERT(allAreEmpty());
+        setError(QDnsLookup::TimeoutError, QDnsLookup::tr("Request timed out"));
+    }
+
+    void makeDnsRcodeError(quint8 rcode)
+    {
+        Q_ASSERT(allAreEmpty());
+        switch (rcode) {
+        case 1:     // FORMERR
+            error = QDnsLookup::InvalidRequestError;
+            errorString = QDnsLookup::tr("Server could not process query");
+            return;
+        case 2:     // SERVFAIL
+        case 4:     // NOTIMP
+            error = QDnsLookup::ServerFailureError;
+            errorString = QDnsLookup::tr("Server failure");
+            return;
+        case 3:     // NXDOMAIN
+            error = QDnsLookup::NotFoundError;
+            errorString = QDnsLookup::tr("Non existent domain");
+            return;
+        case 5:     // REFUSED
+            error = QDnsLookup::ServerRefusedError;
+            errorString = QDnsLookup::tr("Server refused to answer");
+            return;
+        default:
+            error = QDnsLookup::InvalidReplyError;
+            errorString = QDnsLookup::tr("Invalid reply received (rcode %1)")
+                    .arg(rcode);
+            return;
+        }
+    }
+
+    void makeInvalidReplyError(QString &&msg = QString())
+    {
+        if (msg.isEmpty())
+            msg = QDnsLookup::tr("Invalid reply received");
+        else
+            msg = QDnsLookup::tr("Invalid reply received (%1)").arg(std::move(msg));
+        *this = QDnsLookupReply();  // empty our lists
+        setError(QDnsLookup::InvalidReplyError, std::move(msg));
+    }
+
+private:
+    bool allAreEmpty() const
+    {
+        return canonicalNameRecords.isEmpty()
+                && hostAddressRecords.isEmpty()
+                && mailExchangeRecords.isEmpty()
+                && nameServerRecords.isEmpty()
+                && pointerRecords.isEmpty()
+                && serviceRecords.isEmpty()
+                && textRecords.isEmpty();
+    }
 };
 
 class QDnsLookupPrivate : public QObjectPrivate
 {
 public:
     QDnsLookupPrivate()
-        : isFinished(false)
-        , type(QDnsLookup::A)
-        , runnable(nullptr)
+        : type(QDnsLookup::A)
+        , port(DnsPort)
     { }
-
-    void _q_lookupFinished(const QDnsLookupReply &reply);
-
-    static const char *msgNoIpV6NameServerAdresses;
-
-    bool isFinished;
 
     void nameChanged()
     {
@@ -75,6 +138,13 @@ public:
     }
     Q_OBJECT_BINDABLE_PROPERTY(QDnsLookupPrivate, QString, name,
                                &QDnsLookupPrivate::nameChanged);
+
+    void nameserverChanged()
+    {
+        emit q_func()->nameserverChanged(nameserver);
+    }
+    Q_OBJECT_BINDABLE_PROPERTY(QDnsLookupPrivate, QHostAddress, nameserver,
+                               &QDnsLookupPrivate::nameserverChanged);
 
     void typeChanged()
     {
@@ -84,15 +154,18 @@ public:
     Q_OBJECT_BINDABLE_PROPERTY(QDnsLookupPrivate, QDnsLookup::Type,
                                type, &QDnsLookupPrivate::typeChanged);
 
-    void nameserverChanged()
+    void nameserverPortChanged()
     {
-        emit q_func()->nameserverChanged(nameserver);
+        emit q_func()->nameserverPortChanged(port);
     }
-    Q_OBJECT_BINDABLE_PROPERTY(QDnsLookupPrivate, QHostAddress, nameserver,
-                               &QDnsLookupPrivate::nameserverChanged);
+
+    Q_OBJECT_BINDABLE_PROPERTY(QDnsLookupPrivate, quint16,
+                               port, &QDnsLookupPrivate::nameserverPortChanged);
+
 
     QDnsLookupReply reply;
-    QDnsLookupRunnable *runnable;
+    QDnsLookupRunnable *runnable = nullptr;
+    bool isFinished = false;
 
     Q_DECLARE_PUBLIC(QDnsLookup)
 };
@@ -102,40 +175,31 @@ class QDnsLookupRunnable : public QObject, public QRunnable
     Q_OBJECT
 
 public:
-    QDnsLookupRunnable(QDnsLookup::Type type, const QByteArray &name, const QHostAddress &nameserver)
-        : requestType(type)
-        , requestName(name)
-        , nameserver(nameserver)
-    { }
+#ifdef Q_OS_WIN
+    using EncodedLabel = QString;
+#else
+    using EncodedLabel = QByteArray;
+#endif
+
+    QDnsLookupRunnable(const QDnsLookupPrivate *d);
     void run() override;
 
 signals:
     void finished(const QDnsLookupReply &reply);
 
 private:
-    static void query(const int requestType, const QByteArray &requestName, const QHostAddress &nameserver, QDnsLookupReply *reply);
-    QDnsLookup::Type requestType;
-    QByteArray requestName;
+    template <typename T> static QString decodeLabel(T encodedLabel)
+    {
+        return qt_ACE_do(encodedLabel.toString(), NormalizeAce, ForbidLeadingDot);
+    }
+    void query(QDnsLookupReply *reply);
+
+    EncodedLabel requestName;
     QHostAddress nameserver;
+    QDnsLookup::Type requestType;
+    quint16 port;
+    friend QDebug operator<<(QDebug &, QDnsLookupRunnable *);
 };
-
-#if QT_CONFIG(thread)
-class QDnsLookupThreadPool : public QThreadPool
-{
-    Q_OBJECT
-
-public:
-    QDnsLookupThreadPool();
-    void start(QRunnable *runnable);
-
-private slots:
-    void _q_applicationDestroyed();
-
-private:
-    QMutex signalsMutex;
-    bool signalsConnected;
-};
-#endif // QT_CONFIG(thread)
 
 class QDnsRecordPrivate : public QSharedData
 {

@@ -69,6 +69,9 @@ void QIOSTheme::initializeSystemPalette()
 
     s_systemPalette.setBrush(QPalette::Highlight, QColor(11, 70, 150, 60));
     s_systemPalette.setBrush(QPalette::HighlightedText, qt_mac_toQBrush(UIColor.labelColor.CGColor));
+
+    if (@available(ios 15.0, *))
+        s_systemPalette.setBrush(QPalette::Accent, qt_mac_toQBrush(UIColor.tintColor.CGColor));
 }
 
 const QPalette *QIOSTheme::palette(QPlatformTheme::Palette type) const

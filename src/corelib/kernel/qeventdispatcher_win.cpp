@@ -56,6 +56,13 @@ class QEventDispatcherWin32Private;
 
 LRESULT QT_WIN_CALLBACK qt_internal_proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp);
 
+static quint64 qt_msectime()
+{
+    using namespace std::chrono;
+    auto t = duration_cast<milliseconds>(steady_clock::now().time_since_epoch());
+    return t.count();
+}
+
 QEventDispatcherWin32Private::QEventDispatcherWin32Private()
     : interrupt(false), internalHwnd(0),
       sendPostedEventsTimerId(0), wakeUps(0),
@@ -354,15 +361,10 @@ void QEventDispatcherWin32Private::registerTimer(WinTimerInfo *t)
         ok = t->fastTimerId;
     }
 
-    typedef BOOL (WINAPI *SetCoalescableTimerFunc) (HWND, UINT_PTR, UINT, TIMERPROC, ULONG);
-    static SetCoalescableTimerFunc mySetCoalescableTimerFunc = 
-        (SetCoalescableTimerFunc)::GetProcAddress(::GetModuleHandle(L"User32"), "SetCoalescableTimer");
-
-    if (!ok && mySetCoalescableTimerFunc) {
+    if (!ok) {
         // user normal timers for (Very)CoarseTimers, or if no more multimedia timers available
-        ok = mySetCoalescableTimerFunc(internalHwnd, t->timerId, interval, nullptr, tolerance);
+        ok = SetCoalescableTimer(internalHwnd, t->timerId, interval, nullptr, tolerance);
     }
-    
     if (!ok)
         ok = SetTimer(internalHwnd, t->timerId, interval, nullptr);
 

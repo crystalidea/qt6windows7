@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <errno.h>
 
+#include <chrono>
 #include <memory> // for std::unique_ptr
 
 #if __has_include(<paths.h>)
@@ -32,7 +33,7 @@
 # define _PATH_TMP          "/tmp"
 #endif
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_DARWIN)
 # include <QtCore/private/qcore_mac_p.h>
 # include <CoreFoundation/CFBundle.h>
 #endif
@@ -160,16 +161,39 @@ static bool isPackage(const QFileSystemMetaData &data, const QFileSystemEntry &e
 
 namespace {
 namespace GetFileTimes {
-qint64 timespecToMSecs(const timespec &spec)
+qint64 time_t_toMsecs(time_t t)
 {
-    return (qint64(spec.tv_sec) * 1000) + (spec.tv_nsec / 1000000);
+    using namespace std::chrono;
+    return milliseconds{seconds{t}}.count();
 }
 
 // fallback set
-[[maybe_unused]] qint64 atime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_atime) * 1000; }
-[[maybe_unused]] qint64 birthtime(const QT_STATBUF &, ulong)       { return Q_INT64_C(0); }
-[[maybe_unused]] qint64 ctime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_ctime) * 1000; }
-[[maybe_unused]] qint64 mtime(const QT_STATBUF &statBuffer, ulong) { return qint64(statBuffer.st_mtime) * 1000; }
+[[maybe_unused]] qint64 atime(const QT_STATBUF &statBuffer, ulong)
+{
+    return time_t_toMsecs(statBuffer.st_atime);
+}
+[[maybe_unused]] qint64 birthtime(const QT_STATBUF &, ulong)
+{
+    return Q_INT64_C(0);
+}
+[[maybe_unused]] qint64 ctime(const QT_STATBUF &statBuffer, ulong)
+{
+    return time_t_toMsecs(statBuffer.st_ctime);
+}
+[[maybe_unused]] qint64 mtime(const QT_STATBUF &statBuffer, ulong)
+{
+    return time_t_toMsecs(statBuffer.st_mtime);
+}
+
+// T is either a stat.timespec or statx.statx_timestamp,
+// both have tv_sec and tv_nsec members
+template<typename T>
+qint64 timespecToMSecs(const T &spec)
+{
+    using namespace std::chrono;
+    const nanoseconds nsecs = seconds{spec.tv_sec} + nanoseconds{spec.tv_nsec};
+    return duration_cast<milliseconds>(nsecs).count();
+}
 
 // Xtim, POSIX.1-2008
 template <typename T>
@@ -304,17 +328,12 @@ inline void QFileSystemMetaData::fillFromStatxBuf(const struct statx &statxBuffe
     size_ = qint64(statxBuffer.stx_size);
 
     // Times
-    auto toMSecs = [](struct statx_timestamp ts)
-    {
-        return qint64(ts.tv_sec) * 1000 + (ts.tv_nsec / 1000000);
-    };
-    accessTime_ = toMSecs(statxBuffer.stx_atime);
-    metadataChangeTime_ = toMSecs(statxBuffer.stx_ctime);
-    modificationTime_ = toMSecs(statxBuffer.stx_mtime);
-    if (statxBuffer.stx_mask & STATX_BTIME)
-        birthTime_ = toMSecs(statxBuffer.stx_btime);
-    else
-        birthTime_ = 0;
+    using namespace GetFileTimes;
+    accessTime_ = timespecToMSecs(statxBuffer.stx_atime);
+    metadataChangeTime_ = timespecToMSecs(statxBuffer.stx_ctime);
+    modificationTime_ = timespecToMSecs(statxBuffer.stx_mtime);
+    const bool birthMask = statxBuffer.stx_mask & STATX_BTIME;
+    birthTime_ = birthMask ? timespecToMSecs(statxBuffer.stx_btime) : 0;
 
     userId_ = statxBuffer.stx_uid;
     groupId_ = statxBuffer.stx_gid;
@@ -611,11 +630,21 @@ QFileSystemEntry QFileSystemEngine::getLinkTarget(const QFileSystemEntry &link, 
 }
 
 //static
+QFileSystemEntry QFileSystemEngine::getRawLinkPath(const QFileSystemEntry &link,
+                                                   QFileSystemMetaData &data)
+{
+    Q_UNUSED(data)
+    const QByteArray path = qt_readlink(link.nativeFilePath().constData());
+    const QString ret = QFile::decodeName(path);
+    return QFileSystemEntry(ret);
+}
+
+//static
 QFileSystemEntry QFileSystemEngine::canonicalName(const QFileSystemEntry &entry, QFileSystemMetaData &data)
 {
     Q_CHECK_FILE_NAME(entry, entry);
 
-#if !defined(Q_OS_MAC) && !defined(Q_OS_QNX) && !defined(Q_OS_ANDROID) && !defined(Q_OS_HAIKU) && _POSIX_VERSION < 200809L
+#if !defined(Q_OS_DARWIN) && !defined(Q_OS_QNX) && !defined(Q_OS_ANDROID) && !defined(Q_OS_HAIKU) && _POSIX_VERSION < 200809L
     // realpath(X,0) is not supported
     Q_UNUSED(data);
     return QFileSystemEntry(slowCanonicalized(absoluteName(entry).filePath()));
@@ -735,7 +764,7 @@ QByteArray QFileSystemEngine::id(int fd)
 QString QFileSystemEngine::resolveUserName(uint userId)
 {
 #if QT_CONFIG(thread) && defined(_POSIX_THREAD_SAFE_FUNCTIONS) && !defined(Q_OS_OPENBSD)
-    int size_max = sysconf(_SC_GETPW_R_SIZE_MAX);
+    long size_max = sysconf(_SC_GETPW_R_SIZE_MAX);
     if (size_max == -1)
         size_max = 1024;
     QVarLengthArray<char, 1024> buf(size_max);
@@ -761,7 +790,7 @@ QString QFileSystemEngine::resolveUserName(uint userId)
 QString QFileSystemEngine::resolveGroupName(uint groupId)
 {
 #if QT_CONFIG(thread) && defined(_POSIX_THREAD_SAFE_FUNCTIONS) && !defined(Q_OS_OPENBSD)
-    int size_max = sysconf(_SC_GETPW_R_SIZE_MAX);
+    long size_max = sysconf(_SC_GETPW_R_SIZE_MAX);
     if (size_max == -1)
         size_max = 1024;
     QVarLengthArray<char, 1024> buf(size_max);
@@ -777,7 +806,7 @@ QString QFileSystemEngine::resolveGroupName(uint groupId)
     struct group entry;
     // Some large systems have more members than the POSIX max size
     // Loop over by doubling the buffer size (upper limit 250k)
-    for (unsigned size = size_max; size < 256000; size += size)
+    for (long size = size_max; size < 256000; size += size)
     {
         buf.resize(size);
         // ERANGE indicates that the buffer was too small
@@ -1075,7 +1104,7 @@ static bool createDirectoryWithParents(const QByteArray &nativeName, mode_t mode
         return false;
 
     // mkdir failed because the parent dir doesn't exist, so try to create it
-    int slash = nativeName.lastIndexOf('/');
+    qsizetype slash = nativeName.lastIndexOf('/');
     if (slash < 1)
         return false;
 
@@ -1118,7 +1147,7 @@ bool QFileSystemEngine::removeDirectory(const QFileSystemEntry &entry, bool remo
 
     if (removeEmptyParents) {
         QString dirName = QDir::cleanPath(entry.filePath());
-        for (int oldslash = 0, slash=dirName.size(); slash > 0; oldslash = slash) {
+        for (qsizetype oldslash = 0, slash=dirName.size(); slash > 0; oldslash = slash) {
             const QByteArray chunk = QFile::encodeName(dirName.left(slash));
             QT_STATBUF st;
             if (QT_STAT(chunk.constData(), &st) != -1) {
@@ -1523,19 +1552,13 @@ bool QFileSystemEngine::setFileTime(int fd, const QDateTime &newDate, QAbstractF
     }
 
 #if QT_CONFIG(futimens)
-    struct timespec ts[2];
+    // UTIME_OMIT: leave file timestamp unchanged
+    struct timespec ts[2] = {{0, UTIME_OMIT}, {0, UTIME_OMIT}};
 
-    ts[0].tv_sec = ts[1].tv_sec = 0;
-    ts[0].tv_nsec = ts[1].tv_nsec = UTIME_OMIT;
-
-    const qint64 msecs = newDate.toMSecsSinceEpoch();
-
-    if (time == QAbstractFileEngine::AccessTime) {
-        ts[0].tv_sec = msecs / 1000;
-        ts[0].tv_nsec = (msecs % 1000) * 1000000;
-    } else if (time == QAbstractFileEngine::ModificationTime) {
-        ts[1].tv_sec = msecs / 1000;
-        ts[1].tv_nsec = (msecs % 1000) * 1000000;
+    if (time == QAbstractFileEngine::AccessTime || time == QAbstractFileEngine::ModificationTime) {
+        const int idx = time == QAbstractFileEngine::AccessTime ? 0 : 1;
+        const std::chrono::milliseconds msecs{newDate.toMSecsSinceEpoch()};
+        ts[idx] = durationToTimespec(msecs);
     }
 
     if (futimens(fd, ts) == -1) {

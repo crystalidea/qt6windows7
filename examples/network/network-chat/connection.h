@@ -32,8 +32,8 @@ public:
         Undefined
     };
 
-    Connection(QObject *parent = nullptr);
-    Connection(qintptr socketDescriptor, QObject *parent = nullptr);
+    explicit Connection(QObject *parent = nullptr);
+    explicit Connection(qintptr socketDescriptor, QObject *parent = nullptr);
     ~Connection();
 
     QString name() const;
@@ -59,15 +59,15 @@ private:
 
     QCborStreamReader reader;
     QCborStreamWriter writer;
-    QString greetingMessage;
-    QString username;
+    QString greetingMessage = tr("undefined");
+    QString username = tr("unknown");
     QTimer pingTimer;
     QElapsedTimer pongTime;
     QString buffer;
-    ConnectionState state;
-    DataType currentDataType;
-    int transferTimerId;
-    bool isGreetingMessageSent;
+    ConnectionState state = WaitingForGreeting;
+    DataType currentDataType = Undefined;
+    int transferTimerId = -1;
+    bool isGreetingMessageSent = false;
 };
 
 #endif

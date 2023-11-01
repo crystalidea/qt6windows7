@@ -899,6 +899,38 @@ endfunction()
 # properties.
 function(_qt_internal_android_format_deployment_paths target)
     if(QT_BUILD_STANDALONE_TESTS OR QT_BUILDING_QT)
+        set(android_deployment_paths_policy NEW)
+    else()
+        set(policy_path_properties
+            QT_QML_IMPORT_PATH
+            QT_QML_ROOT_PATH
+            QT_ANDROID_PACKAGE_SOURCE_DIR
+            QT_ANDROID_EXTRA_PLUGINS
+            QT_ANDROID_EXTRA_LIBS
+        )
+
+        # Check if any of paths contains the value and stop the evaluation if all properties are
+        # empty or -NOTFOUND
+        set(has_android_paths FALSE)
+        foreach(prop_name IN LISTS policy_path_properties)
+            get_target_property(prop_value ${target} ${prop_name})
+            if(prop_value)
+                set(has_android_paths TRUE)
+                break()
+            endif()
+        endforeach()
+        if(NOT has_android_paths)
+            return()
+        endif()
+
+        __qt_internal_setup_policy(QTP0002 "6.6.0"
+            "Target properties that specify android-specific paths may contain generator\
+            expressions but they must evaluate to valid JSON strings.\
+            Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0002.html for policy details."
+        )
+        qt6_policy(GET QTP0002 android_deployment_paths_policy)
+    endif()
+    if(android_deployment_paths_policy STREQUAL "NEW")
         # When building standalone tests or Qt itself we obligate developers to not use
         # windows paths when setting QT_* properties below, so their values are used as is when
         # generating deployment settings.

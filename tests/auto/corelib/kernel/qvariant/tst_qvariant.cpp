@@ -5,6 +5,48 @@
 
 #include <qvariant.h>
 
+// don't assume <type_traits>
+template <typename T, typename U>
+constexpr inline bool my_is_same_v = false;
+template <typename T>
+constexpr inline bool my_is_same_v<T, T> = true;
+
+#define CHECK_IMPL(func, arg, Variant, cvref, R) \
+    static_assert(my_is_same_v<decltype( func < arg >(std::declval< Variant cvref >())), R cvref >)
+
+#define CHECK_GET_IF(Variant, cvref) \
+    CHECK_IMPL(get_if, int, Variant, cvref *, int)
+
+#define CHECK_GET(Variant, cvref) \
+    CHECK_IMPL(get, int, Variant, cvref, int)
+
+CHECK_GET_IF(QVariant, /* unadorned */);
+CHECK_GET_IF(QVariant, const);
+
+CHECK_GET(QVariant, &);
+CHECK_GET(QVariant, const &);
+CHECK_GET(QVariant, &&);
+CHECK_GET(QVariant, const &&);
+
+// check for a type derived from QVariant:
+
+struct MyVariant : QVariant
+{
+    using QVariant::QVariant;
+};
+
+CHECK_GET_IF(MyVariant, /* unadorned */);
+CHECK_GET_IF(MyVariant, const);
+
+CHECK_GET(MyVariant, &);
+CHECK_GET(MyVariant, const &);
+CHECK_GET(MyVariant, &&);
+CHECK_GET(MyVariant, const &&);
+
+#undef CHECK_GET_IF
+#undef CHECK_GET
+#undef CHECK_IMPL
+
 #include <QTest>
 
 // Please stick to alphabetic order.
@@ -44,7 +86,10 @@
 #include <variant>
 #include <unordered_map>
 
+using namespace Qt::StringLiterals;
+
 class CustomNonQObject;
+struct NonDefaultConstructible;
 
 template<typename T, typename  = void>
 struct QVariantFromValueCompiles
@@ -342,7 +387,29 @@ private slots:
     void constructFromQtLT65MetaType();
     void copyNonDefaultConstructible();
 
+    void inplaceConstruct();
+    void emplace();
+
+    void getIf_int() { getIf_impl(42); }
+    void getIf_QString() { getIf_impl(u"string"_s); };
+    void getIf_NonDefaultConstructible();
+    void getIfSpecial();
+
+    void get_int() { get_impl(42); }
+    void get_QString() { get_impl(u"string"_s); }
+    void get_NonDefaultConstructible();
+
 private:
+    using StdVariant = std::variant<std::monostate,
+            // list here all the types with which we instantiate getIf_impl:
+            int,
+            QString,
+            NonDefaultConstructible
+        >;
+    template <typename T>
+    void getIf_impl(T t) const;
+    template <typename T>
+    void get_impl(T t) const;
     template<typename T>
     void canViewAndView_ReturnFalseAndDefault_WhenConvertingBetweenPointerAndValue_impl(const QByteArray &typeName);
     void dataStream_data(QDataStream::Version version);
@@ -5428,6 +5495,16 @@ void tst_QVariant::shouldDeleteVariantDataWorksForAssociative()
 
 void tst_QVariant::fromStdVariant()
 {
+#define CHECK_EQUAL(lhs, rhs, type) do { \
+        QCOMPARE(lhs.typeId(), rhs.typeId()); \
+        if (lhs.isNull()) { \
+            QVERIFY(rhs.isNull()); \
+        } else { \
+            QVERIFY(!rhs.isNull()); \
+            QCOMPARE(get< type >(lhs), get< type >(rhs)); \
+        } \
+    } while (false)
+
     {
         typedef std::variant<int, bool> intorbool_t;
         intorbool_t stdvar = 5;
@@ -5435,21 +5512,38 @@ void tst_QVariant::fromStdVariant()
         QVERIFY(!qvar.isNull());
         QCOMPARE(qvar.typeId(), QMetaType::Int);
         QCOMPARE(qvar.value<int>(), std::get<int>(stdvar));
+        {
+            const auto qv2 = QVariant::fromStdVariant(std::move(stdvar));
+            CHECK_EQUAL(qv2, qvar, int);
+        }
+
         stdvar = true;
         qvar = QVariant::fromStdVariant(stdvar);
         QVERIFY(!qvar.isNull());
         QCOMPARE(qvar.typeId(), QMetaType::Bool);
         QCOMPARE(qvar.value<bool>(), std::get<bool>(stdvar));
+        {
+            const auto qv2 = QVariant::fromStdVariant(std::move(stdvar));
+            CHECK_EQUAL(qv2, qvar, bool);
+        }
     }
     {
         std::variant<std::monostate, int> stdvar;
         QVariant qvar = QVariant::fromStdVariant(stdvar);
         QVERIFY(!qvar.isValid());
+        {
+            const auto qv2 = QVariant::fromStdVariant(std::move(stdvar));
+            CHECK_EQUAL(qv2, qvar, int); // fake type, they're empty
+        }
         stdvar = -4;
         qvar = QVariant::fromStdVariant(stdvar);
         QVERIFY(!qvar.isNull());
         QCOMPARE(qvar.typeId(), QMetaType::Int);
         QCOMPARE(qvar.value<int>(), std::get<int>(stdvar));
+        {
+            const auto qv2 = QVariant::fromStdVariant(std::move(stdvar));
+            CHECK_EQUAL(qv2, qvar, int);
+        }
     }
     {
         std::variant<int, bool, QChar> stdvar = QChar::fromLatin1(' ');
@@ -5457,7 +5551,25 @@ void tst_QVariant::fromStdVariant()
         QVERIFY(!qvar.isNull());
         QCOMPARE(qvar.typeId(), QMetaType::QChar);
         QCOMPARE(qvar.value<QChar>(), std::get<QChar>(stdvar));
+        {
+            const auto qv2 = QVariant::fromStdVariant(std::move(stdvar));
+            CHECK_EQUAL(qv2, qvar, QChar);
+        }
     }
+    // rvalue fromStdVariant() actually moves:
+    {
+        const auto foo = u"foo"_s;
+        std::variant<QString, QByteArray> stdvar = foo;
+        QVariant qvar = QVariant::fromStdVariant(std::move(stdvar));
+        const auto ps = get_if<QString>(&stdvar);
+        QVERIFY(ps);
+        QVERIFY(ps->isNull()); // QString was moved from
+        QVERIFY(!qvar.isNull());
+        QCOMPARE(qvar.typeId(), QMetaType::QString);
+        QCOMPARE(get<QString>(qvar), foo);
+    }
+
+#undef CHECK_EQUAL
 }
 
 void tst_QVariant::qt4UuidDataStream()
@@ -5641,6 +5753,16 @@ void tst_QVariant::canViewAndView_ReturnFalseAndDefault_WhenConvertingBetweenPoi
 #undef ADD_TEST_IMPL
 }
 
+struct MoveTester
+{
+    bool wasMoved = false;
+    MoveTester() = default;
+    MoveTester(const MoveTester &) {}; // non-trivial on purpose
+    MoveTester(MoveTester &&other) { other.wasMoved = true; }
+    MoveTester& operator=(const MoveTester &) = default;
+    MoveTester& operator=(MoveTester &&other) {other.wasMoved = true; return *this;}
+};
+
 void tst_QVariant::moveOperations()
 {
     {
@@ -5662,6 +5784,19 @@ void tst_QVariant::moveOperations()
     v = QVariant::fromValue(list);
     v2 = std::move(v);
     QVERIFY(v2.value<std::list<int>>() == list);
+
+    {
+        MoveTester tester;
+        QVariant::fromValue(tester);
+        QVERIFY(!tester.wasMoved);
+        QVariant::fromValue(std::move(tester));
+        QVERIFY(tester.wasMoved);
+    }
+    {
+        const MoveTester tester;
+        QVariant::fromValue(std::move(tester));
+        QVERIFY(!tester.wasMoved); // we don't want to move from const variables
+    }
 }
 
 class NoMetaObject : public QObject {};
@@ -5816,13 +5951,316 @@ void tst_QVariant::copyNonDefaultConstructible()
     QVERIFY(var.constData() != &ndc);
 
     // qvariant_cast<T> and QVariant::value<T> don't compile
-    QCOMPARE(*static_cast<const NonDefaultConstructible *>(var.constData()), ndc);
+    QCOMPARE(get<NonDefaultConstructible>(std::as_const(var)), ndc);
 
     QVariant var2 = var;
     var2.detach();      // force another copy
     QVERIFY(var2.isDetached());
     QVERIFY(var2.constData() != var.constData());
+    QCOMPARE(get<NonDefaultConstructible>(std::as_const(var2)),
+             get<NonDefaultConstructible>(std::as_const(var)));
     QCOMPARE(var2, var);
+}
+
+void tst_QVariant::inplaceConstruct()
+{
+    {
+        NonDefaultConstructible ndc(42);
+        QVariant var(std::in_place_type<NonDefaultConstructible>, 42);
+        QVERIFY(get_if<NonDefaultConstructible>(&var));
+        QCOMPARE(get<NonDefaultConstructible>(var), ndc);
+    }
+
+    {
+        std::vector<int> vec {1, 2, 3, 4};
+        QVariant var(std::in_place_type<std::vector<int>>, {1, 2, 3, 4});
+        QVERIFY(get_if<std::vector<int>>(&var));
+        QCOMPARE(get<std::vector<int>>(var), vec);
+    }
+}
+
+struct LargerThanInternalQVariantStorage {
+    char data[6 * sizeof(void *)];
+};
+
+struct alignas(256) LargerThanInternalQVariantStorageOveraligned {
+    char data[6 * sizeof(void *)];
+};
+
+struct alignas(128) SmallerAlignmentEvenLargerSize {
+    char data[17 * sizeof(void *)];
+};
+
+void tst_QVariant::emplace()
+{
+    {
+        // can emplace non default constructible + can emplace on null variant
+        NonDefaultConstructible ndc(42);
+        QVariant var;
+        var.emplace<NonDefaultConstructible>(42);
+        QVERIFY(get_if<NonDefaultConstructible>(&var));
+        QCOMPARE(get<NonDefaultConstructible>(var), ndc);
+    }
+    {
+        // can emplace using ctor taking initializer_list
+        QVariant var;
+        var.emplace<std::vector<int>>({0, 1, 2, 3, 4});
+        auto vecPtr = get_if<std::vector<int>>(&var);
+        QVERIFY(vecPtr);
+        QCOMPARE(vecPtr->size(), 5U);
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(vecPtr->at(size_t(i)), i);
+    }
+    // prequisites for the test
+    QCOMPARE_LE(sizeof(std::vector<int>), sizeof(std::string));
+    QCOMPARE(alignof(std::vector<int>), alignof(std::string));
+    {
+        // emplace can reuse storage
+        auto var = QVariant::fromValue(std::string{});
+        QVERIFY(var.data_ptr().is_shared);
+        auto data = var.constData();
+        std::vector<int> &vec = var.emplace<std::vector<int>>(3, 42);
+        /* alignment is the same, so the pointer is exactly the same;
+           no offset change */
+        auto expected = std::vector<int>{42, 42, 42};
+        QCOMPARE(get_if<std::vector<int>>(&var), &vec);
+        QCOMPARE(get<std::vector<int>>(var), expected);
+        QCOMPARE(var.constData(), data);
+    }
+    {
+        // emplace can't reuse storage if the variant is shared
+        auto var = QVariant::fromValue(std::string{});
+        [[maybe_unused]] QVariant causesSharing = var;
+        QVERIFY(var.data_ptr().is_shared);
+        auto data = var.constData();
+        var.emplace<std::vector<int>>(3, 42);
+        auto expected = std::vector<int>{42, 42, 42};
+        QVERIFY(get_if<std::vector<int>>(&var));
+        QCOMPARE(get<std::vector<int>>(var), expected);
+        QCOMPARE_NE(var.constData(), data);
+    }
+    {
+        // emplace puts element into the correct place - non-shared
+        QVERIFY(QVariant::Private::canUseInternalSpace(QMetaType::fromType<QString>().iface()));
+        QVariant var;
+        var.emplace<QString>(QChar('x'));
+        QVERIFY(!var.data_ptr().is_shared);
+    }
+    {
+        // emplace puts element into the correct place - shared
+        QVERIFY(!QVariant::Private::canUseInternalSpace(QMetaType::fromType<std::string>().iface()));
+        QVariant var;
+        var.emplace<std::string>(42, 'x');
+        QVERIFY(var.data_ptr().is_shared);
+    }
+    {
+        // emplace does not reuse the storage if alignment is too large
+        auto iface = QMetaType::fromType<LargerThanInternalQVariantStorage>().iface();
+        QVERIFY(!QVariant::Private::canUseInternalSpace(iface));
+        auto var = QVariant::fromValue(LargerThanInternalQVariantStorage{});
+        auto data = var.constData();
+        var.emplace<LargerThanInternalQVariantStorageOveraligned>();
+        QCOMPARE_NE(var.constData(), data);
+    }
+    {
+        // emplace does reuse the storage if new alignment and size are together small enough
+        auto iface = QMetaType::fromType<LargerThanInternalQVariantStorageOveraligned>().iface();
+        QVERIFY(!QVariant::Private::canUseInternalSpace(iface));
+        auto var = QVariant::fromValue(LargerThanInternalQVariantStorageOveraligned{});
+        auto data = var.constData();
+        var.emplace<SmallerAlignmentEvenLargerSize>();
+        // no exact match below - the alignment is after all different
+        QCOMPARE_LE(quintptr(var.constData()), quintptr(data));
+        QCOMPARE_LE(quintptr(var.constData()),
+                    quintptr(data) + sizeof(LargerThanInternalQVariantStorageOveraligned));
+    }
+}
+
+void tst_QVariant::getIf_NonDefaultConstructible()
+{
+    getIf_impl(NonDefaultConstructible{42});
+}
+
+void tst_QVariant::getIfSpecial()
+{
+    QVariant v{QString{}}; // used to be a null QVariant in Qt 5
+    QCOMPARE_NE(get_if<QString>(&v), nullptr); // not anymore...
+}
+
+void tst_QVariant::get_NonDefaultConstructible()
+{
+    get_impl(NonDefaultConstructible{42});
+}
+
+template <typename T>
+T mutate(const T &t) { return t + t; }
+template <>
+NonDefaultConstructible mutate(const NonDefaultConstructible &t)
+{
+    return NonDefaultConstructible{t.i + t.i};
+}
+
+template <typename T>
+QVariant make_null_QVariant_of_type()
+{
+    return QVariant(QMetaType::fromType<T>());
+}
+
+template <typename T>
+void tst_QVariant::getIf_impl(T t) const
+{
+    QVariant v = QVariant::fromValue(t);
+
+    QVariant null;
+    QVERIFY(null.isNull());
+
+    [[maybe_unused]]
+    QVariant nulT;
+    if constexpr (std::is_default_constructible_v<T>) {
+        // typed null QVariants don't work with non-default-constuctable types
+        nulT = make_null_QVariant_of_type<T>();
+        QVERIFY(nulT.isNull());
+    }
+
+    QVariant date = QDate(2023, 3, 3);
+    static_assert(!std::is_same_v<T, QDate>);
+
+    // for behavioral comparison:
+    StdVariant stdn = {}, stdv = t;
+
+    // returns nullptr on type mismatch:
+    {
+        // const
+        QCOMPARE_EQ(get_if<T>(&std::as_const(stdn)), nullptr);
+        QCOMPARE_EQ(get_if<T>(&std::as_const(date)), nullptr);
+        // mutable
+        QCOMPARE_EQ(get_if<T>(&stdn), nullptr);
+        QCOMPARE_EQ(get_if<T>(&date), nullptr);
+    }
+
+    // returns nullptr on null variant (QVariant only):
+    {
+        QCOMPARE_EQ(get_if<T>(&std::as_const(null)), nullptr);
+        QCOMPARE_EQ(get_if<T>(&null), nullptr);
+        if constexpr (std::is_default_constructible_v<T>) {
+            // const access return nullptr
+            QCOMPARE_EQ(get_if<T>(&std::as_const(nulT)), nullptr);
+            // but mutable access makes typed null QVariants non-null (like data())
+            QCOMPARE_NE(get_if<T>(&nulT), nullptr);
+            QVERIFY(!nulT.isNull());
+            nulT = make_null_QVariant_of_type<T>(); // reset to null state
+        }
+    }
+
+    // const access:
+    {
+        auto ps = get_if<T>(&std::as_const(stdv));
+        static_assert(std::is_same_v<decltype(ps), const T*>);
+        QCOMPARE_NE(ps, nullptr);
+        QCOMPARE_EQ(*ps, t);
+
+        auto pv = get_if<T>(&std::as_const(v));
+        static_assert(std::is_same_v<decltype(ps), const T*>);
+        QCOMPARE_NE(pv, nullptr);
+        QCOMPARE_EQ(*pv, t);
+    }
+
+    // mutable access:
+    {
+        T t2 = mutate(t);
+
+        auto ps = get_if<T>(&stdv);
+        static_assert(std::is_same_v<decltype(ps), T*>);
+        QCOMPARE_NE(ps, nullptr);
+        QCOMPARE_EQ(*ps, t);
+        *ps = t2;
+        auto ps2 = get_if<T>(&stdv);
+        QCOMPARE_NE(ps2, nullptr);
+        QCOMPARE_EQ(*ps2, t2);
+
+        auto pv = get_if<T>(&v);
+        static_assert(std::is_same_v<decltype(pv), T*>);
+        QCOMPARE_NE(pv, nullptr);
+        QCOMPARE_EQ(*pv, t);
+        *pv = t2;
+        auto pv2 = get_if<T>(&v);
+        QCOMPARE_NE(pv2, nullptr);
+        QCOMPARE_EQ(*pv2, t2);
+
+        // typed null QVariants become non-null (data() behavior):
+        if constexpr (std::is_default_constructible_v<T>) {
+            QVERIFY(nulT.isNull());
+            auto pn = get_if<T>(&nulT);
+            QVERIFY(!nulT.isNull());
+            static_assert(std::is_same_v<decltype(pn), T*>);
+            QCOMPARE_NE(pn, nullptr);
+            QCOMPARE_EQ(*pn, T{});
+            *pn = t2;
+            auto pn2 = get_if<T>(&nulT);
+            QCOMPARE_NE(pn2, nullptr);
+            QCOMPARE_EQ(*pn2, t2);
+        }
+    }
+}
+
+template <typename T>
+void tst_QVariant::get_impl(T t) const
+{
+    QVariant v = QVariant::fromValue(t);
+
+    // for behavioral comparison:
+    StdVariant stdv = t;
+
+    #define FOR_EACH_CVREF(op) \
+        op(/*unadorned*/, &&) \
+        op(&, &) \
+        op(&&, &&) \
+        op(const, const &&) \
+        op(const &, const &) \
+        op(const &&, const &&) \
+        /* end */
+
+
+    #define CHECK_RETURN_TYPE_OF(Variant, cvref_in, cvref_out) \
+        static_assert(std::is_same_v< \
+                decltype(get<T>(std::declval<Variant cvref_in >())), \
+                T cvref_out \
+            >); \
+        /* end */
+    #define CHECK_RETURN_TYPE(cvref_in, cvref_out) \
+        CHECK_RETURN_TYPE_OF(StdVariant, cvref_in, cvref_out) \
+        CHECK_RETURN_TYPE_OF(QVariant,   cvref_in, cvref_out) \
+        /* end */
+    FOR_EACH_CVREF(CHECK_RETURN_TYPE)
+    #undef CHECK_RETURN_TYPE
+
+    #undef FOR_EACH_CVREF
+
+    // const access:
+    {
+        auto &&rs = get<T>(std::as_const(stdv));
+        QCOMPARE_EQ(rs, t);
+
+        auto &&rv = get<T>(std::as_const(v));
+        QCOMPARE_EQ(rv, t);
+    }
+
+    // mutable access:
+    {
+        T t2 = mutate(t);
+
+        auto &&rs = get<T>(stdv);
+        QCOMPARE_EQ(rs, t);
+        rs = t2;
+        auto &&rs2 = get<T>(stdv);
+        QCOMPARE_EQ(rs2, t2);
+
+        auto &&rv = get<T>(v);
+        QCOMPARE_EQ(rv, t);
+        rv = t2;
+        auto &&rv2 = get<T>(v);
+        QCOMPARE_EQ(rv2, t2);
+    }
 }
 
 QTEST_MAIN(tst_QVariant)

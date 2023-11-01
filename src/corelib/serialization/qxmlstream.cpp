@@ -3,7 +3,7 @@
 
 #include "QtCore/qxmlstream.h"
 
-#ifndef QT_NO_XMLSTREAM
+#if QT_CONFIG(xmlstream)
 
 #include "qxmlutils_p.h"
 #include <qdebug.h>
@@ -140,7 +140,7 @@ WRAP(indexOf, QLatin1StringView)
     \value DTD The reader reports a DTD in text(), notation
     declarations in notationDeclarations(), and entity declarations in
     entityDeclarations(). Details of the DTD declaration are reported
-    in in dtdName(), dtdPublicId(), and dtdSystemId().
+    in dtdName(), dtdPublicId(), and dtdSystemId().
 
     \value EntityReference The reader reports an entity reference that
     could not be resolved.  The name of the reference is reported in
@@ -232,7 +232,7 @@ QString QXmlStreamEntityResolver::resolveUndeclaredEntity(const QString &/*name*
     return QString();
 }
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
 
 QString QXmlStreamReaderPrivate::resolveUndeclaredEntity(const QString &name)
 {
@@ -813,7 +813,7 @@ static constexpr QLatin1StringView contextString(QXmlStreamReaderPrivate::XmlCon
     return QLatin1StringView(QXmlStreamReader_XmlContextString.at(static_cast<int>(ctxt)));
 }
 
-#endif // QT_NO_XMLSTREAMREADER
+#endif // feature xmlstreamreader
 
 QXmlStreamPrivateTagStack::QXmlStreamPrivateTagStack()
 {
@@ -827,7 +827,7 @@ QXmlStreamPrivateTagStack::QXmlStreamPrivateTagStack()
     tagsDone = false;
 }
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
 
 QXmlStreamReaderPrivate::QXmlStreamReaderPrivate(QXmlStreamReader *q)
     :q_ptr(q)
@@ -2320,7 +2320,7 @@ QXmlStreamAttributes QXmlStreamReader::attributes() const
     return d->attributes;
 }
 
-#endif // QT_NO_XMLSTREAMREADER
+#endif // feature xmlstreamreader
 
 /*!
     \class QXmlStreamAttribute
@@ -2623,37 +2623,11 @@ Returns the entity's value.
 /*!  Returns the value of the attribute \a name in the namespace
   described with \a namespaceUri, or an empty string reference if the
   attribute is not defined. The \a namespaceUri can be empty.
- */
-QStringView QXmlStreamAttributes::value(const QString &namespaceUri, const QString &name) const
-{
-    for (const QXmlStreamAttribute &attribute : *this) {
-        if (attribute.name() == name && attribute.namespaceUri() == namespaceUri)
-            return attribute.value();
-    }
-    return QStringView();
-}
 
-/*!\overload
-  Returns the value of the attribute \a name in the namespace
-  described with \a namespaceUri, or an empty string reference if the
-  attribute is not defined. The \a namespaceUri can be empty.
+  \note In Qt versions prior to 6.6, this function was implemented as an
+  overload set accepting combinations of QString and QLatin1StringView only.
  */
-QStringView QXmlStreamAttributes::value(const QString &namespaceUri, QLatin1StringView name) const
-{
-    for (const QXmlStreamAttribute &attribute : *this) {
-        if (attribute.name() == name && attribute.namespaceUri() == namespaceUri)
-            return attribute.value();
-    }
-    return QStringView();
-}
-
-/*!\overload
-  Returns the value of the attribute \a name in the namespace
-  described with \a namespaceUri, or an empty string reference if the
-  attribute is not defined. The \a namespaceUri can be empty.
- */
-QStringView QXmlStreamAttributes::value(QLatin1StringView namespaceUri,
-                                        QLatin1StringView name) const
+QStringView QXmlStreamAttributes::value(QAnyStringView namespaceUri, QAnyStringView name) const noexcept
 {
     for (const QXmlStreamAttribute &attribute : *this) {
         if (attribute.name() == name && attribute.namespaceUri() == namespaceUri)
@@ -2673,29 +2647,12 @@ QStringView QXmlStreamAttributes::value(QLatin1StringView namespaceUri,
   different prefixes can point to the same namespace), you shouldn't
   use qualified names, but a resolved namespaceUri and the attribute's
   local name.
- */
-QStringView QXmlStreamAttributes::value(const QString &qualifiedName) const
-{
-    for (const QXmlStreamAttribute &attribute : *this) {
-        if (attribute.qualifiedName() == qualifiedName)
-            return attribute.value();
-    }
-    return QStringView();
-}
 
-/*!\overload
+  \note In Qt versions prior to 6.6, this function was implemented as an
+  overload set accepting QString and QLatin1StringView only.
 
-  Returns the value of the attribute with qualified name \a
-  qualifiedName , or an empty string reference if the attribute is not
-  defined. A qualified name is the raw name of an attribute in the XML
-  data. It consists of the namespace prefix, followed by colon,
-  followed by the attribute's local name. Since the namespace prefix
-  is not unique (the same prefix can point to different namespaces and
-  different prefixes can point to the same namespace), you shouldn't
-  use qualified names, but a resolved namespaceUri and the attribute's
-  local name.
  */
-QStringView QXmlStreamAttributes::value(QLatin1StringView qualifiedName) const
+QStringView QXmlStreamAttributes::value(QAnyStringView qualifiedName) const noexcept
 {
     for (const QXmlStreamAttribute &attribute : *this) {
         if (attribute.qualifiedName() == qualifiedName)
@@ -2722,7 +2679,7 @@ void QXmlStreamAttributes::append(const QString &qualifiedName, const QString &v
     append(QXmlStreamAttribute(qualifiedName, value));
 }
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
 
 /*! \fn bool QXmlStreamReader::isStartDocument() const
   Returns \c true if tokenType() equals \l StartDocument; otherwise returns \c false.
@@ -2783,6 +2740,8 @@ bool QXmlStreamReader::isCDATA() const
   XML declaration; otherwise returns \c false.
 
   If no XML declaration has been parsed, this function returns \c false.
+
+  \sa hasStandaloneDeclaration()
  */
 bool QXmlStreamReader::isStandaloneDocument() const
 {
@@ -2790,6 +2749,21 @@ bool QXmlStreamReader::isStandaloneDocument() const
     return d->standalone;
 }
 
+/*!
+  \since 6.6
+
+  Returns \c true if this document has an explicit standalone
+  declaration (can be 'yes' or 'no'); otherwise returns \c false;
+
+  If no XML declaration has been parsed, this function returns \c false.
+
+  \sa isStandaloneDocument()
+ */
+bool QXmlStreamReader::hasStandaloneDeclaration() const
+{
+    Q_D(const QXmlStreamReader);
+    return d->hasStandalone;
+}
 
 /*!
      \since 4.4
@@ -2821,7 +2795,7 @@ QStringView QXmlStreamReader::documentEncoding() const
    return QStringView();
 }
 
-#endif // QT_NO_XMLSTREAMREADER
+#endif // feature xmlstreamreader
 
 /*!
   \class QXmlStreamWriter
@@ -2898,9 +2872,10 @@ QStringView QXmlStreamReader::documentEncoding() const
 
 */
 
-#ifndef QT_NO_XMLSTREAMWRITER
+#if QT_CONFIG(xmlstreamwriter)
 
-class QXmlStreamWriterPrivate : public QXmlStreamPrivateTagStack {
+class QXmlStreamWriterPrivate : public QXmlStreamPrivateTagStack
+{
     QXmlStreamWriter *q_ptr;
     Q_DECLARE_PUBLIC(QXmlStreamWriter)
 public:
@@ -2924,7 +2899,7 @@ public:
     uint hasIoError :1;
     uint hasEncodingError :1;
     uint autoFormatting :1;
-    QByteArray autoFormattingIndent;
+    std::string autoFormattingIndent;
     NamespaceDeclaration emptyNamespace;
     qsizetype lastNamespaceDeclaration;
 
@@ -3284,13 +3259,14 @@ bool QXmlStreamWriter::autoFormatting() const
 void QXmlStreamWriter::setAutoFormattingIndent(int spacesOrTabs)
 {
     Q_D(QXmlStreamWriter);
-    d->autoFormattingIndent = QByteArray(qAbs(spacesOrTabs), spacesOrTabs >= 0 ? ' ' : '\t');
+    d->autoFormattingIndent.assign(size_t(qAbs(spacesOrTabs)), spacesOrTabs >= 0 ? ' ' : '\t');
 }
 
 int QXmlStreamWriter::autoFormattingIndent() const
 {
     Q_D(const QXmlStreamWriter);
-    return d->autoFormattingIndent.count(' ') - d->autoFormattingIndent.count('\t');
+    const QLatin1StringView indent(d->autoFormattingIndent);
+    return indent.count(u' ') - indent.count(u'\t');
 }
 
 /*!
@@ -3819,7 +3795,7 @@ void QXmlStreamWriterPrivate::writeStartElement(QAnyStringView namespaceUri, QAn
     tag.namespaceDeclarationsSize = lastNamespaceDeclaration;
 }
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
 /*!  Writes the current state of the \a reader. All possible valid
   states are supported.
 
@@ -3877,7 +3853,7 @@ void QXmlStreamWriter::writeCurrentToken(const QXmlStreamReader &reader)
 }
 
 static constexpr bool isTokenAllowedInContext(QXmlStreamReader::TokenType type,
-                                              QXmlStreamReaderPrivate::XmlContext ctxt)
+                                               QXmlStreamReaderPrivate::XmlContext ctxt)
 {
     switch (type) {
     case QXmlStreamReader::StartDocument:
@@ -3991,9 +3967,9 @@ void QXmlStreamReaderPrivate::checkToken()
  otherwise returns \c false.
 */
 
-#endif // QT_NO_XMLSTREAMREADER
-#endif // QT_NO_XMLSTREAMWRITER
+#endif // feature xmlstreamreader
+#endif // feature xmlstreamwriter
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_XMLSTREAM
+#endif // feature xmlstream

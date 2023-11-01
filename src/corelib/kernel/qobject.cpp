@@ -28,7 +28,6 @@
 #if QT_CONFIG(thread)
 #include <qsemaphore.h>
 #endif
-#include <qsharedpointer.h>
 
 #include <private/qorderedmutexlocker_p.h>
 #include <private/qhooks_p.h>
@@ -370,16 +369,16 @@ void QObjectPrivate::ConnectionData::removeConnection(QObjectPrivate::Connection
         c->prevConnectionList->nextConnectionList.storeRelaxed(n);
     c->prevConnectionList = nullptr;
 
-    Q_ASSERT(c != orphaned.loadRelaxed());
+    Q_ASSERT(c != static_cast<Connection *>(orphaned.load(std::memory_order_relaxed)));
     // add c to orphanedConnections
-    Connection *o = nullptr;
+    TaggedSignalVector o = nullptr;
     /* No ABA issue here: When adding a node, we only care about the list head, it doesn't
      * matter if the tail changes.
      */
+    o = orphaned.load(std::memory_order_acquire);
     do {
-        o = orphaned.loadRelaxed();
         c->nextInOrphanList = o;
-    } while (!orphaned.testAndSetRelease(o, c));
+    } while (!orphaned.compare_exchange_strong(o, TaggedSignalVector(c), std::memory_order_release));
 
 #ifndef QT_NO_DEBUG
     found = false;
@@ -397,7 +396,7 @@ void QObjectPrivate::ConnectionData::removeConnection(QObjectPrivate::Connection
 void QObjectPrivate::ConnectionData::cleanOrphanedConnectionsImpl(QObject *sender, LockPolicy lockPolicy)
 {
     QBasicMutex *senderMutex = signalSlotLock(sender);
-    ConnectionOrSignalVector *c = nullptr;
+    TaggedSignalVector c = nullptr;
     {
         std::unique_lock<QBasicMutex> lock(*senderMutex, std::defer_lock_t{});
         if (lockPolicy == NeedToLock)
@@ -408,7 +407,7 @@ void QObjectPrivate::ConnectionData::cleanOrphanedConnectionsImpl(QObject *sende
         // Since ref == 1, no activate() is in process since we locked the mutex. That implies,
         // that nothing can reference the orphaned connection objects anymore and they can
         // be safely deleted
-        c = orphaned.fetchAndStoreRelaxed(nullptr);
+        c = orphaned.exchange(nullptr, std::memory_order_relaxed);
     }
     if (c) {
         // Deleting c might run arbitrary user code, so we must not hold the lock
@@ -422,11 +421,11 @@ void QObjectPrivate::ConnectionData::cleanOrphanedConnectionsImpl(QObject *sende
     }
 }
 
-inline void QObjectPrivate::ConnectionData::deleteOrphaned(QObjectPrivate::ConnectionOrSignalVector *o)
+inline void QObjectPrivate::ConnectionData::deleteOrphaned(TaggedSignalVector o)
 {
     while (o) {
-        QObjectPrivate::ConnectionOrSignalVector *next = nullptr;
-        if (SignalVector *v = ConnectionOrSignalVector::asSignalVector(o)) {
+        TaggedSignalVector next = nullptr;
+        if (SignalVector *v = static_cast<SignalVector *>(o)) {
             next = v->nextInOrphanList;
             free(v);
         } else {
@@ -1684,7 +1683,7 @@ void QObject::moveToThread(QThread *targetThread)
                  "Cannot move to target thread (%p)\n",
                  currentData->thread.loadRelaxed(), thisThreadData->thread.loadRelaxed(), targetData ? targetData->thread.loadRelaxed() : nullptr);
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
         qWarning("You might be loading two sets of Qt binaries into the same process. "
                  "Check that all plugins are compiled against the right Qt binaries. Export "
                  "DYLD_PRINT_LIBRARIES=1 and check that only one set of binaries are being loaded.");
@@ -1825,74 +1824,33 @@ void QObjectPrivate::_q_reregisterTimers(void *pointer)
 //
 
 /*!
-    Starts a timer and returns a timer identifier, or returns zero if
-    it could not start a timer.
+    \fn int QObject::startTimer(int interval, Qt::TimerType timerType)
 
-    A timer event will occur every \a interval milliseconds until
-    killTimer() is called. If \a interval is 0, then the timer event
-    occurs once every time there are no more window system events to
-    process.
-
-    The virtual timerEvent() function is called with the QTimerEvent
-    event parameter class when a timer event occurs. Reimplement this
-    function to get timer events.
-
-    If multiple timers are running, the QTimerEvent::timerId() can be
-    used to find out which timer was activated.
-
-    Example:
-
-    \snippet code/src_corelib_kernel_qobject.cpp 8
-
-    Note that QTimer's accuracy depends on the underlying operating system and
-    hardware. The \a timerType argument allows you to customize the accuracy of
-    the timer. See Qt::TimerType for information on the different timer types.
-    Most platforms support an accuracy of 20 milliseconds; some provide more.
-    If Qt is unable to deliver the requested number of timer events, it will
-    silently discard some.
-
-    The QTimer class provides a high-level programming interface with
-    single-shot timers and timer signals instead of events. There is
-    also a QBasicTimer class that is more lightweight than QTimer and
-    less clumsy than using timer IDs directly.
+    This is an overloaded function that will start a timer of type
+    \a timerType and a timeout of \a interval milliseconds. This is
+    equivalent to calling:
+    \code
+    startTimer(std::chrono::milliseconds{interval}, timerType);
+    \endcode
 
     \sa timerEvent(), killTimer(), QTimer::singleShot()
 */
 
 int QObject::startTimer(int interval, Qt::TimerType timerType)
 {
-    Q_D(QObject);
-
-    if (Q_UNLIKELY(interval < 0)) {
-        qWarning("QObject::startTimer: Timers cannot have negative intervals");
-        return 0;
-    }
-
-    auto thisThreadData = d->threadData.loadRelaxed();
-    if (Q_UNLIKELY(!thisThreadData->hasEventDispatcher())) {
-        qWarning("QObject::startTimer: Timers can only be used with threads started with QThread");
-        return 0;
-    }
-    if (Q_UNLIKELY(thread() != QThread::currentThread())) {
-        qWarning("QObject::startTimer: Timers cannot be started from another thread");
-        return 0;
-    }
-    int timerId = thisThreadData->eventDispatcher.loadRelaxed()->registerTimer(interval, timerType, this);
-    d->ensureExtraData();
-    d->extraData->runningTimers.append(timerId);
-    return timerId;
+    return startTimer(std::chrono::milliseconds{interval}, timerType);
 }
 
 /*!
     \since 5.9
     \overload
-    \fn int QObject::startTimer(std::chrono::milliseconds time, Qt::TimerType timerType)
+    \fn int QObject::startTimer(std::chrono::milliseconds interval, Qt::TimerType timerType)
 
     Starts a timer and returns a timer identifier, or returns zero if
     it could not start a timer.
 
-    A timer event will occur every \a time interval until killTimer()
-    is called. If \a time is equal to \c{std::chrono::duration::zero()},
+    A timer event will occur every \a interval until killTimer()
+    is called. If \a interval is equal to \c{std::chrono::duration::zero()},
     then the timer event occurs once every time there are no more window
     system events to process.
 
@@ -1921,6 +1879,33 @@ int QObject::startTimer(int interval, Qt::TimerType timerType)
 
     \sa timerEvent(), killTimer(), QTimer::singleShot()
 */
+int QObject::startTimer(std::chrono::milliseconds interval, Qt::TimerType timerType)
+{
+    Q_D(QObject);
+
+    using namespace std::chrono_literals;
+
+    if (Q_UNLIKELY(interval < 0ms)) {
+        qWarning("QObject::startTimer: Timers cannot have negative intervals");
+        return 0;
+    }
+
+    auto thisThreadData = d->threadData.loadRelaxed();
+    if (Q_UNLIKELY(!thisThreadData->hasEventDispatcher())) {
+        qWarning("QObject::startTimer: Timers can only be used with threads started with QThread");
+        return 0;
+    }
+    if (Q_UNLIKELY(thread() != QThread::currentThread())) {
+        qWarning("QObject::startTimer: Timers cannot be started from another thread");
+        return 0;
+    }
+
+    auto dispatcher = thisThreadData->eventDispatcher.loadRelaxed();
+    int timerId = dispatcher->registerTimer(interval.count(), timerType, this);
+    d->ensureExtraData();
+    d->extraData->runningTimers.append(timerId);
+    return timerId;
+}
 
 /*!
     Kills the timer with timer identifier, \a id.
@@ -3825,7 +3810,7 @@ struct SlotObjectGuard {
     SlotObjectGuard() = default;
     // move would be fine, but we do not need it currently
     Q_DISABLE_COPY_MOVE(SlotObjectGuard)
-    explicit SlotObjectGuard(QtPrivate::QSlotObjectBase *slotObject)
+    Q_NODISCARD_CTOR explicit SlotObjectGuard(QtPrivate::QSlotObjectBase *slotObject)
         : m_slotObject(slotObject)
     {
         if (m_slotObject)
@@ -4153,6 +4138,8 @@ int QObjectPrivate::signalIndex(const char *signalName,
  *****************************************************************************/
 
 /*!
+  \fn bool QObject::setProperty(const char *name, const QVariant &value)
+
   Sets the value of the object's \a name property to \a value.
 
   If the property is defined in the class using Q_PROPERTY then
@@ -4173,9 +4160,17 @@ int QObjectPrivate::signalIndex(const char *signalName,
 
   \sa property(), metaObject(), dynamicPropertyNames(), QMetaProperty::write()
 */
-bool QObject::setProperty(const char *name, const QVariant &value)
+
+/*!
+  \fn bool QObject::setProperty(const char *name, QVariant &&value)
+  \since 6.6
+  \overload setProperty
+*/
+
+bool QObject::doSetProperty(const char *name, const QVariant *lvalue, QVariant *rvalue)
 {
     Q_D(QObject);
+    const auto &value =*lvalue;
     const QMetaObject *meta = metaObject();
     if (!name || !meta)
         return false;
@@ -4194,12 +4189,18 @@ bool QObject::setProperty(const char *name, const QVariant &value)
         } else {
             if (idx == -1) {
                 d->extraData->propertyNames.append(name);
-                d->extraData->propertyValues.append(value);
+                if (rvalue)
+                    d->extraData->propertyValues.append(std::move(*rvalue));
+                else
+                    d->extraData->propertyValues.append(*lvalue);
             } else {
                 if (value.userType() == d->extraData->propertyValues.at(idx).userType()
                         && value == d->extraData->propertyValues.at(idx))
                     return false;
-                d->extraData->propertyValues[idx] = value;
+                if (rvalue)
+                    d->extraData->propertyValues[idx] = std::move(*rvalue);
+                else
+                    d->extraData->propertyValues[idx] = *lvalue;
             }
         }
 
@@ -4214,7 +4215,7 @@ bool QObject::setProperty(const char *name, const QVariant &value)
         qWarning("%s::setProperty: Property \"%s\" invalid,"
                  " read-only or does not exist", metaObject()->className(), name);
 #endif
-    return p.write(this, value);
+    return rvalue ? p.write(this, std::move(*rvalue)) : p.write(this, *lvalue);
 }
 
 /*!

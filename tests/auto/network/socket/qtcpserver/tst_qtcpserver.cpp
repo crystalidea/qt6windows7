@@ -459,7 +459,7 @@ public:
 protected:
     void run() override
     {
-        sleep(2);
+        sleep(std::chrono::seconds{2});
 
         QTcpSocket socket;
         socket.connectToHost(host, port);

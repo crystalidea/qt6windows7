@@ -552,6 +552,10 @@ void tst_QIcon::availableSizes()
 
 void tst_QIcon::name()
 {
+    const auto reset = qScopeGuard([]{
+        QIcon::setThemeName({});
+        QIcon::setThemeSearchPaths({});
+    });
     {
         // No name if icon does not come from a theme
         QIcon icon(":/image.png");
@@ -629,6 +633,7 @@ void tst_QIcon::task184901_badCache()
 
 void tst_QIcon::fromTheme()
 {
+    const bool abIconFromPlatform = !QIcon::fromTheme("address-book-new").isNull();
     QString firstSearchPath = QLatin1String(":/icons");
     QString secondSearchPath = QLatin1String(":/second_icons");
     QIcon::setThemeSearchPaths(QStringList() << firstSearchPath << secondSearchPath);
@@ -725,7 +730,7 @@ void tst_QIcon::fromTheme()
     // Make sure setting the theme name clears the state
     QIcon::setThemeName("");
     abIcon = QIcon::fromTheme("address-book-new");
-    QVERIFY(abIcon.isNull());
+    QCOMPARE_NE(abIcon.isNull(), abIconFromPlatform);
 
     // Test fallback icon behavior for empty theme names.
     // Can only reliably test this on systems that don't have a
@@ -809,7 +814,7 @@ void tst_QIcon::fromThemeCache()
     QTest::qWait(1000); // wait enough to have a different modification time in seconds
     QVERIFY(QFile(QStringLiteral(":/styles/commonstyle/images/standardbutton-save-16.png"))
         .copy(dir.path() + QLatin1String("/testcache/16x16/actions/button-save.png")));
-    QVERIFY(QFileInfo(cacheName).lastModified() < QFileInfo(dir.path() + QLatin1String("/testcache/16x16/actions")).lastModified());
+    QVERIFY(QFileInfo(cacheName).lastModified(QTimeZone::UTC) < QFileInfo(dir.path() + QLatin1String("/testcache/16x16/actions")).lastModified(QTimeZone::UTC));
     QIcon::setThemeSearchPaths(QStringList() << dir.path()); // reload themes
     QVERIFY(!QIcon::fromTheme("button-open").isNull());
 
@@ -830,7 +835,7 @@ void tst_QIcon::fromThemeCache()
     QCOMPARE(process.exitStatus(), QProcess::NormalExit);
     QCOMPARE(process.exitCode(), 0);
 #endif // QT_CONFIG(process)
-    QVERIFY(QFileInfo(cacheName).lastModified() >= QFileInfo(dir.path() + QLatin1String("/testcache/16x16/actions")).lastModified());
+    QVERIFY(QFileInfo(cacheName).lastModified(QTimeZone::UTC) >= QFileInfo(dir.path() + QLatin1String("/testcache/16x16/actions")).lastModified(QTimeZone::UTC));
     QIcon::setThemeSearchPaths(QStringList() << dir.path()); // reload themes
     QVERIFY(!QIcon::fromTheme("button-open").isNull());
     QVERIFY(!QIcon::fromTheme("button-open-fallback").isNull());

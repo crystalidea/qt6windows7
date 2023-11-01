@@ -56,14 +56,13 @@ qt_internal_add_module(Gui
         Qt::Network
     QMAKE_MODULE_CONFIG "${qmake_module_config}"
     SOURCES
-        accessible/qaccessible.h
-        accessible/qplatformaccessibility.h
+        compat/removed_api.cpp
         image/qabstractfileiconengine.cpp image/qabstractfileiconengine_p.h
         image/qabstractfileiconprovider.cpp image/qabstractfileiconprovider.h image/qabstractfileiconprovider_p.h
         image/qbitmap.cpp image/qbitmap.h
         image/qbmphandler.cpp image/qbmphandler_p.h
         image/qicon.cpp image/qicon.h image/qicon_p.h
-        image/qiconengine.cpp image/qiconengine.h
+        image/qiconengine.cpp image/qiconengine.h image/qiconengine_p.h
         image/qiconengineplugin.cpp image/qiconengineplugin.h
         image/qiconloader.cpp image/qiconloader_p.h
         image/qimage.cpp image/qimage.h image/qimage_p.h
@@ -213,14 +212,10 @@ qt_internal_add_module(Gui
         painting/qtriangulatingstroker.cpp painting/qtriangulatingstroker_p.h
         painting/qtriangulator.cpp painting/qtriangulator_p.h
         painting/qvectorpath_p.h
-        rhi/qrhi.cpp rhi/qrhi_p.h
-        rhi/qrhi_p_p.h
+        rhi/qrhi.cpp rhi/qrhi.h rhi/qrhi_platform.h rhi/qrhi_p.h
         rhi/qrhinull.cpp rhi/qrhinull_p.h
-        rhi/qrhinull_p_p.h
-        rhi/qshader.cpp rhi/qshader_p.h
-        rhi/qshader_p_p.h
-        rhi/qshaderdescription.cpp rhi/qshaderdescription_p.h
-        rhi/qshaderdescription_p_p.h
+        rhi/qshader.cpp rhi/qshader.h rhi/qshader_p.h
+        rhi/qshaderdescription.cpp rhi/qshaderdescription.h rhi/qshaderdescription_p.h
         text/qabstracttextdocumentlayout.cpp text/qabstracttextdocumentlayout.h text/qabstracttextdocumentlayout_p.h
         text/qdistancefield.cpp text/qdistancefield_p.h
         text/qfont.cpp text/qfont.h text/qfont_p.h
@@ -269,6 +264,7 @@ qt_internal_add_module(Gui
         QT_QPA_DEFAULT_PLATFORM_NAME="${QT_QPA_DEFAULT_PLATFORM}"
     INCLUDE_DIRECTORIES
         ../3rdparty/VulkanMemoryAllocator
+        ../3rdparty/D3D12MemoryAllocator
     LIBRARIES
         Qt::CorePrivate
     PUBLIC_LIBRARIES
@@ -276,12 +272,15 @@ qt_internal_add_module(Gui
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
     NO_PCH_SOURCES
+        compat/removed_api.cpp
         painting/qdrawhelper.cpp
     PRECOMPILED_HEADER
         "kernel/qt_gui_pch.h"
     GENERATE_CPP_EXPORTS
     QPA_HEADER_FILTERS
         "(^|/)qplatform.+\\.h$|(^|/)qwindowsystem.+\\.h$"
+    RHI_HEADER_FILTERS
+        "(^|/)qrhi\\.h$|(^|/)qrhi_platform\\.h$|(^|/)qshader\\.h$|(^|/)qshaderdescription\\.h$"
 )
 
 # Resources:
@@ -357,7 +356,6 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_opengl
         opengl/qopenglfunctions.cpp
         opengl/qopenglprogrambinarycache.cpp opengl/qopenglprogrambinarycache_p.h
         rhi/qrhigles2.cpp rhi/qrhigles2_p.h
-        rhi/qrhigles2_p_p.h
 )
 
 qt_internal_extend_target(Gui CONDITION MACOS
@@ -368,6 +366,11 @@ qt_internal_extend_target(Gui CONDITION MACOS
         ${FWCarbon}
     PUBLIC_LIBRARIES
         ${FWAppKit}
+)
+
+qt_internal_extend_target(Gui CONDITION WASM
+    SOURCES
+        platform/wasm/qwasmnativeinterface.cpp
 )
 
 qt_internal_extend_target(Gui CONDITION APPLE
@@ -402,10 +405,12 @@ qt_internal_extend_target(Gui CONDITION WIN32
         platform/windows/qwindowsguieventdispatcher.cpp platform/windows/qwindowsguieventdispatcher_p.h
         platform/windows/qwindowsmimeconverter.h platform/windows/qwindowsmimeconverter.cpp
         platform/windows/qwindowsnativeinterface.cpp
-        rhi/cs_tdr_p.h
-        rhi/qrhid3d11.cpp rhi/qrhid3d11_p.h
-        rhi/qrhid3d11_p_p.h
+        rhi/qrhid3d11.cpp rhi/qrhid3d11_p.h rhi/qrhid3dhelpers_p.h
         rhi/vs_test_p.h
+        rhi/qrhid3d12.cpp rhi/qrhid3d12_p.h
+        rhi/cs_mipmap_p.h
+        ../3rdparty/D3D12MemoryAllocator/D3D12MemAlloc.h
+        ../3rdparty/D3D12MemoryAllocator/D3D12MemAlloc.cpp
         text/windows/qwindowsfontdatabase.cpp text/windows/qwindowsfontdatabase_p.h
         text/windows/qwindowsfontdatabasebase.cpp text/windows/qwindowsfontdatabasebase_p.h
         text/windows/qwindowsfontengine.cpp text/windows/qwindowsfontengine_p.h
@@ -420,6 +425,7 @@ qt_internal_extend_target(Gui CONDITION WIN32
         d3d11
         dxgi
         dxguid
+        d3d12
 )
 
 if(QT_FEATURE_egl)
@@ -433,6 +439,14 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_egl
         opengl/platform/egl/qt_egl_p.h
     LIBRARIES
         EGL::EGL
+)
+
+# These two headers are always installed, their contents are guarded with
+# "#if QT_CONFIG(accessibility)", so if QT_FEATURE_accessibility is not
+# enabled, they are just duds.
+qt_internal_extend_target(Gui
+    SOURCES
+        accessible/qaccessible.h accessible/qplatformaccessibility.h
 )
 
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_accessibility
@@ -637,9 +651,6 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_harfbuzz AND UIKIT
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_textodfwriter
     SOURCES
         text/qtextodfwriter.cpp text/qtextodfwriter_p.h
-        text/qzip.cpp
-        text/qzipreader_p.h
-        text/qzipwriter_p.h
 )
 
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_textmarkdownreader
@@ -822,7 +833,6 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_filesystemmodel
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_vulkan
     SOURCES
         rhi/qrhivulkan.cpp rhi/qrhivulkan_p.h
-        rhi/qrhivulkanext_p.h
         vulkan/qbasicvulkanplatforminstance.cpp vulkan/qbasicvulkanplatforminstance_p.h
         vulkan/qplatformvulkaninstance.cpp vulkan/qplatformvulkaninstance.h
         vulkan/qvulkandefaultinstance.cpp vulkan/qvulkandefaultinstance_p.h
@@ -958,7 +968,6 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_xkbcommon AND UNIX
 qt_internal_extend_target(Gui CONDITION IOS OR MACOS
     SOURCES
         rhi/qrhimetal.mm rhi/qrhimetal_p.h
-        rhi/qrhimetal_p_p.h
     PUBLIC_LIBRARIES
         ${FWMetal}
 )

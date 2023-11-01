@@ -8,6 +8,8 @@
 #include "qthread.h"
 #include "qcoreapplication.h"
 
+using namespace std::chrono_literals;
+
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -182,7 +184,6 @@ public:
     void timerEvent(QTimerEvent *) override;
     bool insert(const QString& key, const QPixmap &pixmap, int cost);
     QPixmapCache::Key insert(const QPixmap &pixmap, int cost);
-    bool replace(const QPixmapCache::Key &key, const QPixmap &pixmap, int cost);
     bool remove(const QString &key);
     bool remove(const QPixmapCache::Key &key);
 
@@ -202,7 +203,8 @@ public:
     bool flushDetachedPixmaps(bool nt);
 
 private:
-    enum { soon_time = 10000, flush_time = 30000 };
+    static constexpr auto soon_time = 10s;
+    static constexpr auto flush_time = 30s;
     int *keyArray;
     int theid;
     int ps;
@@ -216,10 +218,15 @@ QT_BEGIN_INCLUDE_NAMESPACE
 #include "qpixmapcache.moc"
 QT_END_INCLUDE_NAMESPACE
 
-size_t qHash(const QPixmapCache::Key &k, size_t seed)
+/*!
+    size_t QPixmapCache::qHash(const Key &key, size_t seed = 0);
+    \since 6.6
+
+    Returns the hash value for the \a key, using \a seed to seed the calculation.
+*/
+size_t QPixmapCache::Key::hash(size_t seed) const noexcept
 {
-    const auto *keyData = QPMCache::get(k);
-    return qHash(keyData ? keyData->key : 0, seed);
+    return qHash(this->d ? this->d->key : 0, seed);
 }
 
 QPMCache::QPMCache()
@@ -310,6 +317,7 @@ QPixmapCache::Key QPMCache::insert(const QPixmap &pixmap, int cost)
 {
     QPixmapCache::Key cacheKey = createKey(); // invalidated by ~QPixmapCacheEntry on failed insert
     bool success = QCache<QPixmapCache::Key, QPixmapCacheEntry>::insert(cacheKey, new QPixmapCacheEntry(cacheKey, pixmap), cost);
+    Q_ASSERT(success || !cacheKey.isValid());
     if (success) {
         if (!theid) {
             theid = startTimer(flush_time);
@@ -317,25 +325,6 @@ QPixmapCache::Key QPMCache::insert(const QPixmap &pixmap, int cost)
         }
     }
     return cacheKey;
-}
-
-bool QPMCache::replace(const QPixmapCache::Key &key, const QPixmap &pixmap, int cost)
-{
-    Q_ASSERT(key.isValid());
-    //If for the same key we had already an entry so we should delete the pixmap and use the new one
-    QCache<QPixmapCache::Key, QPixmapCacheEntry>::remove(key);
-
-    QPixmapCache::Key cacheKey = createKey();
-
-    bool success = QCache<QPixmapCache::Key, QPixmapCacheEntry>::insert(cacheKey, new QPixmapCacheEntry(cacheKey, pixmap), cost);
-    if (success) {
-        if (!theid) {
-            theid = startTimer(flush_time);
-            t = false;
-        }
-        const_cast<QPixmapCache::Key&>(key) = cacheKey;
-    }
-    return success;
 }
 
 bool QPMCache::remove(const QString &key)
@@ -440,7 +429,7 @@ QPixmapCacheEntry::~QPixmapCacheEntry()
 
 bool QPixmapCache::find(const QString &key, QPixmap *pixmap)
 {
-    if (!qt_pixmapcache_thread_test())
+    if (key.isEmpty() || !qt_pixmapcache_thread_test())
         return false;
     QPixmap *ptr = pm_cache()->object(key);
     if (ptr && pixmap)
@@ -492,7 +481,7 @@ bool QPixmapCache::find(const Key &key, QPixmap *pixmap)
 
 bool QPixmapCache::insert(const QString &key, const QPixmap &pixmap)
 {
-    if (!qt_pixmapcache_thread_test())
+    if (key.isEmpty() || !qt_pixmapcache_thread_test())
         return false;
     return pm_cache()->insert(key, pixmap, cost(pixmap));
 }
@@ -519,24 +508,25 @@ QPixmapCache::Key QPixmapCache::insert(const QPixmap &pixmap)
     return pm_cache()->insert(pixmap, cost(pixmap));
 }
 
+#if QT_DEPRECATED_SINCE(6, 6)
 /*!
+    \fn bool QPixmapCache::replace(const Key &key, const QPixmap &pixmap)
+
+    \deprecated [6.6] Use \c{remove(key); key = insert(pixmap);} instead.
+
     Replaces the pixmap associated with the given \a key with the \a pixmap
     specified. Returns \c true if the \a pixmap has been correctly inserted into
     the cache; otherwise returns \c false.
+
+    The passed \a key is updated to reference \a pixmap now. Other copies of \a
+    key, if any, still refer to the old pixmap, which is, however, removed from
+    the cache by this function.
 
     \sa setCacheLimit(), insert()
 
     \since 4.6
 */
-bool QPixmapCache::replace(const Key &key, const QPixmap &pixmap)
-{
-    if (!qt_pixmapcache_thread_test())
-        return false;
-    //The key is not valid anymore, a flush happened before probably
-    if (!key.d || !key.d->isValid)
-        return false;
-    return pm_cache()->replace(key, pixmap, cost(pixmap));
-}
+#endif // QT_DEPRECATED_SINCE(6, 6)
 
 /*!
     Returns the cache limit (in kilobytes).
@@ -573,7 +563,7 @@ void QPixmapCache::setCacheLimit(int n)
 */
 void QPixmapCache::remove(const QString &key)
 {
-    if (!qt_pixmapcache_thread_test())
+    if (key.isEmpty() || !qt_pixmapcache_thread_test())
         return;
     pm_cache()->remove(key);
 }

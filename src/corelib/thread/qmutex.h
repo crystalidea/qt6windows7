@@ -6,11 +6,10 @@
 
 #include <QtCore/qglobal.h>
 #include <QtCore/qatomic.h>
+#include <QtCore/qdeadlinetimer.h>
 #include <QtCore/qtsan_impl.h>
-#include <new>
 
 #include <chrono>
-#include <limits>
 
 QT_BEGIN_NAMESPACE
 
@@ -25,32 +24,6 @@ QT_BEGIN_NAMESPACE
 class QMutex;
 class QRecursiveMutex;
 class QMutexPrivate;
-
-namespace QtPrivate
-{
-    template<class Rep, class Period>
-    static int convertToMilliseconds(std::chrono::duration<Rep, Period> duration)
-    {
-        // N4606 § 30.4.1.3.5 [thread.timedmutex.requirements] specifies that a
-        // duration less than or equal to duration.zero() shall result in a
-        // try_lock, unlike QMutex's tryLock with a negative duration which
-        // results in a lock.
-
-        if (duration <= duration.zero())
-            return 0;
-
-        // when converting from 'duration' to milliseconds, make sure that
-        // the result is not shorter than 'duration':
-        std::chrono::milliseconds wait = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        if (wait < duration)
-            wait += std::chrono::milliseconds(1);
-        Q_ASSERT(wait >= duration);
-        const auto ms = wait.count();
-        const auto maxInt = (std::numeric_limits<int>::max)();
-
-        return ms < maxInt ? int(ms) : maxInt;
-    }
-}
 
 class Q_CORE_EXPORT QBasicMutex
 {
@@ -99,7 +72,10 @@ public:
     bool try_lock() noexcept { return tryLock(); }
 
 private:
-    inline bool fastTryLock() noexcept {
+    inline bool fastTryLock() noexcept
+    {
+        if (d_ptr.loadRelaxed() != nullptr)
+            return false;
         return d_ptr.testAndSetAcquire(nullptr, dummyLocked());
     }
     inline bool fastTryUnlock() noexcept {
@@ -107,7 +83,10 @@ private:
     }
 
     void lockInternal() QT_MUTEX_LOCK_NOEXCEPT;
+    bool lockInternal(QDeadlineTimer timeout) QT_MUTEX_LOCK_NOEXCEPT;
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     bool lockInternal(int timeout) QT_MUTEX_LOCK_NOEXCEPT;
+#endif
     void unlockInternal() noexcept;
     void destroyInternal(QMutexPrivate *d);
 
@@ -144,6 +123,11 @@ public:
     using QBasicMutex::tryLock;
     bool tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
     {
+        return tryLock(QDeadlineTimer(timeout));
+    }
+
+    bool tryLock(QDeadlineTimer timeout) QT_MUTEX_LOCK_NOEXCEPT
+    {
         unsigned tsanFlags = QtTsan::TryLock;
         QtTsan::mutexPreLock(this, tsanFlags);
 
@@ -167,17 +151,14 @@ public:
     template <class Rep, class Period>
     bool try_lock_for(std::chrono::duration<Rep, Period> duration)
     {
-        return tryLock(QtPrivate::convertToMilliseconds(duration));
+        return tryLock(QDeadlineTimer(duration));
     }
 
     // TimedLockable concept
     template<class Clock, class Duration>
     bool try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
     {
-        // Implemented in terms of try_lock_for to honor the similar
-        // requirement in N4606 § 30.4.1.3 [thread.timedmutex.requirements]/12.
-
-        return try_lock_for(timePoint - Clock::now());
+        return tryLock(QDeadlineTimer(timePoint));
     }
 };
 
@@ -198,8 +179,10 @@ public:
 
     // BasicLockable concept
     void lock() QT_MUTEX_LOCK_NOEXCEPT
-    { tryLock(-1); }
-    bool tryLock(int timeout = 0) QT_MUTEX_LOCK_NOEXCEPT;
+    { tryLock(QDeadlineTimer(QDeadlineTimer::Forever)); }
+    QT_CORE_INLINE_SINCE(6, 6)
+    bool tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT;
+    bool tryLock(QDeadlineTimer timer = {}) QT_MUTEX_LOCK_NOEXCEPT;
     // BasicLockable concept
     void unlock() noexcept;
 
@@ -210,24 +193,29 @@ public:
     template <class Rep, class Period>
     bool try_lock_for(std::chrono::duration<Rep, Period> duration)
     {
-        return tryLock(QtPrivate::convertToMilliseconds(duration));
+        return tryLock(QDeadlineTimer(duration));
     }
 
     // TimedLockable concept
     template<class Clock, class Duration>
     bool try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
     {
-        // Implemented in terms of try_lock_for to honor the similar
-        // requirement in N4606 § 30.4.1.3 [thread.timedmutex.requirements]/12.
-
-        return try_lock_for(timePoint - Clock::now());
+        return tryLock(QDeadlineTimer(timePoint));
     }
 };
 
+#if QT_CORE_INLINE_IMPL_SINCE(6, 6)
+bool QRecursiveMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
+{
+    return tryLock(QDeadlineTimer(timeout));
+}
+#endif
+
 template <typename Mutex>
-class [[nodiscard]] QMutexLocker
+class QMutexLocker
 {
 public:
+    Q_NODISCARD_CTOR
     inline explicit QMutexLocker(Mutex *mutex) QT_MUTEX_LOCK_NOEXCEPT
     {
         m_mutex = mutex;
@@ -237,6 +225,7 @@ public:
         }
     }
 
+    Q_NODISCARD_CTOR
     inline QMutexLocker(QMutexLocker &&other) noexcept
         : m_mutex(std::exchange(other.m_mutex, nullptr)),
           m_isLocked(std::exchange(other.m_isLocked, false))
@@ -320,9 +309,10 @@ private:
 class QRecursiveMutex : public QMutex {};
 
 template <typename Mutex>
-class [[nodiscard]] QMutexLocker
+class QMutexLocker
 {
 public:
+    Q_NODISCARD_CTOR
     inline explicit QMutexLocker(Mutex *) noexcept {}
     inline ~QMutexLocker() noexcept {}
 

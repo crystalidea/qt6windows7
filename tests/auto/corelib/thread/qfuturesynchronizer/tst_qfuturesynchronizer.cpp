@@ -39,7 +39,7 @@ void tst_QFutureSynchronizer::setFutureAliasingExistingMember()
     //
     // GIVEN: a QFutureSynchronizer with one QFuture:
     //
-    QFutureSynchronizer synchronizer(QtFuture::makeReadyFuture(42));
+    QFutureSynchronizer synchronizer(QtFuture::makeReadyValueFuture(42));
 
     //
     // WHEN: calling setFuture() with an alias of the QFuture already in `synchronizer`:

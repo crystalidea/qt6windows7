@@ -333,6 +333,18 @@ private Q_SLOTS:
 
 private:
     template <typename Container>
+    void assign_impl() const;
+
+private Q_SLOTS:
+    void assign_std_vector() { assign_impl<std::vector<int>>(); };
+    void assign_std_string() { assign_impl<std::string>(); }
+    void assign_QVarLengthArray() { assign_impl<QVarLengthArray<int, 4>>(); };
+    void assign_QList() { assign_impl<QList<int>>(); }
+    void assign_QByteArray() { assign_impl<QByteArray>(); }
+    void assign_QString() { assign_impl<QString>(); }
+
+private:
+    template <typename Container>
     void front_back_impl() const;
 
 private Q_SLOTS:
@@ -761,6 +773,101 @@ void tst_ContainerApiSymmetry::resize_impl() const
 }
 
 template <typename Container>
+void tst_ContainerApiSymmetry::assign_impl() const
+{
+#define CHECK(Arr, ComparisonData, Sz_n, Sz_e)               \
+    QCOMPARE(Sz_n, Sz_e);                                    \
+    for (const auto &e : Arr)                                \
+        QCOMPARE(e, ComparisonData)                          \
+    /*end*/
+#define RET_CHECK(...)                                           \
+    do {                                                         \
+        if constexpr (std::is_void_v<decltype( __VA_ARGS__ )>) { \
+            /* e.g. std::vector */                               \
+            __VA_ARGS__ ;                                        \
+        } else {                                                 \
+            /* e.g. std::basic_string */                         \
+            auto &&r = __VA_ARGS__ ;                             \
+            QCOMPARE_EQ(&r, &c);                                 \
+        }                                                        \
+    } while (false)                                              \
+    /* end */
+    using V = typename Container::value_type;
+    using S = typename Container::size_type;
+    auto tData = V(65);
+    {
+        // fill version
+        auto c = make<Container>(4);
+        const S oldCapacity = c.capacity();
+        RET_CHECK(c.assign(4, tData));
+        CHECK(c, tData, c.size(), S(4));
+        QCOMPARE_EQ(c.capacity(), oldCapacity);
+
+        tData = V(66);
+        c.assign(8, tData); // may reallocate
+        CHECK(c, tData, c.size(), S(8));
+
+        const S grownCapacity = c.capacity();
+        c.assign(0, tData);
+        CHECK(c, tData, c.size(), S(0));
+        QCOMPARE_EQ(c.capacity(), grownCapacity);
+    }
+    {
+        // range version for non input iterator
+        auto c = make<Container>(4);
+        auto iter = make<Container>(1);
+
+        iter.assign(8, tData);
+        RET_CHECK(c.assign(iter.begin(), iter.end())); // may reallocate
+        CHECK(c, tData, c.size(), S(8));
+
+        const S oldCapacity = c.capacity();
+        c.assign(iter.begin(), iter.begin());
+        CHECK(c, tData, c.size(), S(0));
+        QCOMPARE_EQ(c.capacity(), oldCapacity);
+    }
+    {
+        // range version for input iterator
+        auto c = make<Container>(4);
+        const S oldCapacity = c.capacity();
+
+        std::stringstream ss;
+        ss << tData << ' ' << tData << ' ';
+        RET_CHECK(c.assign(std::istream_iterator<V>{ss}, std::istream_iterator<V>{}));
+        CHECK(c, tData, c.size(), S(2));
+        QCOMPARE_EQ(c.capacity(), oldCapacity);
+
+        ss.str("");
+        ss.clear();
+        tData = V(66);
+        ss << tData << ' ' << tData << ' ' << tData << ' ' << tData << ' ';
+        c.assign(std::istream_iterator<V>{ss}, std::istream_iterator<V>{});
+        CHECK(c, tData, c.size(), S(4));
+        QCOMPARE_EQ(c.capacity(), oldCapacity);
+
+        ss.str("");
+        ss.clear();
+        tData = V(67);
+        ss << tData << ' ' << tData << ' ' << tData << ' ' << tData << ' '
+           << tData << ' ' << tData << ' ' << tData << ' ';
+        c.assign(std::istream_iterator<V>{ss}, std::istream_iterator<V>{}); // may reallocate
+        CHECK(c, tData, c.size(), S(7));
+    }
+    {
+        // initializer-list version
+        auto c = make<Container>(4);
+        const S oldCapacity = c.capacity();
+        std::initializer_list<V> list = {tData, tData, tData};
+        RET_CHECK(c.assign(list));
+        CHECK(c, tData, c.size(), S(3));
+        QCOMPARE_EQ(c.capacity(), oldCapacity);
+    }
+
+#undef RET_CHECK
+#undef CHECK
+}
+
+template<typename Container>
 void tst_ContainerApiSymmetry::front_back_impl() const
 {
     using V = typename Container::value_type;

@@ -213,7 +213,7 @@ QFontPrivate::QFontPrivate(const QFontPrivate &other)
       strikeOut(other.strikeOut), kerning(other.kerning),
       capital(other.capital), letterSpacingIsAbsolute(other.letterSpacingIsAbsolute),
       letterSpacing(other.letterSpacing), wordSpacing(other.wordSpacing),
-      scFont(other.scFont)
+      features(other.features), scFont(other.scFont)
 {
     if (scFont && scFont != this)
         scFont->ref.ref();
@@ -343,9 +343,20 @@ void QFontPrivate::resolve(uint mask, const QFontPrivate *other)
         wordSpacing = other->wordSpacing;
     if (! (mask & QFont::CapitalizationResolved))
         capital = other->capital;
+
+    if (!(mask & QFont::FeaturesResolved))
+        features = other->features;
 }
 
+void QFontPrivate::setFeature(quint32 tag, quint32 value)
+{
+    features.insert(tag, value);
+}
 
+void QFontPrivate::unsetFeature(quint32 tag)
+{
+    features.remove(tag);
+}
 
 
 QFontEngineData::QFontEngineData()
@@ -1746,6 +1757,7 @@ bool QFont::operator==(const QFont &f) const
                 && f.d->letterSpacingIsAbsolute == d->letterSpacingIsAbsolute
                 && f.d->letterSpacing == d->letterSpacing
                 && f.d->wordSpacing == d->wordSpacing
+                && f.d->features == d->features
             ));
 }
 
@@ -1783,7 +1795,21 @@ bool QFont::operator<(const QFont &f) const
 
     int f1attrs = (f.d->underline << 3) + (f.d->overline << 2) + (f.d->strikeOut<<1) + f.d->kerning;
     int f2attrs = (d->underline << 3) + (d->overline << 2) + (d->strikeOut<<1) + d->kerning;
-    return f1attrs < f2attrs;
+    if (f1attrs != f2attrs) return f1attrs < f2attrs;
+
+    if (d->features.size() != f.d->features.size())
+        return f.d->features.size() < d->features.size();
+
+    auto it = d->features.constBegin();
+    auto jt = f.d->features.constBegin();
+    for (; it != d->features.constEnd(); ++it, ++jt) {
+        if (it.key() != jt.key())
+            return jt.key() < it.key();
+        if (it.value() != jt.value())
+            return jt.value() < it.value();
+    }
+
+    return false;
 }
 
 
@@ -2204,6 +2230,221 @@ void QFont::cacheStatistics()
 {
 }
 
+/*!
+    \since 6.6
+    \overload
+    \preliminary
+
+    Applies an integer value to a specific typographical feature when shaping the text. This
+    provides advanced access to the font shaping process, and can be used to support font features
+    that are otherwise not covered in the API.
+
+    A feature is defined by a 32-bit \a tag (encoded from the four-character name of the table by
+    using the stringToTag() function), as well as an integer value.
+
+    This integer \a value passed along with the tag in most cases represents a boolean value: A zero
+    value means the feature is disabled, and a non-zero value means it is enabled. For certain
+    font features, however, it may have other intepretations. For example, when applied to the
+    \c salt feature, the value is an index that specifies the stylistic alternative to use.
+
+    For example, the \c frac font feature will convert diagonal fractions separated with a slash
+    (such as \c 1/2) with a different representation. Typically this will involve baking the full
+    fraction into a single character width (such as \c ½).
+
+    If a font supports the \c frac feature, then it can be enabled in the shaper by setting
+    \c{features[stringToTag("frac")] = 1} in the font feature map.
+
+    \note By default, Qt will enable and disable certain font features based on other font
+    properties. In particular, the \c kern feature will be enabled/disabled depending on the
+    \l kerning() property of the QFont. In addition, all ligature features
+    (\c liga, \c clig, \c dlig, \c hlig) will be disabled if a \l letterSpacing() is applied,
+    but only for writing systems where the use of ligature is cosmetic. For writing systems where
+    ligatures are required, the features will remain in their default state. The values set using
+    setFeature() and related functions will override the default behavior. If, for instance,
+    the feature "kern" is set to 1, then kerning will always be enabled, regardless of whether the
+    kerning property is set to false. Similarly, if it is set to 0, then it will always be disabled.
+    To reset a font feature to its default behavior, you can unset it using unsetFeature().
+
+    \sa clearFeatures(), setFeature(), unsetFeature(), featureTags(), stringToTag()
+*/
+void QFont::setFeature(quint32 tag, quint32 value)
+{
+    if (tag != 0) {
+        d->detachButKeepEngineData(this);
+        d->setFeature(tag, value);
+        resolve_mask |= QFont::FeaturesResolved;
+    }
+}
+
+/*!
+    \since 6.6
+    \overload
+    \preliminary
+
+    Sets the \a value of a specific \a feature. This is an advanced feature which can be used to
+    enable or disable specific OpenType features if they are available in the font.
+
+    See \l setFeature(quint32, quint32) for more details on font features.
+
+    \note This is equivalent to calling setFeature(stringToTag(feature), value).
+
+    \sa clearFeatures(), unsetFeature(), featureTags(), featureValue(), stringToTag()
+*/
+void QFont::setFeature(const char *feature, quint32 value)
+{
+    setFeature(stringToTag(feature), value);
+}
+
+/*!
+    \since 6.6
+    \overload
+    \preliminary
+
+    Unsets the \a tag from the map of explicitly enabled/disabled features.
+
+    \note Even if the feature has not previously been added, this will mark the font features map
+    as modified in this QFont, so that it will take precedence when resolving against other fonts.
+
+    Unsetting an existing feature on the QFont reverts behavior to the default.
+
+    See \l setFeature(quint32, quint32) for more details on font features.
+
+    \sa clearFeatures(), setFeature(), featureTags(), featureValue(), stringToTag()
+*/
+void QFont::unsetFeature(quint32 tag)
+{
+    if (tag != 0) {
+        d->detachButKeepEngineData(this);
+        d->unsetFeature(tag);
+        resolve_mask |= QFont::FeaturesResolved;
+    }
+}
+
+/*!
+    \since 6.6
+    \overload
+    \preliminary
+
+    Unsets the \a feature from the map of explicitly enabled/disabled features.
+
+    \note Even if the feature has not previously been added, this will mark the font features map
+    as modified in this QFont, so that it will take precedence when resolving against other fonts.
+
+    Unsetting an existing feature on the QFont reverts behavior to the default.
+
+    See \l setFeature(quint32, quint32) for more details on font features.
+
+    \note This is equivalent to calling unsetFeature(stringToTag(feature)).
+
+    \sa clearFeatures(), setFeature(), featureTags(), featureValue(), stringToTag()
+*/
+void QFont::unsetFeature(const char *feature)
+{
+    unsetFeature(stringToTag(feature));
+}
+
+/*!
+   \since 6.6
+   \preliminary
+
+   Returns a list of tags for all font features currently set on this QFont.
+
+   See \l setFeature(quint32, quint32) for more details on font features.
+
+   \sa setFeature(), unsetFeature(), isFeatureSet(), clearFeatures(), tagToString()
+*/
+QList<quint32> QFont::featureTags() const
+{
+    return d->features.keys();
+}
+
+/*!
+   \since 6.6
+   \preliminary
+
+   Returns the value set for a specific feature \a tag. If the tag has not been set, 0 will be
+   returned instead.
+
+   See \l setFeature(quint32, quint32) for more details on font features.
+
+   \sa setFeature(), unsetFeature(), featureTags(), isFeatureSet(), stringToTag()
+*/
+quint32 QFont::featureValue(quint32 tag) const
+{
+    return d->features.value(tag);
+}
+
+/*!
+   \since 6.6
+   \preliminary
+
+   Returns true if a value for the feature given by \a tag has been set on the QFont, otherwise
+   returns false.
+
+   See \l setFeature(quint32, quint32) for more details on font features.
+
+   \sa setFeature(), unsetFeature(), featureTags(), featureValue(), stringToTag()
+*/
+bool QFont::isFeatureSet(quint32 tag) const
+{
+    return d->features.contains(tag);
+}
+
+/*!
+   \since 6.6
+   \preliminary
+
+   Clears any previously set features on the QFont.
+
+   See \l setFeature(quint32, quint32) for more details on font features.
+
+   \sa setFeature(), unsetFeature(), featureTags(), featureValue()
+*/
+void QFont::clearFeatures()
+{
+    d->features.clear();
+}
+
+/*!
+    \since 6.6
+    \preliminary
+
+    Returns the decoded name for \a tag as defined in the OpenType font specification. The tag
+    is decoded into four 8 bit characters. For valid tags, each will be in the basic Latin range of
+    0x20 to 0x7E.
+
+    \sa setFeature(), unsetFeature(), featureTags(), featureValue(), stringToTag()
+*/
+QByteArray QFont::tagToString(quint32 tag)
+{
+    char str[4] =
+        { char((tag & 0xff000000) >> 24),
+          char((tag & 0x00ff0000) >> 16),
+          char((tag & 0x0000ff00) >> 8),
+          char((tag & 0x000000ff)) };
+    return QByteArray(str, 4);
+}
+
+/*!
+    \since 6.6
+    \preliminary
+
+    Returns the encoded tag for \a name as defined in the OpenType font specification. The name
+    must be a null-terminated string of four characters exactly, and in order to be a valid tag,
+    each character must be in the basic Latin range of 0x20 to 0x7E.
+
+    The function returns 0 for strings of the wrong length, but does not otherwise check the input
+    for validity.
+
+    \sa setFeature(), unsetFeature(), featureTags(), featureValue(), tagToString()
+*/
+quint32 QFont::stringToTag(const char *name)
+{
+    if (qstrlen(name) != 4)
+        return 0;
+
+    return MAKE_TAG(name[0], name[1], name[2], name[3]);
+}
 
 extern QStringList qt_fallbacksForFamily(const QString &family, QFont::Style style,
                                          QFont::StyleHint styleHint, QChar::Script script);
@@ -2341,6 +2582,8 @@ QDataStream &operator<<(QDataStream &s, const QFont &font)
         else
             s << font.d->request.families;
     }
+    if (s.version() >= QDataStream::Qt_6_6)
+        s << font.d->features;
     return s;
 }
 
@@ -2455,6 +2698,11 @@ QDataStream &operator>>(QDataStream &s, QFont &font)
         else
             font.d->request.families = value;
     }
+    if (s.version() >= QDataStream::Qt_6_6) {
+        font.d->features.clear();
+        s >> font.d->features;
+    }
+
     return s;
 }
 
@@ -2794,13 +3042,15 @@ bool QFontInfo::exactMatch() const
 // QFontCache
 // **********************************************************************
 
+using namespace std::chrono_literals;
+
 #ifdef QFONTCACHE_DEBUG
 // fast timeouts for debugging
-static const int fast_timeout =   1000;  // 1s
-static const int slow_timeout =   5000;  // 5s
+static constexpr auto fast_timeout =   1s;
+static constexpr auto slow_timeout =   5s;
 #else
-static const int fast_timeout =  10000; // 10s
-static const int slow_timeout = 300000; //  5m
+static constexpr auto fast_timeout =  10s;
+static constexpr auto slow_timeout = 5min;
 #endif // QFONTCACHE_DEBUG
 
 #ifndef QFONTCACHE_MIN_COST
@@ -3010,7 +3260,7 @@ void QFontCache::increaseCost(uint cost)
             return;
 
         if (timer_id == -1 || ! fast) {
-            FC_DEBUG("  TIMER: starting fast timer (%d ms)", fast_timeout);
+            FC_DEBUG("  TIMER: starting fast timer (%d s)", static_cast<int>(fast_timeout.count()));
 
             if (timer_id != -1)
                 killTimer(timer_id);

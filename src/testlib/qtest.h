@@ -356,6 +356,19 @@ template<> inline char *toString(const QCborMap &m)
     return Internal::QCborValueFormatter::format(m);
 }
 
+template <typename Rep, typename Period> char *toString(std::chrono::duration<Rep, Period> dur)
+{
+    QString r;
+    QDebug d(&r);
+    d.nospace() << qSetRealNumberPrecision(9) << dur;
+    if constexpr (Period::num != 1 || Period::den != 1) {
+        // include the equivalent value in seconds, in parentheses
+        using namespace std::chrono;
+        d << " (" << duration_cast<duration<qreal>>(dur).count() << "s)";
+    }
+    return qstrdup(std::move(r).toUtf8().constData());
+}
+
 template <typename T1, typename T2>
 inline char *toString(const std::pair<T1, T2> &pair)
 {
@@ -628,7 +641,7 @@ void qRegister##TestObject() \
         QTEST_SET_MAIN_SOURCE_PATH \
         return QTest::qExec(&tc, argc, argv); \
     }; \
-    QTest::qRegisterTestCase(BATCHED_TEST_NAME, runTest); \
+    QTest::qRegisterTestCase(QStringLiteral(BATCHED_TEST_NAME), runTest); \
 } \
 \
 Q_CONSTRUCTOR_FUNCTION(qRegister##TestObject)

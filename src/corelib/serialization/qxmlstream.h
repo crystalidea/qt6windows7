@@ -6,7 +6,7 @@
 
 #include <QtCore/qiodevice.h>
 
-#ifndef QT_NO_XMLSTREAM
+#if QT_CONFIG(xmlstream)
 
 #include <QtCore/qlist.h>
 #include <QtCore/qscopedpointer.h>
@@ -75,25 +75,25 @@ class QXmlStreamAttributes : public QList<QXmlStreamAttribute>
 {
 public:
     inline QXmlStreamAttributes() {}
+#if QT_CORE_REMOVED_SINCE(6, 6)
     Q_CORE_EXPORT QStringView value(const QString &namespaceUri, const QString &name) const;
     Q_CORE_EXPORT QStringView value(const QString &namespaceUri, QLatin1StringView name) const;
     Q_CORE_EXPORT QStringView value(QLatin1StringView namespaceUri, QLatin1StringView name) const;
     Q_CORE_EXPORT QStringView value(const QString &qualifiedName) const;
     Q_CORE_EXPORT QStringView value(QLatin1StringView qualifiedName) const;
+#endif
+    Q_CORE_EXPORT QStringView value(QAnyStringView namespaceUri, QAnyStringView name) const noexcept;
+    Q_CORE_EXPORT QStringView value(QAnyStringView qualifiedName) const noexcept;
+
     Q_CORE_EXPORT void append(const QString &namespaceUri, const QString &name, const QString &value);
     Q_CORE_EXPORT void append(const QString &qualifiedName, const QString &value);
 
-    inline bool hasAttribute(const QString &qualifiedName) const
+    bool hasAttribute(QAnyStringView qualifiedName) const
     {
         return !value(qualifiedName).isNull();
     }
 
-    inline bool hasAttribute(QLatin1StringView qualifiedName) const
-    {
-        return !value(qualifiedName).isNull();
-    }
-
-    inline bool hasAttribute(const QString &namespaceUri, const QString &name) const
+    bool hasAttribute(QAnyStringView namespaceUri, QAnyStringView name) const
     {
         return !value(namespaceUri, name).isNull();
     }
@@ -176,8 +176,9 @@ public:
     virtual QString resolveUndeclaredEntity(const QString &name);
 };
 
-#ifndef QT_NO_XMLSTREAMREADER
-class Q_CORE_EXPORT QXmlStreamReader {
+#if QT_CONFIG(xmlstreamreader)
+class Q_CORE_EXPORT QXmlStreamReader
+{
     QDOC_PROPERTY(bool namespaceProcessing READ namespaceProcessing WRITE setNamespaceProcessing)
 public:
     enum TokenType {
@@ -246,6 +247,7 @@ public:
     inline bool isProcessingInstruction() const { return tokenType() == ProcessingInstruction; }
 
     bool isStandaloneDocument() const;
+    bool hasStandaloneDeclaration() const;
     QStringView documentVersion() const;
     QStringView documentEncoding() const;
 
@@ -313,9 +315,9 @@ private:
     QScopedPointer<QXmlStreamReaderPrivate> d_ptr;
 
 };
-#endif // QT_NO_XMLSTREAMREADER
+#endif // feature xmlstreamreader
 
-#ifndef QT_NO_XMLSTREAMWRITER
+#if QT_CONFIG(xmlstreamwriter)
 
 class QXmlStreamWriterPrivate;
 
@@ -401,7 +403,7 @@ public:
     void writeStartElement(QAnyStringView qualifiedName);
     void writeStartElement(QAnyStringView namespaceUri, QAnyStringView name);
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
     void writeCurrentToken(const QXmlStreamReader &reader);
 #endif
 
@@ -412,9 +414,10 @@ private:
     Q_DECLARE_PRIVATE(QXmlStreamWriter)
     QScopedPointer<QXmlStreamWriterPrivate> d_ptr;
 };
-#endif // QT_NO_XMLSTREAMWRITER
+#endif // feature xmlstreamwriter
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_XMLSTREAM
+#endif // feature xmlstream
+
 #endif // QXMLSTREAM_H

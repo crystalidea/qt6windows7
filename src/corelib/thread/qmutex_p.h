@@ -23,13 +23,12 @@
 #include <QtCore/qatomic.h>
 #include <QtCore/qdeadlinetimer.h>
 
-#if defined(Q_OS_MAC)
+#include "qplatformdefs.h" // _POSIX_VERSION
+
+#if defined(Q_OS_DARWIN)
 # include <mach/semaphore.h>
 #elif defined(Q_OS_UNIX)
-# if _POSIX_VERSION-0 >= 200112L || _XOPEN_VERSION-0 >= 600
 #  include <semaphore.h>
-#  define QT_UNIX_SEMAPHORE
-# endif
 #endif
 
 struct timespec;
@@ -44,7 +43,7 @@ public:
     ~QMutexPrivate();
     QMutexPrivate();
 
-    bool wait(int timeout = -1);
+    bool wait(QDeadlineTimer timeout = QDeadlineTimer::Forever);
     void wakeUp() noexcept;
 
     // Control the lifetime of the privates
@@ -83,26 +82,12 @@ public:
     void derefWaiters(int value) noexcept;
 
     //platform specific stuff
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_DARWIN)
     semaphore_t mach_semaphore;
-#elif defined(QT_UNIX_SEMAPHORE)
-    sem_t semaphore;
 #elif defined(Q_OS_UNIX)
-    bool wakeup;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-#elif defined(Q_OS_WIN)
-    Qt::HANDLE event;
+    sem_t semaphore;
 #endif
 };
-
-
-#ifdef Q_OS_UNIX
-// helper functions for qmutex_unix.cpp and qwaitcondition_unix.cpp
-// they are in qwaitcondition_unix.cpp actually
-void qt_initialize_pthread_cond(pthread_cond_t *cond, const char *where);
-void qt_abstime_for_timeout(struct timespec *ts, QDeadlineTimer deadline);
-#endif
 
 QT_END_NAMESPACE
 

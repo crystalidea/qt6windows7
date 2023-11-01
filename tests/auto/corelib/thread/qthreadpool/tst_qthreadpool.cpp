@@ -6,6 +6,7 @@
 #include <QSemaphore>
 
 #include <qelapsedtimer.h>
+#include <qrunnable.h>
 #include <qthreadpool.h>
 #include <qstring.h>
 #include <qmutex.h>
@@ -13,6 +14,8 @@
 #ifdef Q_OS_UNIX
 #include <unistd.h>
 #endif
+
+using namespace std::chrono_literals;
 
 typedef void (*FunctionPointer)();
 
@@ -43,6 +46,7 @@ public:
 private slots:
     void runFunction();
     void runFunction2();
+    void runFunction3();
     void createThreadRunFunction();
     void runMultiple();
     void waitcomplete();
@@ -83,6 +87,7 @@ private slots:
     void takeAllAndIncreaseMaxThreadCount();
     void waitForDoneAfterTake();
     void threadReuse();
+    void nullFunctions();
 
 private:
     QMutex m_functionTestMutex;
@@ -169,6 +174,23 @@ void tst_QThreadPool::runFunction2()
         manager.start([&]() { ++localCount; });
     }
     QCOMPARE(localCount, 1);
+}
+
+struct DeleteCheck
+{
+    static bool s_deleted;
+    ~DeleteCheck() { s_deleted = true; }
+};
+bool DeleteCheck::s_deleted = false;
+
+void tst_QThreadPool::runFunction3()
+{
+    std::unique_ptr<DeleteCheck> ptr(new DeleteCheck);
+    {
+        TestThreadPool manager;
+        manager.start([my_ptr = std::move(ptr)]() { });
+    }
+    QVERIFY(DeleteCheck::s_deleted);
 }
 
 void tst_QThreadPool::createThreadRunFunction()
@@ -407,7 +429,7 @@ void tst_QThreadPool::expiryTimeoutRace() // QTBUG-3786
     const int numTasks = 20;
     for (int i = 0; i < numTasks; ++i) {
         threadPool.start(&task);
-        QThread::msleep(50); // exactly the same as the expiry timeout
+        QThread::sleep(50ms); // exactly the same as the expiry timeout
     }
     QVERIFY(task.semaphore.tryAcquire(numTasks, 10000));
     QCOMPARE(task.runCount.loadRelaxed(), numTasks);
@@ -1102,7 +1124,7 @@ void tst_QThreadPool::clearWithAutoDelete()
     {
     public:
         MyRunnable() {}
-        void run() override { QThread::usleep(30); }
+        void run() override { QThread::sleep(30us); }
     };
 
     TestThreadPool threadPool;
@@ -1441,6 +1463,31 @@ void tst_QThreadPool::threadReuse()
         manager.releaseThread();
         QVERIFY(sem.tryAcquire(2, timeoutMs));
         manager.reserveThread();
+    }
+}
+
+void tst_QThreadPool::nullFunctions()
+{
+    const auto expectWarning = [] {
+            QTest::ignoreMessage(QtMsgType::QtWarningMsg,
+                                 "Trying to create null QRunnable. This may stop working.");
+        };
+    // Note this is not necessarily testing intended behavior, only undocumented behavior.
+    // If this is changed it should be noted in Behavioral Changes.
+    FunctionPointer nullFunction = nullptr;
+    std::function<void()> nullStdFunction(nullptr);
+    {
+        TestThreadPool manager;
+        // should not crash:
+        expectWarning();
+        manager.start(nullFunction);
+        expectWarning();
+        manager.start(nullStdFunction);
+        // should fail (and not leak):
+        expectWarning();
+        QVERIFY(!manager.tryStart(nullStdFunction));
+        expectWarning();
+        QVERIFY(!manager.tryStart(nullFunction));
     }
 }
 

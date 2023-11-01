@@ -1,8 +1,8 @@
-// Copyright (C) 2019 The Qt Company Ltd.
+// Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qrhimetal_p_p.h"
-#include <QtGui/private/qshader_p_p.h>
+#include "qrhimetal_p.h"
+#include "qshader_p.h"
 #include <QGuiApplication>
 #include <QWindow>
 #include <QUrl>
@@ -51,8 +51,11 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QRhiMetalInitParams
     \inmodule QtRhi
-    \internal
+    \since 6.6
     \brief Metal specific initialization parameters.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
 
     A Metal-based QRhi needs no special parameters for initialization.
 
@@ -86,14 +89,25 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QRhiMetalNativeHandles
     \inmodule QtRhi
-    \internal
+    \since 6.6
     \brief Holds the Metal device used by the QRhi.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
+
+/*!
+    \variable QRhiMetalNativeHandles::dev
+*/
+
+/*!
+    \variable QRhiMetalNativeHandles::cmdQueue
+*/
 
 /*!
     \class QRhiMetalCommandBufferNativeHandles
     \inmodule QtRhi
-    \internal
+    \since 6.6
     \brief Holds the MTLCommandBuffer and MTLRenderCommandEncoder objects that are backing a QRhiCommandBuffer.
 
     \note The command buffer object is only guaranteed to be valid while
@@ -105,7 +119,18 @@ QT_BEGIN_NAMESPACE
     \note The command encoder is only valid while recording a pass, that is,
     between \l{QRhiCommandBuffer::beginPass()} -
     \l{QRhiCommandBuffer::endPass()}.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QRhi
+    for details.
  */
+
+/*!
+    \variable QRhiMetalCommandBufferNativeHandles::commandBuffer
+*/
+
+/*!
+    \variable QRhiMetalCommandBufferNativeHandles::encoder
+*/
 
 struct QMetalShader
 {
@@ -194,6 +219,7 @@ struct QRhiMetalData
     struct OffscreenFrame {
         OffscreenFrame(QRhiImplementation *rhi) : cbWrapper(rhi) { }
         bool active = false;
+        double lastGpuTime = 0;
         QMetalCommandBuffer cbWrapper;
     } ofr;
 
@@ -207,6 +233,17 @@ struct QRhiMetalData
         QRhiTexture::Format format;
     };
     QVarLengthArray<TextureReadback, 2> activeTextureReadbacks;
+
+    struct BufferReadback
+    {
+        int activeFrameSlot = -1;
+        QRhiReadbackResult *result;
+        quint32 offset;
+        quint32 readSize;
+        id<MTLBuffer> buf;
+    };
+
+    QVarLengthArray<BufferReadback, 2> activeBufferReadbacks;
 
     MTLCaptureManager *captureMgr;
     id<MTLCaptureScope> captureScope = nil;
@@ -285,6 +322,7 @@ struct QMetalShaderResourceBindingsData {
 struct QMetalCommandBufferData
 {
     id<MTLCommandBuffer> cb;
+    double lastGpuTime = 0;
     id<MTLRenderCommandEncoder> currentRenderPassEncoder;
     id<MTLComputeCommandEncoder> currentComputePassEncoder;
     id<MTLComputeCommandEncoder> tessellationComputeEncoder;
@@ -382,6 +420,9 @@ struct QMetalGraphicsPipelineData
     } tess;
     void setupVertexInputDescriptor(MTLVertexDescriptor *desc);
     void setupStageInputDescriptor(MTLStageInputOutputDescriptor *desc);
+
+    // SPIRV-Cross buffer size buffers
+    QMetalBuffer *bufferSizeBuffer = nullptr;
 };
 
 struct QMetalComputePipelineData
@@ -389,6 +430,9 @@ struct QMetalComputePipelineData
     id<MTLComputePipelineState> ps = nil;
     QMetalShader cs;
     MTLSize localSize;
+
+    // SPIRV-Cross buffer size buffers
+    QMetalBuffer *bufferSizeBuffer = nullptr;
 };
 
 struct QMetalSwapChainData
@@ -396,10 +440,16 @@ struct QMetalSwapChainData
     CAMetalLayer *layer = nullptr;
     id<CAMetalDrawable> curDrawable = nil;
     dispatch_semaphore_t sem[QMTL_FRAMES_IN_FLIGHT];
+    double lastGpuTime[QMTL_FRAMES_IN_FLIGHT];
     MTLRenderPassDescriptor *rp = nullptr;
     id<MTLTexture> msaaTex[QMTL_FRAMES_IN_FLIGHT];
     QRhiTexture::Format rhiColorFormat;
     MTLPixelFormat colorFormat;
+#ifdef Q_OS_MACOS
+    bool liveResizeObserverSet = false;
+    QMacNotificationObserver liveResizeStartObserver;
+    QMacNotificationObserver liveResizeEndObserver;
+#endif
 };
 
 QRhiMetal::QRhiMetal(QRhiMetalInitParams *params, QRhiMetalNativeHandles *importDevice)
@@ -708,7 +758,7 @@ bool QRhiMetal::isFeatureSupported(QRhi::Feature feature) const
     case QRhi::DebugMarkers:
         return true;
     case QRhi::Timestamps:
-        return false;
+        return true;
     case QRhi::Instancing:
         return true;
     case QRhi::CustomInstanceStepRate:
@@ -780,6 +830,12 @@ bool QRhiMetal::isFeatureSupported(QRhi::Feature feature) const
         return true;
     case QRhi::OneDimensionalTextureMipmaps:
         return false;
+    case QRhi::HalfAttributes:
+        return true;
+    case QRhi::RenderToOneDimensionalTexture:
+        return false;
+    case QRhi::ThreeDimensionalTextureMipmaps:
+        return true;
     default:
         Q_UNREACHABLE();
         return false;
@@ -1195,7 +1251,7 @@ void QRhiMetal::enqueueShaderResourceBindings(QMetalShaderResourceBindings *srbD
     QMetalShaderResourceBindingsData bindingData;
 
     for (const QRhiShaderResourceBinding &binding : std::as_const(srbD->sortedBindings)) {
-        const QRhiShaderResourceBinding::Data *b = binding.data();
+        const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(binding);
         switch (b->type) {
         case QRhiShaderResourceBinding::UniformBuffer:
         {
@@ -1450,9 +1506,15 @@ void QRhiMetal::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
     bool hasDynamicOffsetInSrb = false;
     bool resNeedsRebind = false;
 
+    // SPIRV-Cross buffer size buffers
+    // Need to determine storage buffer sizes here as this is the last opportunity for storage
+    // buffer bindings (offset, size) to be specified before draw / dispatch call
+    const bool needsBufferSizeBuffer = (compPsD && compPsD->d->bufferSizeBuffer) || (gfxPsD && gfxPsD->d->bufferSizeBuffer);
+    QMap<QRhiShaderResourceBinding::StageFlag, QMap<int, quint32>> storageBufferSizes;
+
     // do buffer writes, figure out if we need to rebind, and mark as in-use
     for (int i = 0, ie = srbD->sortedBindings.count(); i != ie; ++i) {
-        const QRhiShaderResourceBinding::Data *b = srbD->sortedBindings.at(i).data();
+        const QRhiShaderResourceBinding::Data *b = shaderResourceBindingData(srbD->sortedBindings.at(i));
         QMetalShaderResourceBindings::BoundResourceData &bd(srbD->boundResourceData[i]);
         switch (b->type) {
         case QRhiShaderResourceBinding::UniformBuffer:
@@ -1526,6 +1588,17 @@ void QRhiMetal::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
         {
             QMetalBuffer *bufD = QRHI_RES(QMetalBuffer, b->u.sbuf.buf);
             Q_ASSERT(bufD->m_usage.testFlag(QRhiBuffer::StorageBuffer));
+
+            if (needsBufferSizeBuffer) {
+                for (int i = 0; i < 6; ++i) {
+                    const QRhiShaderResourceBinding::StageFlag stage =
+                            QRhiShaderResourceBinding::StageFlag(1 << i);
+                    if (b->stage.testFlag(stage)) {
+                        storageBufferSizes[stage][b->binding] = b->u.sbuf.maybeSize ? b->u.sbuf.maybeSize : bufD->size();
+                    }
+                }
+            }
+
             executeBufferHostWritesForCurrentFrame(bufD);
             if (bufD->generation != bd.sbuf.generation || bufD->m_id != bd.sbuf.id) {
                 resNeedsRebind = true;
@@ -1539,6 +1612,111 @@ void QRhiMetal::setShaderResources(QRhiCommandBuffer *cb, QRhiShaderResourceBind
             Q_UNREACHABLE();
             break;
         }
+    }
+
+    if (needsBufferSizeBuffer) {
+        QMetalBuffer *bufD = nullptr;
+        QVarLengthArray<QPair<QMetalShader *, QRhiShaderResourceBinding::StageFlag>, 4> shaders;
+
+        if (compPsD) {
+            bufD = compPsD->d->bufferSizeBuffer;
+            Q_ASSERT(compPsD->d->cs.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding));
+            shaders.append(qMakePair(&compPsD->d->cs, QRhiShaderResourceBinding::StageFlag::ComputeStage));
+        } else {
+            bufD = gfxPsD->d->bufferSizeBuffer;
+            if (gfxPsD->d->tess.enabled) {
+
+                // Assumptions
+                // * We only use one of the compute vertex shader variants in a pipeline at any one time
+                // * The vertex shader variants all have the same storage block bindings
+                // * The vertex shader variants all have the same native resource binding map
+                // * The vertex shader variants all have the same MslBufferSizeBufferBinding requirement
+                // * The vertex shader variants all have the same MslBufferSizeBufferBinding binding
+                // => We only need to use one vertex shader variant to generate the identical shader
+                // resource bindings
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].desc.storageBlocks() == gfxPsD->d->tess.compVs[1].desc.storageBlocks());
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].desc.storageBlocks() == gfxPsD->d->tess.compVs[2].desc.storageBlocks());
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeResourceBindingMap == gfxPsD->d->tess.compVs[1].nativeResourceBindingMap);
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeResourceBindingMap == gfxPsD->d->tess.compVs[2].nativeResourceBindingMap);
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding)
+                         == gfxPsD->d->tess.compVs[1].nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding));
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding)
+                         == gfxPsD->d->tess.compVs[2].nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding));
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding]
+                         == gfxPsD->d->tess.compVs[1].nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding]);
+                Q_ASSERT(gfxPsD->d->tess.compVs[0].nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding]
+                         == gfxPsD->d->tess.compVs[2].nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding]);
+
+                if (gfxPsD->d->tess.compVs[0].nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding))
+                    shaders.append(qMakePair(&gfxPsD->d->tess.compVs[0], QRhiShaderResourceBinding::StageFlag::VertexStage));
+
+                if (gfxPsD->d->tess.compTesc.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding))
+                    shaders.append(qMakePair(&gfxPsD->d->tess.compTesc, QRhiShaderResourceBinding::StageFlag::TessellationControlStage));
+
+                if (gfxPsD->d->tess.vertTese.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding))
+                    shaders.append(qMakePair(&gfxPsD->d->tess.vertTese, QRhiShaderResourceBinding::StageFlag::TessellationEvaluationStage));
+
+            } else {
+                if (gfxPsD->d->vs.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding))
+                    shaders.append(qMakePair(&gfxPsD->d->vs, QRhiShaderResourceBinding::StageFlag::VertexStage));
+            }
+            if (gfxPsD->d->fs.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding))
+                shaders.append(qMakePair(&gfxPsD->d->fs, QRhiShaderResourceBinding::StageFlag::FragmentStage));
+        }
+
+        quint32 offset = 0;
+        for (const QPair<QMetalShader *, QRhiShaderResourceBinding::StageFlag> &shader : shaders) {
+
+            const int binding = shader.first->nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding];
+
+            // if we don't have a srb entry for the buffer size buffer
+            if (!(storageBufferSizes.contains(shader.second) && storageBufferSizes[shader.second].contains(binding))) {
+
+                int maxNativeBinding = 0;
+                for (const QShaderDescription::StorageBlock &block : shader.first->desc.storageBlocks())
+                    maxNativeBinding = qMax(maxNativeBinding, shader.first->nativeResourceBindingMap[block.binding].first);
+
+                const int size = (maxNativeBinding + 1) * sizeof(int);
+
+                Q_ASSERT(offset + size <= bufD->size());
+                srbD->sortedBindings.append(QRhiShaderResourceBinding::bufferLoad(binding, shader.second, bufD, offset, size));
+
+                QMetalShaderResourceBindings::BoundResourceData bd;
+                bd.sbuf.id = bufD->m_id;
+                bd.sbuf.generation = bufD->generation;
+                srbD->boundResourceData.append(bd);
+            }
+
+            // create the buffer size buffer data
+            QVarLengthArray<int, 8> bufferSizeBufferData;
+            Q_ASSERT(storageBufferSizes.contains(shader.second));
+            const QMap<int, quint32> &sizes(storageBufferSizes[shader.second]);
+            for (const QShaderDescription::StorageBlock &block : shader.first->desc.storageBlocks()) {
+                const int index = shader.first->nativeResourceBindingMap[block.binding].first;
+
+                // if the native binding is -1, the buffer is present but not accessed in the shader
+                if (index < 0)
+                    continue;
+
+                if (bufferSizeBufferData.size() <= index)
+                    bufferSizeBufferData.resize(index + 1);
+
+                Q_ASSERT(sizes.contains(block.binding));
+                bufferSizeBufferData[index] = sizes[block.binding];
+            }
+
+            QRhiBufferData data;
+            const quint32 size = bufferSizeBufferData.size() * sizeof(int);
+            data.assign(reinterpret_cast<const char *>(bufferSizeBufferData.constData()), size);
+            Q_ASSERT(offset + size <= bufD->size());
+            bufD->d->pendingUpdates[bufD->d->slotted ? currentFrameSlot : 0].append({ offset, data });
+
+            // buffer offsets must be 32byte aligned
+            offset += ((size + 31) / 32) * 32;
+        }
+
+        executeBufferHostWritesForCurrentFrame(bufD);
+        bufD->lastActiveFrameSlot = currentFrameSlot;
     }
 
     // make sure the resources for the correct slot get bound
@@ -2090,27 +2268,35 @@ void QRhiMetal::endExternal(QRhiCommandBuffer *cb)
     cbD->resetPerPassCachedState();
 }
 
+double QRhiMetal::lastCompletedGpuTime(QRhiCommandBuffer *cb)
+{
+    QMetalCommandBuffer *cbD = QRHI_RES(QMetalCommandBuffer, cb);
+    return cbD->d->lastGpuTime;
+}
+
 QRhi::FrameOpResult QRhiMetal::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginFrameFlags flags)
 {
     Q_UNUSED(flags);
 
     QMetalSwapChain *swapChainD = QRHI_RES(QMetalSwapChain, swapChain);
-
-    // This is a bit messed up since for this swapchain we want to wait for the
-    // commands+present to complete, while for others just for the commands
-    // (for this same frame slot) but not sure how to do that in a sane way so
-    // wait for full cb completion for now.
-    for (QMetalSwapChain *sc : std::as_const(swapchains)) {
-        dispatch_semaphore_t sem = sc->d->sem[swapChainD->currentFrameSlot];
-        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-        if (sc != swapChainD)
-            dispatch_semaphore_signal(sem);
-    }
-
     currentSwapChain = swapChainD;
     currentFrameSlot = swapChainD->currentFrameSlot;
-    if (swapChainD->ds)
-        swapChainD->ds->lastActiveFrameSlot = currentFrameSlot;
+
+    // If we are too far ahead, block. This is also what ensures that any
+    // resource used in the previous frame for this slot is now not in use
+    // anymore by the GPU.
+    dispatch_semaphore_wait(swapChainD->d->sem[currentFrameSlot], DISPATCH_TIME_FOREVER);
+
+    // Do this also for any other swapchain's commands with the same frame slot
+    // While this reduces concurrency, it keeps resource usage safe: swapchain
+    // A starting its frame 0, followed by swapchain B starting its own frame 0
+    // will make B wait for A's frame 0 commands, so if a resource is written
+    // in B's frame or when B checks for pending resource releases, that won't
+    // mess up A's in-flight commands (as they are not in flight anymore).
+    for (QMetalSwapChain *sc : std::as_const(swapchains)) {
+        if (sc != swapChainD)
+            sc->waitUntilCompleted(currentFrameSlot); // wait+signal
+    }
 
     [d->captureScope beginScope];
 
@@ -2132,8 +2318,12 @@ QRhi::FrameOpResult QRhiMetal::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginF
     swapChainD->rtWrapper.d->fb.hasStencil = swapChainD->ds ? true : false;
     swapChainD->rtWrapper.d->fb.depthNeedsStore = false;
 
+    if (swapChainD->ds)
+        swapChainD->ds->lastActiveFrameSlot = currentFrameSlot;
+
     executeDeferredReleases();
-    swapChainD->cbWrapper.resetState();
+    swapChainD->cbWrapper.resetState(swapChainD->d->lastGpuTime[currentFrameSlot]);
+    swapChainD->d->lastGpuTime[currentFrameSlot] = 0;
     finishActiveReadbacks();
 
     return QRhi::FrameOpSuccess;
@@ -2144,39 +2334,36 @@ QRhi::FrameOpResult QRhiMetal::endFrame(QRhiSwapChain *swapChain, QRhi::EndFrame
     QMetalSwapChain *swapChainD = QRHI_RES(QMetalSwapChain, swapChain);
     Q_ASSERT(currentSwapChain == swapChainD);
 
+    __block int thisFrameSlot = currentFrameSlot;
+    [swapChainD->cbWrapper.d->cb addCompletedHandler: ^(id<MTLCommandBuffer> cb) {
+        swapChainD->d->lastGpuTime[thisFrameSlot] += cb.GPUEndTime - cb.GPUStartTime;
+        dispatch_semaphore_signal(swapChainD->d->sem[thisFrameSlot]);
+    }];
+
     const bool needsPresent = !flags.testFlag(QRhi::SkipPresent);
-    if (needsPresent) {
-        // beginFrame-endFrame without a render pass inbetween means there is no
-        // drawable, handle this gracefully because presentDrawable does not like
-        // null arguments.
-        if (id<CAMetalDrawable> drawable = swapChainD->d->curDrawable) {
-            // QTBUG-103415: while the docs suggest the following two approaches are
-            // equivalent, there is a difference in case a frame is recorded earlier than
-            // (i.e. not in response to) the next CVDisplayLink callback. Therefore, stick
-            // with presentDrawable, which gives results identical to OpenGL, and all other
-            // platforms, i.e. throttles to vsync as expected, meaning constant 15-17 ms with
-            // a 60 Hz screen, no jumps with smaller intervals, regardless of when the frame
-            // is submitted by the app)
-#if 1
+    const bool presentsWithTransaction = swapChainD->d->layer.presentsWithTransaction;
+    if (!presentsWithTransaction && needsPresent) {
+        // beginFrame-endFrame without a render pass inbetween means there is no drawable.
+        if (id<CAMetalDrawable> drawable = swapChainD->d->curDrawable)
             [swapChainD->cbWrapper.d->cb presentDrawable: drawable];
-#else
-            [swapChainD->cbWrapper.d->cb addScheduledHandler:^(id<MTLCommandBuffer>) {
-                [drawable present];
-            }];
-#endif
+    }
+
+    [swapChainD->cbWrapper.d->cb commit];
+
+    if (presentsWithTransaction && needsPresent) {
+        // beginFrame-endFrame without a render pass inbetween means there is no drawable.
+        if (id<CAMetalDrawable> drawable = swapChainD->d->curDrawable) {
+            // The layer has presentsWithTransaction set to true to avoid flicker on resizing,
+            // so here it is important to follow what the Metal docs say when it comes to the
+            // issuing the present.
+            [swapChainD->cbWrapper.d->cb waitUntilScheduled];
+            [drawable present];
         }
     }
 
     // Must not hold on to the drawable, regardless of needsPresent
     [swapChainD->d->curDrawable release];
     swapChainD->d->curDrawable = nil;
-
-    __block int thisFrameSlot = currentFrameSlot;
-    [swapChainD->cbWrapper.d->cb addCompletedHandler: ^(id<MTLCommandBuffer>) {
-        dispatch_semaphore_signal(swapChainD->d->sem[thisFrameSlot]);
-    }];
-
-    [swapChainD->cbWrapper.d->cb commit];
 
     [d->captureScope endScope];
 
@@ -2193,21 +2380,17 @@ QRhi::FrameOpResult QRhiMetal::beginOffscreenFrame(QRhiCommandBuffer **cb, QRhi:
     Q_UNUSED(flags);
 
     currentFrameSlot = (currentFrameSlot + 1) % QMTL_FRAMES_IN_FLIGHT;
-    for (QMetalSwapChain *sc : std::as_const(swapchains)) {
-        // wait+signal is the general pattern to ensure the commands for a
-        // given frame slot have completed (if sem is 1, we go 0 then 1; if
-        // sem is 0 we go -1, block, completion increments to 0, then us to 1)
-        dispatch_semaphore_t sem = sc->d->sem[currentFrameSlot];
-        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-        dispatch_semaphore_signal(sem);
-    }
+
+    for (QMetalSwapChain *sc : std::as_const(swapchains))
+        sc->waitUntilCompleted(currentFrameSlot);
 
     d->ofr.active = true;
     *cb = &d->ofr.cbWrapper;
     d->ofr.cbWrapper.d->cb = [d->cmdQueue commandBufferWithUnretainedReferences];
 
     executeDeferredReleases();
-    d->ofr.cbWrapper.resetState();
+    d->ofr.cbWrapper.resetState(d->ofr.lastGpuTime);
+    d->ofr.lastGpuTime = 0;
     finishActiveReadbacks();
 
     return QRhi::FrameOpSuccess;
@@ -2219,10 +2402,13 @@ QRhi::FrameOpResult QRhiMetal::endOffscreenFrame(QRhi::EndFrameFlags flags)
     Q_ASSERT(d->ofr.active);
     d->ofr.active = false;
 
-    [d->ofr.cbWrapper.d->cb commit];
+    id<MTLCommandBuffer> cb = d->ofr.cbWrapper.d->cb;
+    [cb commit];
 
     // offscreen frames wait for completion, unlike swapchain ones
-    [d->ofr.cbWrapper.d->cb waitUntilCompleted];
+    [cb waitUntilCompleted];
+
+    d->ofr.lastGpuTime += cb.GPUEndTime - cb.GPUStartTime;
 
     finishActiveReadbacks(true);
 
@@ -2253,9 +2439,7 @@ QRhi::FrameOpResult QRhiMetal::finish()
                 // beginFrame decremented sem already and going to be signaled by endFrame
                 continue;
             }
-            dispatch_semaphore_t sem = sc->d->sem[i];
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            dispatch_semaphore_signal(sem);
+            sc->waitUntilCompleted(i);
         }
     }
 
@@ -2265,10 +2449,13 @@ QRhi::FrameOpResult QRhiMetal::finish()
     }
 
     if (inFrame) {
-        if (d->ofr.active)
+        if (d->ofr.active) {
+            d->ofr.lastGpuTime += cb.GPUEndTime - cb.GPUStartTime;
             d->ofr.cbWrapper.d->cb = [d->cmdQueue commandBufferWithUnretainedReferences];
-        else
+        } else {
+            swapChainD->d->lastGpuTime[currentFrameSlot] += cb.GPUEndTime - cb.GPUStartTime;
             swapChainD->cbWrapper.d->cb = [d->cmdQueue commandBufferWithUnretainedReferences];
+        }
     }
 
     executeDeferredReleases(true);
@@ -2468,13 +2655,23 @@ void QRhiMetal::enqueueResourceUpdates(QRhiCommandBuffer *cb, QRhiResourceUpdate
             QMetalBuffer *bufD = QRHI_RES(QMetalBuffer, u.buf);
             executeBufferHostWritesForCurrentFrame(bufD);
             const int idx = bufD->d->slotted ? currentFrameSlot : 0;
-            char *p = reinterpret_cast<char *>([bufD->d->buf[idx] contents]);
-            if (p) {
-                u.result->data.resize(u.readSize);
-                memcpy(u.result->data.data(), p + u.offset, size_t(u.readSize));
+            if (bufD->m_type == QRhiBuffer::Dynamic) {
+                char *p = reinterpret_cast<char *>([bufD->d->buf[idx] contents]);
+                if (p) {
+                    u.result->data.resize(u.readSize);
+                    memcpy(u.result->data.data(), p + u.offset, size_t(u.readSize));
+                }
+                if (u.result->completed)
+                    u.result->completed();
+            } else {
+                QRhiMetalData::BufferReadback readback;
+                readback.activeFrameSlot = idx;
+                readback.buf = bufD->d->buf[idx];
+                readback.offset = u.offset;
+                readback.readSize = u.readSize;
+                readback.result = u.result;
+                d->activeBufferReadbacks.append(readback);
             }
-            if (u.result->completed)
-                u.result->completed();
         }
     }
 
@@ -2905,7 +3102,23 @@ void QRhiMetal::finishActiveReadbacks(bool forced)
             if (readback.result->completed)
                 completedCallbacks.append(readback.result->completed);
 
-            d->activeTextureReadbacks.removeLast();
+            d->activeTextureReadbacks.remove(i);
+        }
+    }
+
+    for (int i = d->activeBufferReadbacks.count() - 1; i >= 0; --i) {
+        const QRhiMetalData::BufferReadback &readback(d->activeBufferReadbacks[i]);
+        if (forced || currentFrameSlot == readback.activeFrameSlot
+                || readback.activeFrameSlot < 0) {
+            readback.result->data.resize(readback.readSize);
+            char *p = reinterpret_cast<char *>([readback.buf contents]);
+            Q_ASSERT(p);
+            memcpy(readback.result->data.data(), p + readback.offset, size_t(readback.readSize));
+
+            if (readback.result->completed)
+                completedCallbacks.append(readback.result->completed);
+
+            d->activeBufferReadbacks.remove(i);
         }
     }
 
@@ -3499,12 +3712,10 @@ bool QMetalTexture::prepareCreate(QSize *adjustedSize)
         qWarning("Texture cannot be both 1D and cube");
         return false;
     }
-    m_depth = qMax(1, m_depth);
     if (m_depth > 1 && !is3D) {
         qWarning("Texture cannot have a depth of %d when it is not 3D", m_depth);
         return false;
     }
-    m_arraySize = qMax(0, m_arraySize);
     if (m_arraySize > 0 && !isArray) {
         qWarning("Texture cannot have an array size of %d when it is not an array", m_arraySize);
         return false;
@@ -3540,11 +3751,11 @@ bool QMetalTexture::create()
         desc.textureType = isArray ? MTLTextureType1DArray : MTLTextureType1D;
     } else if (isArray) {
 #ifdef Q_OS_IOS
-        if (samples > 1) {
-            // would be available on iOS 14.0+ but cannot test for that with a 13 SDK
-            qWarning("Multisample 2D texture array is not supported on iOS");
+        if (@available(iOS 14, *)) {
+            desc.textureType = samples > 1 ? MTLTextureType2DMultisampleArray : MTLTextureType2DArray;
+        } else {
+            desc.textureType = MTLTextureType2DArray;
         }
-        desc.textureType = MTLTextureType2DArray;
 #else
         desc.textureType = samples > 1 ? MTLTextureType2DMultisampleArray : MTLTextureType2DArray;
 #endif
@@ -3554,12 +3765,12 @@ bool QMetalTexture::create()
     desc.pixelFormat = d->format;
     desc.width = NSUInteger(size.width());
     desc.height = NSUInteger(size.height());
-    desc.depth = is3D ? m_depth : 1;
+    desc.depth = is3D ? qMax(1, m_depth) : 1;
     desc.mipmapLevelCount = NSUInteger(mipLevelCount);
     if (samples > 1)
         desc.sampleCount = NSUInteger(samples);
     if (isArray)
-        desc.arrayLength = NSUInteger(m_arraySize);
+        desc.arrayLength = NSUInteger(qMax(0, m_arraySize));
     desc.resourceOptions = MTLResourceStorageModePrivate;
     desc.storageMode = MTLStorageModePrivate;
     desc.usage = MTLTextureUsageShaderRead;
@@ -3618,7 +3829,8 @@ id<MTLTexture> QMetalTextureData::viewForLevel(int level)
     const bool isCube = q->m_flags.testFlag(QRhiTexture::CubeMap);
     const bool isArray = q->m_flags.testFlag(QRhiTexture::TextureArray);
     id<MTLTexture> view = [tex newTextureViewWithPixelFormat: format textureType: type
-            levels: NSMakeRange(NSUInteger(level), 1) slices: NSMakeRange(0, isCube ? 6 : (isArray ? q->m_arraySize : 1))];
+            levels: NSMakeRange(NSUInteger(level), 1)
+            slices: NSMakeRange(0, isCube ? 6 : (isArray ? qMax(0, q->m_arraySize) : 1))];
 
     perLevelViews[level] = view;
     return view;
@@ -3881,7 +4093,7 @@ void QMetalTextureRenderTarget::destroy()
 
 QRhiRenderPassDescriptor *QMetalTextureRenderTarget::newCompatibleRenderPassDescriptor()
 {
-    const int colorAttachmentCount = m_desc.cendColorAttachments() - m_desc.cbeginColorAttachments();
+    const int colorAttachmentCount = int(m_desc.colorAttachmentCount());
     QMetalRenderPassDescriptor *rpD = new QMetalRenderPassDescriptor(m_rhi);
     rpD->colorAttachmentCount = colorAttachmentCount;
     rpD->hasDepthStencil = m_desc.depthStencilBuffer() || m_desc.depthTexture();
@@ -3908,8 +4120,7 @@ QRhiRenderPassDescriptor *QMetalTextureRenderTarget::newCompatibleRenderPassDesc
 bool QMetalTextureRenderTarget::create()
 {
     QRHI_RES_RHI(QRhiMetal);
-    const bool hasColorAttachments = m_desc.cbeginColorAttachments() != m_desc.cendColorAttachments();
-    Q_ASSERT(hasColorAttachments || m_desc.depthTexture());
+    Q_ASSERT(m_desc.colorAttachmentCount() > 0 || m_desc.depthTexture());
     Q_ASSERT(!m_desc.depthStencilBuffer() || !m_desc.depthTexture());
     const bool hasDepthStencil = m_desc.depthStencilBuffer() || m_desc.depthTexture();
 
@@ -4030,13 +4241,9 @@ bool QMetalShaderResourceBindings::create()
     rhiD->updateLayoutDesc(this);
 
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    std::sort(sortedBindings.begin(), sortedBindings.end(),
-              [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-    {
-        return a.data()->binding < b.data()->binding;
-    });
+    std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
     if (!sortedBindings.isEmpty())
-        maxBinding = sortedBindings.last().data()->binding;
+        maxBinding = QRhiImplementation::shaderResourceBindingData(sortedBindings.last())->binding;
     else
         maxBinding = -1;
 
@@ -4054,13 +4261,8 @@ void QMetalShaderResourceBindings::updateResources(UpdateFlags flags)
 {
     sortedBindings.clear();
     std::copy(m_bindings.cbegin(), m_bindings.cend(), std::back_inserter(sortedBindings));
-    if (!flags.testFlag(BindingsAreSorted)) {
-        std::sort(sortedBindings.begin(), sortedBindings.end(),
-                  [](const QRhiShaderResourceBinding &a, const QRhiShaderResourceBinding &b)
-        {
-            return a.data()->binding < b.data()->binding;
-        });
-    }
+    if (!flags.testFlag(BindingsAreSorted))
+        std::sort(sortedBindings.begin(), sortedBindings.end(), QRhiImplementation::sortedBindingLessThan);
 
     for (BoundResourceData &bd : boundResourceData)
         memset(&bd, 0, sizeof(BoundResourceData));
@@ -4098,6 +4300,9 @@ void QMetalGraphicsPipeline::destroy()
     d->tess.deviceLocalWorkBuffers.clear();
     qDeleteAll(d->tess.hostVisibleWorkBuffers);
     d->tess.hostVisibleWorkBuffers.clear();
+
+    delete d->bufferSizeBuffer;
+    d->bufferSizeBuffer = nullptr;
 
     if (!d->ps && !d->ds
             && !d->tess.vertexComputeState[0] && !d->tess.vertexComputeState[1] && !d->tess.vertexComputeState[2]
@@ -4158,6 +4363,14 @@ static inline MTLVertexFormat toMetalAttributeFormat(QRhiVertexInputAttribute::F
         return MTLVertexFormatInt2;
     case QRhiVertexInputAttribute::SInt:
         return MTLVertexFormatInt;
+    case QRhiVertexInputAttribute::Half4:
+        return MTLVertexFormatHalf4;
+    case QRhiVertexInputAttribute::Half3:
+        return MTLVertexFormatHalf3;
+    case QRhiVertexInputAttribute::Half2:
+        return MTLVertexFormatHalf2;
+    case QRhiVertexInputAttribute::Half:
+        return MTLVertexFormatHalf;
     default:
         Q_UNREACHABLE();
         return MTLVertexFormatFloat4;
@@ -4369,15 +4582,39 @@ static inline MTLTessellationPartitionMode toMetalTessellationPartitionMode(QSha
     }
 }
 
+static inline MTLLanguageVersion toMetalLanguageVersion(const QShaderVersion &version)
+{
+    int v = version.version();
+    return MTLLanguageVersion(((v / 10) << 16) + (v % 10));
+}
+
 id<MTLLibrary> QRhiMetalData::createMetalLib(const QShader &shader, QShader::Variant shaderVariant,
                                              QString *error, QByteArray *entryPoint, QShaderKey *activeKey)
 {
-    QShaderKey key = { QShader::MetalLibShader, 20, shaderVariant };
-    QShaderCode mtllib = shader.shader(key);
-    if (mtllib.shader().isEmpty()) {
-        key.setSourceVersion(12);
-        mtllib = shader.shader(key);
+    QVarLengthArray<int, 8> versions;
+    if (@available(macOS 13, iOS 16, *))
+        versions << 30;
+    if (@available(macOS 12, iOS 15, *))
+        versions << 24;
+    if (@available(macOS 11, iOS 14, *))
+        versions << 23;
+    if (@available(macOS 10.15, iOS 13, *))
+        versions << 22;
+    if (@available(macOS 10.14, iOS 12, *))
+        versions << 21;
+    versions << 20 << 12;
+
+    const QList<QShaderKey> shaders = shader.availableShaders();
+
+    QShaderKey key;
+
+    for (const int &version : versions) {
+        key = { QShader::Source::MetalLibShader, version, shaderVariant };
+        if (shaders.contains(key))
+            break;
     }
+
+    QShaderCode mtllib = shader.shader(key);
     if (!mtllib.shader().isEmpty()) {
         dispatch_data_t data = dispatch_data_create(mtllib.shader().constData(),
                                                     size_t(mtllib.shader().size()),
@@ -4396,12 +4633,13 @@ id<MTLLibrary> QRhiMetalData::createMetalLib(const QShader &shader, QShader::Var
         }
     }
 
-    key = { QShader::MslShader, 20, shaderVariant };
-    QShaderCode mslSource = shader.shader(key);
-    if (mslSource.shader().isEmpty()) {
-        key.setSourceVersion(12);
-        mslSource = shader.shader(key);
+    for (const int &version : versions) {
+        key = { QShader::Source::MslShader, version, shaderVariant };
+        if (shaders.contains(key))
+            break;
     }
+
+    QShaderCode mslSource = shader.shader(key);
     if (mslSource.shader().isEmpty()) {
         qWarning() << "No MSL 2.0 or 1.2 code found in baked shader" << shader;
         return nil;
@@ -4409,7 +4647,7 @@ id<MTLLibrary> QRhiMetalData::createMetalLib(const QShader &shader, QShader::Var
 
     NSString *src = [NSString stringWithUTF8String: mslSource.shader().constData()];
     MTLCompileOptions *opts = [[MTLCompileOptions alloc] init];
-    opts.languageVersion = key.sourceVersion() == 20 ? MTLLanguageVersion2_0 : MTLLanguageVersion1_2;
+    opts.languageVersion = toMetalLanguageVersion(key.sourceVersion());
     NSError *err = nil;
     id<MTLLibrary> lib = [dev newLibraryWithSource: src options: opts error: &err];
     [opts release];
@@ -4660,6 +4898,8 @@ bool QMetalGraphicsPipeline::createVertexFragmentPipeline()
                 d->vs.lib = lib;
                 d->vs.func = func;
                 d->vs.nativeResourceBindingMap = shader.nativeResourceBindingMap(activeKey);
+                d->vs.desc = shader.description();
+                d->vs.nativeShaderInfo = shader.nativeShaderInfo(activeKey);
                 rhiD->d->shaderCache.insert(shaderStage, d->vs);
                 [d->vs.lib retain];
                 [d->vs.func retain];
@@ -4669,6 +4909,8 @@ bool QMetalGraphicsPipeline::createVertexFragmentPipeline()
                 d->fs.lib = lib;
                 d->fs.func = func;
                 d->fs.nativeResourceBindingMap = shader.nativeResourceBindingMap(activeKey);
+                d->fs.desc = shader.description();
+                d->fs.nativeShaderInfo = shader.nativeShaderInfo(activeKey);
                 rhiD->d->shaderCache.insert(shaderStage, d->fs);
                 [d->fs.lib retain];
                 [d->fs.func retain];
@@ -4808,19 +5050,176 @@ id<MTLComputePipelineState> QMetalGraphicsPipelineData::Tessellation::tescCompPi
     return ps;
 }
 
-static inline bool hasBuiltin(const QVector<QShaderDescription::BuiltinVariable> &builtinList, QShaderDescription::BuiltinType builtin)
+static inline bool indexTaken(quint32 index, quint64 indices)
 {
-    return std::find_if(builtinList.cbegin(), builtinList.cend(),
-                        [builtin](const QShaderDescription::BuiltinVariable &b) { return b.type == builtin; }) != builtinList.cend();
+    return (indices >> index) & 0x1;
+}
+
+static inline void takeIndex(quint32 index, quint64 &indices)
+{
+    indices |= 1 << index;
+}
+
+static inline int nextAttributeIndex(quint64 indices)
+{
+    // Maximum number of vertex attributes per vertex descriptor. There does
+    // not appear to be a way to query this from the implementation.
+    // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf indicates
+    // that all GPU families have a value of 31.
+    static const int maxVertexAttributes = 31;
+
+    for (int index = 0; index < maxVertexAttributes; ++index) {
+        if (!indexTaken(index, indices))
+            return index;
+    }
+
+    Q_UNREACHABLE_RETURN(-1);
+}
+
+static inline int aligned(quint32 offset, quint32 alignment)
+{
+    return ((offset + alignment - 1) / alignment) * alignment;
+}
+
+template<typename T>
+static void addUnusedVertexAttribute(const T &variable, QRhiMetal *rhiD, quint32 &offset, quint32 &vertexAlignment)
+{
+
+    int elements = 1;
+    for (const int dim : variable.arrayDims)
+        elements *= dim;
+
+    if (variable.type == QShaderDescription::VariableType::Struct) {
+        for (int element = 0; element < elements; ++element) {
+            for (const auto &member : variable.structMembers) {
+                addUnusedVertexAttribute(member, rhiD, offset, vertexAlignment);
+            }
+        }
+    } else {
+        const QRhiVertexInputAttribute::Format format = rhiD->shaderDescVariableFormatToVertexInputFormat(variable.type);
+        const quint32 size = rhiD->byteSizePerVertexForVertexInputFormat(format);
+
+        // MSL specification 3.0 says alignment = size for non packed scalars and vectors
+        const quint32 alignment = size;
+        vertexAlignment = std::max(vertexAlignment, alignment);
+
+        for (int element = 0; element < elements; ++element) {
+            // adjust alignment
+            offset = aligned(offset, alignment);
+            offset += size;
+        }
+    }
+}
+
+template<typename T>
+static void addVertexAttribute(const T &variable, int binding, QRhiMetal *rhiD, int &index, quint32 &offset, MTLVertexAttributeDescriptorArray *attributes, quint64 &indices, quint32 &vertexAlignment)
+{
+
+    int elements = 1;
+    for (const int dim : variable.arrayDims)
+        elements *= dim;
+
+    if (variable.type == QShaderDescription::VariableType::Struct) {
+        for (int element = 0; element < elements; ++element) {
+            for (const auto &member : variable.structMembers) {
+                addVertexAttribute(member, binding, rhiD, index, offset, attributes, indices, vertexAlignment);
+            }
+        }
+    } else {
+        const QRhiVertexInputAttribute::Format format = rhiD->shaderDescVariableFormatToVertexInputFormat(variable.type);
+        const quint32 size = rhiD->byteSizePerVertexForVertexInputFormat(format);
+
+        // MSL specification 3.0 says alignment = size for non packed scalars and vectors
+        const quint32 alignment = size;
+        vertexAlignment = std::max(vertexAlignment, alignment);
+
+        for (int element = 0; element < elements; ++element) {
+            Q_ASSERT(!indexTaken(index, indices));
+
+            // adjust alignment
+            offset = aligned(offset, alignment);
+
+            attributes[index].bufferIndex = binding;
+            attributes[index].format = toMetalAttributeFormat(format);
+            attributes[index].offset = offset;
+
+            takeIndex(index, indices);
+            index++;
+            if (indexTaken(index, indices))
+                index = nextAttributeIndex(indices);
+
+            offset += size;
+        }
+    }
+}
+
+static inline bool matches(const QList<QShaderDescription::BlockVariable> &a, const QList<QShaderDescription::BlockVariable> &b)
+{
+    if (a.size() == b.size()) {
+        bool match = true;
+        for (int i = 0; i < a.size() && match; ++i) {
+            match &= a[i].type == b[i].type
+                    && a[i].arrayDims == b[i].arrayDims
+                    && matches(a[i].structMembers, b[i].structMembers);
+        }
+        return match;
+    }
+
+    return false;
 }
 
 static inline bool matches(const QShaderDescription::InOutVariable &a, const QShaderDescription::InOutVariable &b)
 {
     return a.location == b.location
             && a.type == b.type
-            && a.perPatch == b.perPatch;
+            && a.perPatch == b.perPatch
+            && matches(a.structMembers, b.structMembers);
 }
 
+//
+// Create the tessellation evaluation render pipeline state
+//
+// The tesc runs as a compute shader in a compute pipeline and writes per patch and per patch
+// control point data into separate storage buffers. The tese runs as a vertex shader in a render
+// pipeline. Our task is to generate a render pipeline descriptor for the tese that pulls vertices
+// from these buffers.
+//
+// As the buffers we are pulling vertices from are written by a compute pipeline, they follow the
+// MSL alignment conventions which we must take into account when generating our
+// MTLVertexDescriptor. We must include the user defined tese input attributes, and any builtins
+// that were used.
+//
+// SPIRV-Cross generates the MSL tese shader code with input attribute indices that reflect the
+// specified GLSL locations. Interface blocks are flattened with each member having an incremented
+// attribute index. SPIRV-Cross reports an error on compilation if there are clashes in the index
+// address space.
+//
+// After the user specified attributes are processed, SPIRV-Cross places the in-use builtins at the
+// next available (lowest value) attribute index. Tese builtins are processed in the following
+// order:
+//
+// in gl_PerVertex
+// {
+//   vec4 gl_Position;
+//   float gl_PointSize;
+//   float gl_ClipDistance[];
+// };
+//
+// patch in float gl_TessLevelOuter[4];
+// patch in float gl_TessLevelInner[2];
+//
+// Enumerations in QShaderDescription::BuiltinType are defined in this order.
+//
+// For quads, SPIRV-Cross places MTLQuadTessellationFactorsHalf per patch in the tessellation
+// factor buffer. For triangles it uses MTLTriangleTessellationFactorsHalf.
+//
+// It should be noted that SPIRV-Cross handles the following builtin inputs internally, with no
+// host side support required.
+//
+// in vec3 gl_TessCoord;
+// in int gl_PatchVerticesIn;
+// in int gl_PrimitiveID;
+//
 id<MTLRenderPipelineState> QMetalGraphicsPipelineData::Tessellation::teseFragRenderPipeline(QRhiMetal *rhiD, QMetalGraphicsPipeline *pipeline)
 {
     if (pipeline->d->ps)
@@ -4829,154 +5228,191 @@ id<MTLRenderPipelineState> QMetalGraphicsPipelineData::Tessellation::teseFragRen
     MTLRenderPipelineDescriptor *rpDesc = [[MTLRenderPipelineDescriptor alloc] init];
     MTLVertexDescriptor *vertexDesc = [MTLVertexDescriptor vertexDescriptor];
 
-    // Going to use the same buffer indices for the extra buffers as the tess.control compute shader did.
+    // tesc output buffers
     const QMap<int, int> &ebb(compTesc.nativeShaderInfo.extraBufferBindings);
     const int tescOutputBufferBinding = ebb.value(QShaderPrivate::MslTessVertTescOutputBufferBinding, -1);
     const int tescPatchOutputBufferBinding = ebb.value(QShaderPrivate::MslTessTescPatchOutputBufferBinding, -1);
     const int tessFactorBufferBinding = ebb.value(QShaderPrivate::MslTessTescTessLevelBufferBinding, -1);
-
-    QMap<int, QShaderDescription::InOutVariable> teseInVars;
-    for (const QShaderDescription::InOutVariable &teseInVar : vertTese.desc.inputVariables())
-        teseInVars[teseInVar.location] = teseInVar;
-
     quint32 offsetInTescOutput = 0;
     quint32 offsetInTescPatchOutput = 0;
-    int lastLocation = -1;
+    quint32 offsetInTessFactorBuffer = 0;
+    quint32 tescOutputAlignment = 0;
+    quint32 tescPatchOutputAlignment = 0;
+    quint32 tessFactorAlignment = 0;
+    QSet<int> usedBuffers;
 
-    // these need to be sorted in location order so that lastLocation is calculated correctly - use QMap.
+    // tesc output variables in ascending location order
     QMap<int, QShaderDescription::InOutVariable> tescOutVars;
-    for (const QShaderDescription::InOutVariable &tescOutVar : compTesc.desc.outputVariables())
+    for (const auto &tescOutVar : compTesc.desc.outputVariables())
         tescOutVars[tescOutVar.location] = tescOutVar;
 
-    for (const QShaderDescription::InOutVariable &tescOutVar : tescOutVars) {
-        const int location = tescOutVar.location;
-        lastLocation = location;
-        const QRhiVertexInputAttribute::Format format = rhiD->shaderDescVariableFormatToVertexInputFormat(tescOutVar.type);
-        if (teseInVars.contains(location)) {
-            if (!matches(teseInVars[location], tescOutVar)) {
-                qWarning() << "mismatched tessellation control output -> tesssellation evaluation input at location" << location;
-                qWarning() << "tesc out:" << tescOutVar << "tese in:" << teseInVars[location];
+    // tese input variables in ascending location order
+    QMap<int, QShaderDescription::InOutVariable> teseInVars;
+    for (const auto &teseInVar : vertTese.desc.inputVariables())
+        teseInVars[teseInVar.location] = teseInVar;
+
+    // bit mask tracking usage of vertex attribute indices
+    quint64 indices = 0;
+
+    for (QShaderDescription::InOutVariable &tescOutVar : tescOutVars) {
+
+        int index = tescOutVar.location;
+        int binding = -1;
+        quint32 *offset = nullptr;
+        quint32 *alignment = nullptr;
+
+        if (tescOutVar.perPatch) {
+            binding = tescPatchOutputBufferBinding;
+            offset = &offsetInTescPatchOutput;
+            alignment = &tescPatchOutputAlignment;
+        } else {
+            tescOutVar.arrayDims.removeLast();
+            binding = tescOutputBufferBinding;
+            offset = &offsetInTescOutput;
+            alignment = &tescOutputAlignment;
+        }
+
+        if (teseInVars.contains(index)) {
+
+            if (!matches(teseInVars[index], tescOutVar)) {
+                qWarning() << "mismatched tessellation control output -> tesssellation evaluation input at location" << index;
+                qWarning() << "    tesc out:" << tescOutVar;
+                qWarning() << "    tese in:" << teseInVars[index];
             }
-            if (tescOutVar.perPatch) {
-                if (tescPatchOutputBufferBinding >= 0) {
-                    vertexDesc.attributes[location].bufferIndex = tescPatchOutputBufferBinding;
-                    vertexDesc.attributes[location].format = toMetalAttributeFormat(format);
-                    vertexDesc.attributes[location].offset = offsetInTescPatchOutput;
-                }
+
+            if (binding != -1) {
+                addVertexAttribute(tescOutVar, binding, rhiD, index, *offset, vertexDesc.attributes, indices, *alignment);
+                usedBuffers << binding;
             } else {
-                if (tescOutputBufferBinding >= 0) {
-                    vertexDesc.attributes[location].bufferIndex = tescOutputBufferBinding;
-                    vertexDesc.attributes[location].format = toMetalAttributeFormat(format);
-                    vertexDesc.attributes[location].offset = offsetInTescOutput;
-                }
+                qWarning() << "baked tessellation control shader missing output buffer binding information";
+                addUnusedVertexAttribute(tescOutVar, rhiD, *offset, *alignment);
             }
+
         } else {
             qWarning() << "missing tessellation evaluation input for tessellation control output:" << tescOutVar;
+            addUnusedVertexAttribute(tescOutVar, rhiD, *offset, *alignment);
         }
-        if (tescOutVar.perPatch)
-            offsetInTescPatchOutput += rhiD->byteSizePerVertexForVertexInputFormat(format);
-        else
-            offsetInTescOutput += rhiD->byteSizePerVertexForVertexInputFormat(format);
+
+        teseInVars.remove(tescOutVar.location);
     }
 
-    const QVector<QShaderDescription::BuiltinVariable> tescOutBuiltins = compTesc.desc.outputBuiltinVariables();
-    const QVector<QShaderDescription::BuiltinVariable> teseInBuiltins = vertTese.desc.inputBuiltinVariables();
+    for (const QShaderDescription::InOutVariable &teseInVar : teseInVars)
+        qWarning() << "missing tessellation control output for tessellation evaluation input:" << teseInVar;
 
-    // Take a tess.control shader with an output variable layout(location = 0) out vec3 outColor[].
-    // Assume it also writes to glPosition, e.g. gl_out[gl_InvocationID].gl_Position = ...
-    // The tess.eval. shader translated to a Metal vertex function will then contain:
-    //
-    //    struct main0_in {
-    //      float3 inColor [[attribute(0)]];
-    //      float4 gl_Position [[attribute(1)]]; }
-    //
-    // The vertex description has to be set up accordingly. The color is
-    // simple because that will be in the input/output variable list with
-    // location 0. The position is a builtin however. So for now just
-    // assume that builtins such as that come after the other variables,
-    // with increasing location values.
+    // tesc output builtins in ascending location order
+    QMap<QShaderDescription::BuiltinType, QShaderDescription::BuiltinVariable> tescOutBuiltins;
+    for (const auto &tescOutBuiltin : compTesc.desc.outputBuiltinVariables())
+        tescOutBuiltins[tescOutBuiltin.type] = tescOutBuiltin;
 
-    if (hasBuiltin(tescOutBuiltins, QShaderDescription::PositionBuiltin)
-            && hasBuiltin(teseInBuiltins, QShaderDescription::PositionBuiltin)
-            && tescOutputBufferBinding >= 0)
-    {
-        const int location = ++lastLocation;
-        vertexDesc.attributes[location].bufferIndex = tescOutputBufferBinding;
-        vertexDesc.attributes[location].format = toMetalAttributeFormat(QRhiVertexInputAttribute::Float4);
-        vertexDesc.attributes[location].offset = offsetInTescOutput;
-        offsetInTescOutput += 4 * sizeof(float);
-    }
+    // tese input builtins in ascending location order
+    QMap<QShaderDescription::BuiltinType, QShaderDescription::BuiltinVariable> teseInBuiltins;
+    for (const auto &teseInBuiltin : vertTese.desc.inputBuiltinVariables())
+        teseInBuiltins[teseInBuiltin.type] = teseInBuiltin;
 
-    // Per-patch outputs from the tess.control stage. are mostly handled above.
-    // Consider:
-    //   layout(location = 1) patch in vec3 stuff;
-    //   layout(location = 2) patch in float more_stuff;
-    //
-    // This maps to:
-    //
-    //    struct main0_patchIn {
-    //      float3 stuff [[attribute(1)]];
-    //      float more_stuff [[attribute(2)]];
-    //      patch_control_point<main0_in> gl_in; };
-    //
-    // These are already in place (location 1 and 2, referencing the per-patch
-    // output buffer of tesc) at this point. But now if the tess.eval.shader
-    // reads gl_TessLevelInner and gl_TessLevelOuter, which are also per-patch,
-    // that adds, if the mode is triangles:
-    // (assuming gl_Position got location 3, sorted based on the builtin type
-    // (Position < Outer < Inner))
-    //
-    //     float4 gl_TessLevel [[attribute(4)]];
-    //
-    // or  if the mode is quads:
-    //
-    //    float4 gl_TessLevelOuter [[attribute(4)]];
-    //    float2 gl_TessLevelInner [[attribute(5)]];
-    //
-    // Like gl_Position, these built-ins needs to be handled specially.
-    // Note that the data is in a dedicated buffer, not in the patch buffer.
-
-    const bool hasTessLevelOuter = hasBuiltin(tescOutBuiltins, QShaderDescription::TessLevelOuterBuiltin)
-            && hasBuiltin(teseInBuiltins, QShaderDescription::TessLevelOuterBuiltin);
-    const bool hasTessLevelInner = hasBuiltin(tescOutBuiltins, QShaderDescription::TessLevelInnerBuiltin)
-            && hasBuiltin(teseInBuiltins, QShaderDescription::TessLevelInnerBuiltin);
-    if (vertTese.desc.tessellationMode() != QShaderDescription::TrianglesTessellationMode
-            && vertTese.desc.tessellationMode() != QShaderDescription::QuadTessellationMode)
-    {
-        qWarning("Tessellation evaluation stage mode is neither 'triangles' nor 'quads', this should not happen");
-    }
     const bool trianglesMode = vertTese.desc.tessellationMode() == QShaderDescription::TrianglesTessellationMode;
-    if ((hasTessLevelOuter || hasTessLevelInner) && tessFactorBufferBinding >= 0) {
-        int loc0 = -1;
-        int loc1 = -1;
-        if (trianglesMode) {
-            loc0 = ++lastLocation; // float4 gl_TessLevel
+    bool tessLevelAdded = false;
+
+    for (const QShaderDescription::BuiltinVariable &builtin : tescOutBuiltins) {
+
+        QShaderDescription::InOutVariable variable;
+        int binding = -1;
+        quint32 *offset = nullptr;
+        quint32 *alignment = nullptr;
+
+        switch (builtin.type) {
+        case QShaderDescription::BuiltinType::PositionBuiltin:
+            variable.type = QShaderDescription::VariableType::Vec4;
+            binding = tescOutputBufferBinding;
+            offset = &offsetInTescOutput;
+            alignment = &tescOutputAlignment;
+            break;
+        case QShaderDescription::BuiltinType::PointSizeBuiltin:
+            variable.type = QShaderDescription::VariableType::Float;
+            binding = tescOutputBufferBinding;
+            offset = &offsetInTescOutput;
+            alignment = &tescOutputAlignment;
+            break;
+        case QShaderDescription::BuiltinType::ClipDistanceBuiltin:
+            variable.type = QShaderDescription::VariableType::Float;
+            variable.arrayDims = builtin.arrayDims;
+            binding = tescOutputBufferBinding;
+            offset = &offsetInTescOutput;
+            alignment = &tescOutputAlignment;
+            break;
+        case QShaderDescription::BuiltinType::TessLevelOuterBuiltin:
+            variable.type = QShaderDescription::VariableType::Half4;
+            binding = tessFactorBufferBinding;
+            offset = &offsetInTessFactorBuffer;
+            tessLevelAdded = trianglesMode;
+            alignment = &tessFactorAlignment;
+            break;
+        case QShaderDescription::BuiltinType::TessLevelInnerBuiltin:
+            if (trianglesMode) {
+                if (!tessLevelAdded) {
+                    variable.type = QShaderDescription::VariableType::Half4;
+                    binding = tessFactorBufferBinding;
+                    offsetInTessFactorBuffer = 0;
+                    offset = &offsetInTessFactorBuffer;
+                    alignment = &tessFactorAlignment;
+                    tessLevelAdded = true;
+                } else {
+                    teseInBuiltins.remove(builtin.type);
+                    continue;
+                }
+            } else {
+                variable.type = QShaderDescription::VariableType::Half2;
+                binding = tessFactorBufferBinding;
+                offsetInTessFactorBuffer = 8;
+                offset = &offsetInTessFactorBuffer;
+                alignment = &tessFactorAlignment;
+            }
+            break;
+        default:
+            Q_UNREACHABLE();
+            break;
+        }
+
+        if (teseInBuiltins.contains(builtin.type)) {
+            if (binding != -1) {
+                int index = nextAttributeIndex(indices);
+                addVertexAttribute(variable, binding, rhiD, index, *offset, vertexDesc.attributes, indices, *alignment);
+                usedBuffers << binding;
+            } else {
+                qWarning() << "baked tessellation control shader missing output buffer binding information";
+                addUnusedVertexAttribute(variable, rhiD, *offset, *alignment);
+            }
         } else {
-            loc0 = ++lastLocation; // float4 gl_TessLevelOuter
-            loc1 = ++lastLocation; // float2 gl_TessLevelInner
+            addUnusedVertexAttribute(variable, rhiD, *offset, *alignment);
         }
-        if (loc0 >= 0) {
-            vertexDesc.attributes[loc0].bufferIndex = tessFactorBufferBinding;
-            vertexDesc.attributes[loc0].format = MTLVertexFormatHalf4;
-            vertexDesc.attributes[loc0].offset = 0;
-        }
-        if (loc1 >= 0) {
-            vertexDesc.attributes[loc1].bufferIndex = tessFactorBufferBinding;
-            vertexDesc.attributes[loc1].format = MTLVertexFormatHalf2;
-            vertexDesc.attributes[loc1].offset = 8;
-        }
-        vertexDesc.layouts[tessFactorBufferBinding].stepFunction = MTLVertexStepFunctionPerPatch;
-        vertexDesc.layouts[tessFactorBufferBinding].stride = trianglesMode ? 8 : 12;
+
+        teseInBuiltins.remove(builtin.type);
     }
 
-    if (offsetInTescOutput > 0) {
+    for (const QShaderDescription::BuiltinVariable &builtin : teseInBuiltins) {
+        switch (builtin.type) {
+        case QShaderDescription::BuiltinType::PositionBuiltin:
+        case QShaderDescription::BuiltinType::PointSizeBuiltin:
+        case QShaderDescription::BuiltinType::ClipDistanceBuiltin:
+            qWarning() << "missing tessellation control output for tessellation evaluation builtin input:" << builtin;
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (usedBuffers.contains(tescOutputBufferBinding)) {
         vertexDesc.layouts[tescOutputBufferBinding].stepFunction = MTLVertexStepFunctionPerPatchControlPoint;
-        vertexDesc.layouts[tescOutputBufferBinding].stride = offsetInTescOutput;
+        vertexDesc.layouts[tescOutputBufferBinding].stride = aligned(offsetInTescOutput, tescOutputAlignment);
     }
 
-    if (offsetInTescPatchOutput > 0) {
+    if (usedBuffers.contains(tescPatchOutputBufferBinding)) {
         vertexDesc.layouts[tescPatchOutputBufferBinding].stepFunction = MTLVertexStepFunctionPerPatch;
-        vertexDesc.layouts[tescPatchOutputBufferBinding].stride = offsetInTescPatchOutput;
+        vertexDesc.layouts[tescPatchOutputBufferBinding].stride = aligned(offsetInTescPatchOutput, tescPatchOutputAlignment);
+    }
+
+    if (usedBuffers.contains(tessFactorBufferBinding)) {
+        vertexDesc.layouts[tessFactorBufferBinding].stepFunction = MTLVertexStepFunctionPerPatch;
+        vertexDesc.layouts[tessFactorBufferBinding].stride = trianglesMode ? sizeof(MTLTriangleTessellationFactorsHalf) : sizeof(MTLQuadTessellationFactorsHalf);
     }
 
     rpDesc.vertexDescriptor = vertexDesc;
@@ -5217,7 +5653,9 @@ bool QMetalGraphicsPipeline::createTessellationPipelines(const QShader &tessVert
     }
     d->fs.lib = fragLib;
     d->fs.func = fragFunc;
-    d->fs.nativeResourceBindingMap = tese.nativeResourceBindingMap(activeKey);
+    d->fs.desc = tessFrag.description();
+    d->fs.nativeShaderInfo = tessFrag.nativeShaderInfo(activeKey);
+    d->fs.nativeResourceBindingMap = tessFrag.nativeResourceBindingMap(activeKey);
 
     if (!d->tess.teseFragRenderPipeline(rhiD, this)) {
         qWarning("Failed to pre-generate render pipeline for tessellation evaluation + fragment shader");
@@ -5276,6 +5714,42 @@ bool QMetalGraphicsPipeline::create()
     if (!ok)
         return false;
 
+    // SPIRV-Cross buffer size buffers
+    int buffers = 0;
+    QVarLengthArray<QMetalShader *, 6> shaders;
+    if (d->tess.enabled) {
+        shaders.append(&d->tess.compVs[0]);
+        shaders.append(&d->tess.compVs[1]);
+        shaders.append(&d->tess.compVs[2]);
+        shaders.append(&d->tess.compTesc);
+        shaders.append(&d->tess.vertTese);
+    } else {
+        shaders.append(&d->vs);
+    }
+    shaders.append(&d->fs);
+
+    for (QMetalShader *shader : shaders) {
+        if (shader->nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding)) {
+            const int binding = shader->nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding];
+            shader->nativeResourceBindingMap[binding] = qMakePair(binding, -1);
+            int maxNativeBinding = 0;
+            for (const QShaderDescription::StorageBlock &block : shader->desc.storageBlocks())
+                maxNativeBinding = qMax(maxNativeBinding, shader->nativeResourceBindingMap[block.binding].first);
+
+            // we use one buffer to hold data for all graphics shader stages, each with a different offset.
+            // buffer offsets must be 32byte aligned - adjust buffer count accordingly
+            buffers += ((maxNativeBinding + 1 + 7) / 8) * 8;
+        }
+    }
+
+    if (buffers) {
+        if (!d->bufferSizeBuffer)
+            d->bufferSizeBuffer = new QMetalBuffer(rhiD, QRhiBuffer::Static, QRhiBuffer::StorageBuffer, buffers * sizeof(int));
+
+        d->bufferSizeBuffer->setSize(buffers * sizeof(int));
+        d->bufferSizeBuffer->create();
+    }
+
     rhiD->pipelineCreationEnd();
     lastActiveFrameSlot = -1;
     generation += 1;
@@ -5301,6 +5775,9 @@ void QMetalComputePipeline::destroy()
 
     if (!d->ps)
         return;
+
+    delete d->bufferSizeBuffer;
+    d->bufferSizeBuffer = nullptr;
 
     QRhiMetalData::DeferredReleaseEntry e;
     e.type = QRhiMetalData::DeferredReleaseEntry::ComputePipeline;
@@ -5370,6 +5847,14 @@ bool QMetalComputePipeline::create()
         d->cs.func = func;
         d->cs.localSize = shader.description().computeShaderLocalSize();
         d->cs.nativeResourceBindingMap = shader.nativeResourceBindingMap(activeKey);
+        d->cs.desc = shader.description();
+        d->cs.nativeShaderInfo = shader.nativeShaderInfo(activeKey);
+
+        // SPIRV-Cross buffer size buffers
+        if (d->cs.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding)) {
+            const int binding = d->cs.nativeShaderInfo.extraBufferBindings[QShaderPrivate::MslBufferSizeBufferBinding];
+            d->cs.nativeResourceBindingMap[binding] = qMakePair(binding, -1);
+        }
 
         if (rhiD->d->shaderCache.count() >= QRhiMetal::MAX_SHADER_CACHE_ENTRIES) {
             for (QMetalShader &s : rhiD->d->shaderCache)
@@ -5404,6 +5889,21 @@ bool QMetalComputePipeline::create()
         return false;
     }
 
+    // SPIRV-Cross buffer size buffers
+    if (d->cs.nativeShaderInfo.extraBufferBindings.contains(QShaderPrivate::MslBufferSizeBufferBinding)) {
+        int buffers = 0;
+        for (const QShaderDescription::StorageBlock &block : d->cs.desc.storageBlocks())
+            buffers = qMax(buffers, d->cs.nativeResourceBindingMap[block.binding].first);
+
+        buffers += 1;
+
+        if (!d->bufferSizeBuffer)
+            d->bufferSizeBuffer = new QMetalBuffer(rhiD, QRhiBuffer::Static, QRhiBuffer::StorageBuffer, buffers * sizeof(int));
+
+        d->bufferSizeBuffer->setSize(buffers * sizeof(int));
+        d->bufferSizeBuffer->create();
+    }
+
     rhiD->pipelineCreationEnd();
     lastActiveFrameSlot = -1;
     generation += 1;
@@ -5436,8 +5936,9 @@ const QRhiNativeHandles *QMetalCommandBuffer::nativeHandles()
     return &nativeHandlesStruct;
 }
 
-void QMetalCommandBuffer::resetState()
+void QMetalCommandBuffer::resetState(double lastGpuTime)
 {
+    d->lastGpuTime = lastGpuTime;
     d->currentRenderPassEncoder = nil;
     d->currentComputePassEncoder = nil;
     d->tessellationComputeEncoder = nil;
@@ -5502,8 +6003,7 @@ void QMetalSwapChain::destroy()
     for (int i = 0; i < QMTL_FRAMES_IN_FLIGHT; ++i) {
         if (d->sem[i]) {
             // the semaphores cannot be released if they do not have the initial value
-            dispatch_semaphore_wait(d->sem[i], DISPATCH_TIME_FOREVER);
-            dispatch_semaphore_signal(d->sem[i]);
+            waitUntilCompleted(i);
 
             dispatch_release(d->sem[i]);
             d->sem[i] = nullptr;
@@ -5514,6 +6014,12 @@ void QMetalSwapChain::destroy()
         [d->msaaTex[i] release];
         d->msaaTex[i] = nil;
     }
+
+#ifdef Q_OS_MACOS
+    d->liveResizeStartObserver.remove();
+    d->liveResizeEndObserver.remove();
+    d->liveResizeObserverSet = false;
+#endif
 
     d->layer = nullptr;
 
@@ -5581,7 +6087,7 @@ bool QMetalSwapChain::isFormatSupported(Format f)
 {
     if (f == HDRExtendedSrgbLinear) {
         if (@available(macOS 10.11, iOS 16.0, *))
-            return true;
+            return hdrInfo().limits.colorComponentValue.maxPotentialColorComponentValue > 1.0f;
         else
             return false;
     }
@@ -5626,6 +6132,17 @@ void QMetalSwapChain::chooseFormats()
     }
     d->colorFormat = m_flags.testFlag(sRGB) ? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatBGRA8Unorm;
     d->rhiColorFormat = QRhiTexture::BGRA8;
+}
+
+void QMetalSwapChain::waitUntilCompleted(int slot)
+{
+    // wait+signal is the general pattern to ensure the commands for a
+    // given frame slot have completed (if sem is 1, we go 0 then 1; if
+    // sem is 0 we go -1, block, completion increments to 0, then us to 1)
+
+    dispatch_semaphore_t sem = d->sem[slot];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    dispatch_semaphore_signal(sem);
 }
 
 bool QMetalSwapChain::createOrResize()
@@ -5699,10 +6216,39 @@ bool QMetalSwapChain::createOrResize()
 
     [d->layer setDevice: rhiD->d->dev];
 
+#ifdef Q_OS_MACOS
+    // Can only use presentsWithTransaction (to get smooth resizing) when
+    // presenting from the main (gui) thread. We predict that based on the
+    // thread this function is called on since if the QRhiSwapChain is
+    // initialied on a given thread then that's almost certainly the thread on
+    // which the QRhi renders and presents.
+    const bool canUsePresentsWithTransaction = NSThread.isMainThread;
+
+    // Have an env.var. just in case it turns out presentsWithTransaction is
+    // not desired in some specific case.
+    static bool allowPresentsWithTransaction = !qEnvironmentVariableIntValue("QT_MTL_NO_TRANSACTION");
+
+    if (allowPresentsWithTransaction && canUsePresentsWithTransaction && !d->liveResizeObserverSet) {
+        d->liveResizeObserverSet = true;
+        NSView *view = reinterpret_cast<NSView *>(window->winId());
+        NSWindow *window = view.window;
+        if (window) {
+            qCDebug(QRHI_LOG_INFO, "will set presentsWithTransaction during live resize");
+            d->liveResizeStartObserver = QMacNotificationObserver(window, NSWindowWillStartLiveResizeNotification, [this] {
+                d->layer.presentsWithTransaction = true;
+            });
+            d->liveResizeEndObserver = QMacNotificationObserver(window, NSWindowDidEndLiveResizeNotification, [this] {
+                d->layer.presentsWithTransaction = false;
+            });
+        }
+    }
+#endif
+
     [d->curDrawable release];
     d->curDrawable = nil;
 
     for (int i = 0; i < QMTL_FRAMES_IN_FLIGHT; ++i) {
+        d->lastGpuTime[i] = 0;
         if (!d->sem[i])
             d->sem[i] = dispatch_semaphore_create(QMTL_FRAMES_IN_FLIGHT - 1);
     }
@@ -5768,16 +6314,20 @@ QRhiSwapChainHdrInfo QMetalSwapChain::hdrInfo()
     info.limits.colorComponentValue.maxColorComponentValue = 1;
     info.isHardCodedDefaults = true;
 
-    if (m_format != SDR && m_window) {
+    if (m_window) {
         // Must use m_window, not window, given this may be called before createOrResize().
 #ifdef Q_OS_MACOS
         NSView *view = reinterpret_cast<NSView *>(m_window->winId());
-        info.limits.colorComponentValue.maxColorComponentValue = view.window.screen.maximumExtendedDynamicRangeColorComponentValue;
+        NSScreen *screen = view.window.screen;
+        info.limits.colorComponentValue.maxColorComponentValue = screen.maximumExtendedDynamicRangeColorComponentValue;
+        info.limits.colorComponentValue.maxPotentialColorComponentValue = screen.maximumPotentialExtendedDynamicRangeColorComponentValue;
         info.isHardCodedDefaults = false;
 #else
         if (@available(iOS 16.0, *)) {
             UIView *view = reinterpret_cast<UIView *>(m_window->winId());
+            UIScreen *screen = view.window.windowScene.screen;
             info.limits.colorComponentValue.maxColorComponentValue = view.window.windowScene.screen.currentEDRHeadroom;
+            info.limits.colorComponentValue.maxPotentialColorComponentValue = screen.potentialEDRHeadroom;
             info.isHardCodedDefaults = false;
         }
 #endif

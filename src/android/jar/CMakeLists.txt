@@ -30,6 +30,7 @@ qt_internal_add_jar(Qt${QtBase_VERSION_MAJOR}Android
 )
 
 qt_path_join(destination ${INSTALL_DATADIR} "jar")
+
 install_jar(Qt${QtBase_VERSION_MAJOR}Android
     DESTINATION ${destination}
     COMPONENT Devel

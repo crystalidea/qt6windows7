@@ -38,7 +38,7 @@
 
 QT_BEGIN_NAMESPACE
 
-#ifndef QT_NO_XMLSTREAMREADER
+#if QT_CONFIG(xmlstreamreader)
 
 bool QXmlStreamReaderPrivate::parse()
 {
@@ -998,7 +998,7 @@ bool QXmlStreamReaderPrivate::parse()
     return false;
 }
 
-#endif
+#endif // feature xmlstreamreader
 
 QT_END_NAMESPACE
 

@@ -20,6 +20,8 @@ private slots:
     void result_incremental();
     void addData_overloads_data();
     void addData_overloads();
+    void move();
+    void swap();
 };
 
 Q_DECLARE_METATYPE(QCryptographicHash::Algorithm)
@@ -147,11 +149,11 @@ void tst_QMessageAuthenticationCode::result()
 
     QMessageAuthenticationCode mac(algo, key);
     mac.addData(message);
-    QByteArray result = mac.result();
+    QByteArrayView resultView = mac.resultView();
 
-    QCOMPARE(result, code);
+    QCOMPARE(resultView, code);
 
-    result = QMessageAuthenticationCode::hash(message, key, algo);
+    const auto result = QMessageAuthenticationCode::hash(message, key, algo);
     QCOMPARE(result, code);
 }
 
@@ -176,7 +178,7 @@ void tst_QMessageAuthenticationCode::result_incremental()
     QMessageAuthenticationCode mac(algo, key);
     mac.addData(leftPart);
     mac.addData(rightPart);
-    QByteArray result = mac.result();
+    QByteArrayView result = mac.resultView();
 
     QCOMPARE(result, code);
 }
@@ -198,7 +200,7 @@ void tst_QMessageAuthenticationCode::addData_overloads()
         QMessageAuthenticationCode mac(algo);
         mac.setKey(key);
         mac.addData(message.constData(), message.size());
-        QByteArray result = mac.result();
+        QByteArrayView result = mac.resultView();
 
         QCOMPARE(result, code);
     }
@@ -210,11 +212,54 @@ void tst_QMessageAuthenticationCode::addData_overloads()
         QMessageAuthenticationCode mac(algo);
         mac.setKey(key);
         QVERIFY(mac.addData(&buffer));
-        QByteArray result = mac.result();
+        QByteArrayView result = mac.resultView();
         buffer.close();
 
         QCOMPARE(result, code);
     }
+}
+
+void tst_QMessageAuthenticationCode::move()
+{
+    const QByteArray key = "123";
+
+    QMessageAuthenticationCode src(QCryptographicHash::Sha1, key);
+    src.addData("a");
+
+    // move constructor
+    auto intermediary = std::move(src);
+    intermediary.addData("b");
+
+    // move assign operator
+    QMessageAuthenticationCode dst(QCryptographicHash::Sha256, key);
+    dst.addData("no effect on the end result");
+    dst = std::move(intermediary);
+    dst.addData("c");
+
+    QCOMPARE(dst.resultView(),
+             QMessageAuthenticationCode::hash("abc", key, QCryptographicHash::Sha1));
+}
+
+void tst_QMessageAuthenticationCode::swap()
+{
+    const QByteArray key1 = "123";
+    const QByteArray key2 = "abcdefg";
+
+    QMessageAuthenticationCode mac1(QCryptographicHash::Sha1,   key1);
+    QMessageAuthenticationCode mac2(QCryptographicHash::Sha256, key2);
+
+    mac1.addData("da");
+    mac2.addData("te");
+
+    mac1.swap(mac2);
+
+    mac2.addData("ta");
+    mac1.addData("st");
+
+    QCOMPARE(mac2.resultView(),
+             QMessageAuthenticationCode::hash("data", key1, QCryptographicHash::Sha1));
+    QCOMPARE(mac1.resultView(),
+             QMessageAuthenticationCode::hash("test", key2, QCryptographicHash::Sha256));
 }
 
 QTEST_MAIN(tst_QMessageAuthenticationCode)

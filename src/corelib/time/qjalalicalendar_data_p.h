@@ -25,7 +25,7 @@ namespace QtPrivate::Jalali {
 // GENERATED PART STARTS HERE
 
 /*
-    This part of the file was generated on 2023-08-03 from the
+    This part of the file was generated on 2023-07-27 from the
     Common Locale Data Repository v43
 
     http://www.unicode.org/cldr/

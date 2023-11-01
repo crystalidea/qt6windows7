@@ -2,8 +2,6 @@
 // Copyright (C) 2018 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include <QtCore/qglobal.h>
-
 #ifndef QBASICATOMIC_H
 #define QBASICATOMIC_H
 
@@ -30,7 +28,7 @@ public:
     typedef T Type;
     typedef QAtomicOps<T> Ops;
     // static check that this is a valid integer
-    static_assert(QTypeInfo<T>::isIntegral, "template parameter is not an integral type");
+    static_assert(std::is_integral_v<T>, "template parameter is not an integral type");
     static_assert(QAtomicOpsSupport<sizeof(T)>::IsSupported, "template parameter is an integral of a size not supported on this platform");
 
     typename Ops::Type _q_value;

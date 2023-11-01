@@ -406,81 +406,34 @@ struct Q_CORE_EXPORT QMetaObject
 
 #ifdef Q_QDOC
     template<typename Functor, typename FunctorReturnType>
-    static bool invokeMethod(QObject *context, Functor function, Qt::ConnectionType type = Qt::AutoConnection, FunctorReturnType *ret = nullptr);
+    static bool invokeMethod(QObject *context, Functor &&function, Qt::ConnectionType type = Qt::AutoConnection, FunctorReturnType *ret = nullptr);
     template<typename Functor, typename FunctorReturnType>
-    static bool invokeMethod(QObject *context, Functor function, FunctorReturnType *ret);
+    static bool invokeMethod(QObject *context, Functor &&function, FunctorReturnType *ret);
 #else
-
-    // invokeMethod() for member function pointer
     template <typename Func>
-    static typename std::enable_if<QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && !std::is_convertible<Func, const char*>::value
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == 0, bool>::type
-    invokeMethod(typename QtPrivate::FunctionPointer<Func>::Object *object,
-                 Func function,
+    static std::enable_if_t<!std::disjunction_v<std::is_convertible<Func, const char *>,
+                                                QtPrivate::Invoke::AreOldStyleArgs<Func>>,
+                            bool>
+    invokeMethod(typename QtPrivate::ContextTypeForFunctor<Func>::ContextType *object,
+                 Func &&function,
                  Qt::ConnectionType type = Qt::AutoConnection,
-                 typename QtPrivate::FunctionPointer<Func>::ReturnType *ret = nullptr)
+                 typename QtPrivate::Callable<Func>::ReturnType *ret = nullptr)
     {
-        return invokeMethodImpl(object, new QtPrivate::QSlotObjectWithNoArgs<Func>(function), type, ret);
+        static_assert(QtPrivate::Callable<Func>::ArgumentCount <= 0,
+                      "QMetaObject::invokeMethod cannot call functions with arguments!");
+        using Prototype = typename QtPrivate::Callable<Func>::Function;
+        return invokeMethodImpl(object, QtPrivate::makeCallableObject<Prototype>(std::forward<Func>(function)), type, ret);
     }
 
     template <typename Func>
-    static typename std::enable_if<QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && !std::is_convertible<Func, const char*>::value
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == 0, bool>::type
-    invokeMethod(typename QtPrivate::FunctionPointer<Func>::Object *object,
-                 Func function,
-                 typename QtPrivate::FunctionPointer<Func>::ReturnType *ret)
+    static std::enable_if_t<!std::disjunction_v<std::is_convertible<Func, const char *>,
+                                                QtPrivate::Invoke::AreOldStyleArgs<Func>>,
+                            bool>
+    invokeMethod(typename QtPrivate::ContextTypeForFunctor<Func>::ContextType *object,
+                 Func &&function,
+                 typename QtPrivate::Callable<Func>::ReturnType *ret)
     {
-        return invokeMethodImpl(object, new QtPrivate::QSlotObjectWithNoArgs<Func>(function), Qt::AutoConnection, ret);
-    }
-
-    // invokeMethod() for function pointer (not member)
-    template <typename Func>
-    static typename std::enable_if<!QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && !std::is_convertible<Func, const char*>::value
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == 0, bool>::type
-    invokeMethod(QObject *context, Func function,
-                 Qt::ConnectionType type = Qt::AutoConnection,
-                 typename QtPrivate::FunctionPointer<Func>::ReturnType *ret = nullptr)
-    {
-        return invokeMethodImpl(context, new QtPrivate::QFunctorSlotObjectWithNoArgsImplicitReturn<Func>(function), type, ret);
-    }
-
-    template <typename Func>
-    static typename std::enable_if<!QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && !std::is_convertible<Func, const char*>::value
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == 0, bool>::type
-    invokeMethod(QObject *context, Func function,
-                 typename QtPrivate::FunctionPointer<Func>::ReturnType *ret)
-    {
-        return invokeMethodImpl(context, new QtPrivate::QFunctorSlotObjectWithNoArgsImplicitReturn<Func>(function), Qt::AutoConnection, ret);
-    }
-
-    // invokeMethod() for Functor
-    template <typename Func>
-    static typename std::enable_if<!QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == -1
-                                   && !std::is_convertible<Func, const char*>::value, bool>::type
-    invokeMethod(QObject *context, Func function,
-                 Qt::ConnectionType type = Qt::AutoConnection, decltype(function()) *ret = nullptr)
-    {
-        return invokeMethodImpl(context,
-                                new QtPrivate::QFunctorSlotObjectWithNoArgs<Func, decltype(function())>(std::move(function)),
-                                type,
-                                ret);
-    }
-
-    template <typename Func>
-    static typename std::enable_if<!QtPrivate::FunctionPointer<Func>::IsPointerToMemberFunction
-                                   && QtPrivate::FunctionPointer<Func>::ArgumentCount == -1
-                                   && !std::is_convertible<Func, const char*>::value, bool>::type
-    invokeMethod(QObject *context, Func function, decltype(function()) *ret)
-    {
-        return invokeMethodImpl(context,
-                                new QtPrivate::QFunctorSlotObjectWithNoArgs<Func, decltype(function())>(std::move(function)),
-                                Qt::AutoConnection,
-                                ret);
+        return invokeMethod(object, std::forward<Func>(function), Qt::AutoConnection, ret);
     }
 
 #endif
@@ -521,7 +474,8 @@ struct Q_CORE_EXPORT QMetaObject
         RegisterPropertyMetaType,
         RegisterMethodArgumentMetaType,
         BindableProperty,
-        CustomCall
+        CustomCall,
+        ConstructInPlace,
     };
 
     int static_metacall(Call, int, void **) const;
@@ -614,7 +568,7 @@ inline const QMetaObject *QMetaObject::superClass() const
 { return d.superdata; }
 
 namespace QtPrivate {
-    /* Trait that tells is a the Object has a Q_OBJECT macro */
+    // Trait that tells if a QObject has a Q_OBJECT macro
     template <typename Object> struct HasQ_OBJECT_Macro {
         template <typename T>
         static char test(int (T::*)(QMetaObject::Call, int, void **));

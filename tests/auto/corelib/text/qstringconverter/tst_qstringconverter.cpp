@@ -134,6 +134,8 @@ private slots:
 
     void convertL1U8();
 
+    void convertL1U16();
+
 #if QT_CONFIG(icu)
     void roundtripIcu_data();
     void roundtripIcu();
@@ -250,8 +252,8 @@ void tst_QStringConverter::invalidConverter()
 
         decoder.resetState();
         QVERIFY(!decoder.hasError());
-        QChar buffer[100];
-        QChar *position = decoder.appendToBuffer(buffer, "Even more");
+        char16_t buffer[100];
+        char16_t *position = decoder.appendToBuffer(buffer, "Even more");
         QCOMPARE(position, buffer);
         QVERIFY(decoder.hasError());
     }
@@ -351,6 +353,33 @@ void tst_QStringConverter::convertUtf8CharByChar()
     for (int i = 0; i < utf16.size(); ++i)
         reencoded += encoder.encode(utf16.sliced(i, 1));
     QCOMPARE(reencoded, ba);
+}
+
+void tst_QStringConverter::convertL1U16()
+{
+    const QLatin1StringView latin1("some plain latin1 text");
+    const QString qstr(latin1);
+
+    QStringDecoder decoder(QStringConverter::Latin1);
+    QVERIFY(decoder.isValid());
+    QString uniString = decoder(latin1);
+    QCOMPARE(uniString, qstr);
+    QCOMPARE(latin1, uniString.toLatin1());
+
+    // do it again (using .decode())
+    uniString = decoder.decode(latin1);
+    QCOMPARE(uniString, qstr);
+    QCOMPARE(latin1, uniString.toLatin1());
+
+    QStringEncoder encoder(QStringConverter::Latin1);
+    QByteArray reencoded = encoder(uniString);
+    QCOMPARE(reencoded, QByteArrayView(latin1));
+    QCOMPARE(reencoded, uniString.toLatin1());
+
+    // do it again (using .encode())
+    reencoded = encoder.encode(uniString);
+    QCOMPARE(reencoded, QByteArrayView(latin1));
+    QCOMPARE(reencoded, uniString.toLatin1());
 }
 
 void tst_QStringConverter::roundtrip_data()
@@ -2427,6 +2456,10 @@ void tst_QStringConverter::initTestCase()
 
 void tst_QStringConverter::threadSafety()
 {
+#if defined(Q_OS_WASM)
+    QSKIP("This test misbehaves on WASM. Investigation needed (QTBUG-110067)");
+#endif
+
     QThreadPool::globalInstance()->setMaxThreadCount(12);
 
     QList<QString> res;

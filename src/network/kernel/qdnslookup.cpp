@@ -1,11 +1,14 @@
 // Copyright (C) 2012 Jeremy Lainé <jeremy.laine@m4x.org>
+// Copyright (C) 2023 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qdnslookup.h"
 #include "qdnslookup_p.h"
 
+#include <qapplicationstatic.h>
 #include <qcoreapplication.h>
 #include <qdatetime.h>
+#include <qloggingcategory.h>
 #include <qrandom.h>
 #include <qurl.h>
 
@@ -13,9 +16,20 @@
 
 QT_BEGIN_NAMESPACE
 
-#if QT_CONFIG(thread)
-Q_GLOBAL_STATIC(QDnsLookupThreadPool, theDnsLookupThreadPool);
-#endif
+static Q_LOGGING_CATEGORY(lcDnsLookup, "qt.network.dnslookup", QtCriticalMsg)
+
+namespace {
+struct QDnsLookupThreadPool : QThreadPool
+{
+    QDnsLookupThreadPool()
+    {
+        // Run up to 5 lookups in parallel.
+        setMaxThreadCount(5);
+    }
+};
+}
+
+Q_APPLICATION_STATIC(QDnsLookupThreadPool, theDnsLookupThreadPool);
 
 static bool qt_qdnsmailexchangerecord_less_than(const QDnsMailExchangeRecord &r1, const QDnsMailExchangeRecord &r2)
 {
@@ -119,9 +133,6 @@ static void qt_qdnsservicerecord_sort(QList<QDnsServiceRecord> &records)
     }
 }
 
-const char *QDnsLookupPrivate::msgNoIpV6NameServerAdresses =
-    QT_TRANSLATE_NOOP("QDnsLookupRunnable", "IPv6 addresses for nameservers are currently not supported");
-
 /*!
     \class QDnsLookup
     \brief The QDnsLookup class represents a DNS lookup.
@@ -176,6 +187,9 @@ const char *QDnsLookupPrivate::msgNoIpV6NameServerAdresses =
 
     \value NotFoundError        the requested domain name does not exist
     (NXDOMAIN).
+
+    \value TimeoutError         the server was not reached or did not reply
+    in time (since 6.6).
 */
 
 /*!
@@ -231,8 +245,8 @@ const char *QDnsLookupPrivate::msgNoIpV6NameServerAdresses =
 QDnsLookup::QDnsLookup(QObject *parent)
     : QObject(*new QDnsLookupPrivate, parent)
 {
-    qRegisterMetaType<QDnsLookupReply>();
 }
+
 /*!
     Constructs a QDnsLookup object for the given \a type and \a name and sets
     \a parent as the parent object.
@@ -242,7 +256,6 @@ QDnsLookup::QDnsLookup(Type type, const QString &name, QObject *parent)
     : QObject(*new QDnsLookupPrivate, parent)
 {
     Q_D(QDnsLookup);
-    qRegisterMetaType<QDnsLookupReply>();
     d->name = name;
     d->type = type;
 }
@@ -250,17 +263,39 @@ QDnsLookup::QDnsLookup(Type type, const QString &name, QObject *parent)
 /*!
     \fn QDnsLookup::QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, QObject *parent)
     \since 5.4
-    Constructs a QDnsLookup object for the given \a type, \a name and
-    \a nameserver and sets \a parent as the parent object.
+
+    Constructs a QDnsLookup object to issue a query for \a name of record type
+    \a type, using the DNS server \a nameserver running on the default DNS port,
+    and sets \a parent as the parent object.
 */
 
 QDnsLookup::QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, QObject *parent)
+    : QDnsLookup(type, name, nameserver, DnsPort, parent)
+{
+}
+
+/*!
+    \fn QDnsLookup::QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, quint16 port, QObject *parent)
+    \since 6.6
+
+    Constructs a QDnsLookup object to issue a query for \a name of record type
+    \a type, using the DNS server \a nameserver running on port \a port, and
+    sets \a parent as the parent object.
+
+//! [nameserver-port]
+    \note Setting the port number to any value other than the default (53) can
+    cause the name resolution to fail, depending on the operating system
+    limitations and firewalls. Notably, the Windows API used by QDnsLookup is
+    unable to handle alternate port numbers.
+//! [nameserver-port]
+*/
+QDnsLookup::QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, quint16 port, QObject *parent)
     : QObject(*new QDnsLookupPrivate, parent)
 {
     Q_D(QDnsLookup);
-    qRegisterMetaType<QDnsLookupReply>();
     d->name = name;
     d->type = type;
+    d->port = port;
     d->nameserver = nameserver;
 }
 
@@ -307,6 +342,10 @@ bool QDnsLookup::isFinished() const
 /*!
     \property QDnsLookup::name
     \brief the name to lookup.
+
+    If the name to look up is empty, QDnsLookup will attempt to resolve the
+    root domain of DNS. That query is usually performed with QDnsLookup::type
+    set to \l{QDnsLookup::Type}{NS}.
 
     \note The name will be encoded using IDNA, which means it's unsuitable for
     querying SRV records compatible with the DNS-SD specification.
@@ -371,6 +410,46 @@ QBindable<QHostAddress> QDnsLookup::bindableNameserver()
 {
     Q_D(QDnsLookup);
     return &d->nameserver;
+}
+
+/*!
+    \property QDnsLookup::nameserverPort
+    \since 6.6
+    \brief the port number of nameserver to use for DNS lookup.
+    \include qdnslookup.cpp nameserver-port
+*/
+
+quint16 QDnsLookup::nameserverPort() const
+{
+    return d_func()->port;
+}
+
+void QDnsLookup::setNameserverPort(quint16 nameserverPort)
+{
+    Q_D(QDnsLookup);
+    d->port = nameserverPort;
+}
+
+QBindable<quint16> QDnsLookup::bindableNameserverPort()
+{
+    Q_D(QDnsLookup);
+    return &d->port;
+}
+
+/*!
+    \since 6.6
+    Sets the nameserver to \a nameserver and the port to \a port.
+
+    \include qdnslookup.cpp nameserver-port
+
+    \sa QDnsLookup::nameserver, QDnsLookup::nameserverPort
+*/
+void QDnsLookup::setNameserver(const QHostAddress &nameserver, quint16 port)
+{
+    Qt::beginPropertyUpdateGroup();
+    setNameserver(nameserver);
+    setNameserverPort(port);
+    Qt::endPropertyUpdateGroup();
 }
 
 /*!
@@ -474,13 +553,29 @@ void QDnsLookup::lookup()
     Q_D(QDnsLookup);
     d->isFinished = false;
     d->reply = QDnsLookupReply();
-    d->runnable = new QDnsLookupRunnable(d->type, QUrl::toAce(d->name), d->nameserver);
-    connect(d->runnable, SIGNAL(finished(QDnsLookupReply)),
-            this, SLOT(_q_lookupFinished(QDnsLookupReply)),
-            Qt::BlockingQueuedConnection);
-#if QT_CONFIG(thread)
-    theDnsLookupThreadPool()->start(d->runnable);
+    if (!QCoreApplication::instance()) {
+        // NOT qCWarning because this isn't a result of the lookup
+        qWarning("QDnsLookup requires a QCoreApplication");
+        return;
+    }
+
+    auto l = [this](const QDnsLookupReply &reply) {
+        Q_D(QDnsLookup);
+        if (d->runnable == sender()) {
+#ifdef QDNSLOOKUP_DEBUG
+            qDebug("DNS reply for %s: %i (%s)", qPrintable(d->name), reply.error, qPrintable(reply.errorString));
 #endif
+            d->reply = reply;
+            d->runnable = nullptr;
+            d->isFinished = true;
+            emit finished();
+        }
+    };
+
+    d->runnable = new QDnsLookupRunnable(d);
+    connect(d->runnable, &QDnsLookupRunnable::finished, this, l,
+            Qt::BlockingQueuedConnection);
+    theDnsLookupThreadPool->start(d->runnable);
 }
 
 /*!
@@ -957,18 +1052,26 @@ QDnsTextRecord &QDnsTextRecord::operator=(const QDnsTextRecord &other)
     very fast and never fails.
 */
 
-void QDnsLookupPrivate::_q_lookupFinished(const QDnsLookupReply &_reply)
+static QDnsLookupRunnable::EncodedLabel encodeLabel(const QString &label)
 {
-    Q_Q(QDnsLookup);
-    if (runnable == q->sender()) {
-#ifdef QDNSLOOKUP_DEBUG
-        qDebug("DNS reply for %s: %i (%s)", qPrintable(name), _reply.error, qPrintable(_reply.errorString));
+    QDnsLookupRunnable::EncodedLabel::value_type rootDomain = u'.';
+    if (label.isEmpty())
+        return QDnsLookupRunnable::EncodedLabel(1, rootDomain);
+
+    QString encodedLabel = qt_ACE_do(label, ToAceOnly, ForbidLeadingDot);
+#ifdef Q_OS_WIN
+    return encodedLabel;
+#else
+    return std::move(encodedLabel).toLatin1();
 #endif
-        reply = _reply;
-        runnable = nullptr;
-        isFinished = true;
-        emit q->finished();
-    }
+}
+
+inline QDnsLookupRunnable::QDnsLookupRunnable(const QDnsLookupPrivate *d)
+    : requestName(encodeLabel(d->name)),
+      nameserver(d->nameserver),
+      requestType(d->type),
+      port(d->port)
+{
 }
 
 void QDnsLookupRunnable::run()
@@ -978,62 +1081,51 @@ void QDnsLookupRunnable::run()
     // Validate input.
     if (qsizetype n = requestName.size(); n > MaxDomainNameLength || n == 0) {
         reply.error = QDnsLookup::InvalidRequestError;
-        reply.errorString = tr("Invalid domain name");
-        emit finished(reply);
-        if (n) {
-            qWarning("QDnsLookup: domain name being looked up is too long (%" PRIdQSIZETYPE
-                    " bytes)", n);
-        }
-        return;
+        reply.errorString = QDnsLookup::tr("Invalid domain name");
+    } else {
+        // Perform request.
+        query(&reply);
+
+        // Sort results.
+        qt_qdnsmailexchangerecord_sort(reply.mailExchangeRecords);
+        qt_qdnsservicerecord_sort(reply.serviceRecords);
     }
-
-    // Perform request.
-    query(requestType, requestName, nameserver, &reply);
-
-    // Sort results.
-    qt_qdnsmailexchangerecord_sort(reply.mailExchangeRecords);
-    qt_qdnsservicerecord_sort(reply.serviceRecords);
 
     emit finished(reply);
-}
 
-#if QT_CONFIG(thread)
-QDnsLookupThreadPool::QDnsLookupThreadPool()
-    : signalsConnected(false)
-{
-    // Run up to 5 lookups in parallel.
-    setMaxThreadCount(5);
-}
+    // maybe print the lookup error as warning
+    switch (reply.error) {
+    case QDnsLookup::NoError:
+    case QDnsLookup::OperationCancelledError:
+    case QDnsLookup::NotFoundError:
+    case QDnsLookup::ServerFailureError:
+    case QDnsLookup::ServerRefusedError:
+    case QDnsLookup::TimeoutError:
+        break;      // no warning for these
 
-void QDnsLookupThreadPool::start(QRunnable *runnable)
-{
-    // Ensure threads complete at application destruction.
-    if (!signalsConnected) {
-        QMutexLocker signalsLocker(&signalsMutex);
-        if (!signalsConnected) {
-            QCoreApplication *app = QCoreApplication::instance();
-            if (!app) {
-                qWarning("QDnsLookup requires a QCoreApplication");
-                delete runnable;
-                return;
-            }
-
-            moveToThread(app->thread());
-            connect(app, SIGNAL(destroyed()),
-                SLOT(_q_applicationDestroyed()), Qt::DirectConnection);
-            signalsConnected = true;
-        }
+    case QDnsLookup::ResolverError:
+    case QDnsLookup::InvalidRequestError:
+    case QDnsLookup::InvalidReplyError:
+        qCWarning(lcDnsLookup()).nospace()
+                << "DNS lookup failed (" << reply.error << "): "
+              << qUtf16Printable(reply.errorString)
+              << "; request was " << this;  // continues below
     }
-
-    QThreadPool::start(runnable);
 }
 
-void QDnsLookupThreadPool::_q_applicationDestroyed()
+inline QDebug operator<<(QDebug &d, QDnsLookupRunnable *r)
 {
-    waitForDone();
-    signalsConnected = false;
+    // continued: print the information about the request
+    d << r->requestName.left(MaxDomainNameLength);
+    if (r->requestName.size() > MaxDomainNameLength)
+        d << "... (truncated)";
+    d << " type " << r->requestType;
+    if (!r->nameserver.isNull())
+        d << " to nameserver " << qUtf16Printable(r->nameserver.toString())
+          << " port " << (r->port ? r->port : DnsPort);
+    return d;
 }
-#endif // QT_CONFIG(thread)
+
 QT_END_NAMESPACE
 
 #include "moc_qdnslookup.cpp"

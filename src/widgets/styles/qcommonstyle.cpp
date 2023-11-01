@@ -736,11 +736,10 @@ void QCommonStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, Q
             QRect r = opt->rect;
             int size = qMin(r.height(), r.width());
             QPixmap pixmap;
-            QString pixmapName =
-                    QStyleHelper::uniqueName("$qt_ia-"_L1
-                                                     % QLatin1StringView(metaObject()->className()),
-                                             opt, QSize(size, size))
-                    % HexString<uint>(pe);
+            const QString pixmapName = QStyleHelper::uniqueName("$qt_ia-"_L1
+                                                     % QLatin1StringView(metaObject()->className())
+                                                     % HexString<uint>(pe),
+                                             opt, QSize(size, size));
             if (!QPixmapCache::find(pixmapName, &pixmap)) {
                 qreal pixelRatio = p->device()->devicePixelRatio();
                 int border = qRound(pixelRatio*(size/5));
@@ -2009,7 +2008,10 @@ void QCommonStyle::drawControl(ControlElement element, const QStyleOption *opt,
             }
             QRect iconRect;
             d->tabLayout(tab, widget, &tr, &iconRect);
-            tr = proxy()->subElementRect(SE_TabBarTabText, opt, widget); //we compute tr twice because the style may override subElementRect
+
+            // compute tr again, unless tab is moving, because the style may override subElementRect
+            if (tab->position != QStyleOptionTab::TabPosition::Moving)
+                tr = proxy()->subElementRect(SE_TabBarTabText, opt, widget);
 
             if (!tab->icon.isNull()) {
                 QPixmap tabIcon = tab->icon.pixmap(tab->iconSize, p->device()->devicePixelRatio(),
@@ -5196,9 +5198,12 @@ int QCommonStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget
         ret = 1;
         break;
 
-    case SH_UnderlineShortcut:
-        ret = 1;
+    case SH_UnderlineShortcut: {
+        const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme();
+        ret = theme ? theme->themeHint(QPlatformTheme::UnderlineShortcut).toInt()
+                    : QPlatformTheme::defaultThemeHint(QPlatformTheme::UnderlineShortcut).toInt();
         break;
+    }
 
     case SH_SpinBox_ClickAutoRepeatRate:
         ret = 150;

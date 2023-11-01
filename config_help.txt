@@ -64,10 +64,13 @@ Build options:
   -cmake-file-api ...... Let CMake store build metadata for loading the build
                          into an IDE. [no; yes if -developer-build]
   -no-guess-compiler ... Do not guess the compiler from the target mkspec.
-  -release ............. Build Qt with debugging turned off [yes]
-  -debug ............... Build Qt with debugging turned on [no]
-  -debug-and-release ... Build two versions of Qt, with and without
-                         debugging turned on [yes] (Apple and Windows only)
+  -release ............. Build Qt with optimizations and without debug
+                         symbols [yes]
+                         Note that -developer-build implies -debug unless
+                         -release is also explicitly specified
+  -debug ............... Build Qt without optimizations and with debug symbols
+                         [no]
+  -debug-and-release ... Build two versions of Qt in one build tree [no]
   -optimize-debug ...... Enable debug-friendly optimizations in debug builds
                          [auto] (Not supported with MSVC or Clang toolchains)
   -optimize-size ....... Optimize release builds for size instead of speed [no]
@@ -80,7 +83,8 @@ Build options:
                          sections. [auto for static builds, otherwise no]
   -force-asserts ....... Enable Q_ASSERT even in release builds [no]
   -developer-build ..... Compile and link Qt for developing Qt itself
-                         (exports for auto-tests, extra checks, etc.) [no]
+                         (exports for auto-tests, extra checks, implies
+                         -no-prefix, etc.) [no]
 
   -shared .............. Build shared Qt libraries [yes] (no for UIKit)
   -static .............. Build static Qt libraries [no] (yes for UIKit)
@@ -157,9 +161,9 @@ Build options:
 
 Build environment:
 
-  -sysroot <dir> ....... Set <dir> as the target sysroot
-
   -pkg-config .......... Use pkg-config [auto] (Unix only)
+
+  -vcpkg ............... Use vcpkg [yes]
 
   -D <string> .......... Pass additional preprocessor define
   -I <string> .......... Pass additional include path
@@ -198,6 +202,9 @@ Component selection:
                          [default: libs and examples, also tools if not
                          cross-building, also tests if -developer-build]
   -nomake <part> ....... Exclude <part> from the list of parts to be built.
+  -install-examples-sources Installs examples source code into the Qt prefix
+                         Only possible when -make examples is also passed
+                         [no]
   -gui ................. Build the Qt GUI module and dependencies [yes]
   -widgets ............. Build the Qt Widgets module and dependencies [yes]
   -no-dbus ............. Do not build the Qt D-Bus module
@@ -289,6 +296,6 @@ Gui, printing, widget options:
 Database options:
 
   -sql-<driver> ........ Enable SQL <driver> plugin. Supported drivers:
-                         db2 ibase mysql oci odbc psql sqlite
+                         db2 ibase mysql oci odbc psql sqlite mimer
                          [all auto]
   -sqlite .............. Select used sqlite [system/qt]

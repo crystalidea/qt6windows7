@@ -25,6 +25,7 @@
 #include <qstyle.h>
 #include <qdebug.h>
 #include <qpainter.h>
+#include <qmimedata.h>
 
 #include <private/qwidget_p.h>
 #if QT_CONFIG(toolbar)
@@ -35,6 +36,8 @@
 #include <QtGui/qpa/qplatformwindow_p.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 class QMainWindowPrivate : public QWidgetPrivate
 {
@@ -121,6 +124,7 @@ void QMainWindowPrivate::init()
     const int metric = q->style()->pixelMetric(QStyle::PM_ToolBarIconSize, nullptr, q);
     iconSize = QSize(metric, metric);
     q->setAttribute(Qt::WA_Hover);
+    q->setAcceptDrops(true);
 }
 
 /*
@@ -276,8 +280,7 @@ void QMainWindowPrivate::init()
     is the position and size (relative to the size of the main window)
     of the toolbars and dock widgets that are stored.
 
-    \sa QMenuBar, QToolBar, QStatusBar, QDockWidget,
-    {Menus Example}
+    \sa QMenuBar, QToolBar, QStatusBar, QDockWidget, {Menus Example}
 */
 
 /*!
@@ -1295,6 +1298,22 @@ bool QMainWindow::event(QEvent *event)
             if (!d->explicitIconSize)
                 setIconSize(QSize());
             break;
+#if QT_CONFIG(draganddrop)
+        case QEvent::DragEnter:
+        case QEvent::Drop:
+            if (!d->layout->draggingWidget)
+                break;
+            event->accept();
+            return true;
+        case QEvent::DragMove: {
+            if (!d->layout->draggingWidget)
+                break;
+            auto dragMoveEvent = static_cast<QDragMoveEvent *>(event);
+            d->layout->hover(d->layout->draggingWidget, dragMoveEvent->position().toPoint());
+            event->accept();
+            return true;
+        }
+#endif
         default:
             break;
     }

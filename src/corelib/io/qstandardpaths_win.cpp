@@ -12,7 +12,6 @@
 
 #include <qt_windows.h>
 #include <shlobj.h>
-#include <VersionHelpers.h>
 #include <intshcut.h>
 #include <qvarlengtharray.h>
 
@@ -61,26 +60,20 @@ static inline void appendTestMode(QString &path)
 
 static bool isProcessLowIntegrity()
 {
-    if (!IsWindows8OrGreater())
-        return false;
-
     // same as GetCurrentProcessToken()
     const auto process_token = HANDLE(quintptr(-4));
 
     QVarLengthArray<char,256> token_info_buf(256);
     auto* token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
     DWORD token_info_length = token_info_buf.size();
-    if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length)
-        && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+    if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length)) {
         // grow buffer and retry GetTokenInformation
         token_info_buf.resize(token_info_length);
         token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
         if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length))
             return false; // assume "normal" process
     }
-    else
-        return false;
-    
+
     // The GetSidSubAuthorityCount return-code is undefined on failure, so
     // there's no point in checking before dereferencing
     DWORD integrity_level = *GetSidSubAuthority(token_info->Label.Sid, *GetSidSubAuthorityCount(token_info->Label.Sid) - 1);

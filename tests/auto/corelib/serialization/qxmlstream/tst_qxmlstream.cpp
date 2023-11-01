@@ -12,7 +12,7 @@
 #include <QXmlStreamReader>
 #include <QBuffer>
 #include <QStack>
-#include <QtGui/private/qzipreader_p.h>
+#include <private/qzipreader_p.h>
 
 #include "qc14n.h"
 
@@ -542,6 +542,7 @@ public:
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void runTestSuite();
     void reportFailures() const;
     void reportFailures_data();
     void checkBaseline() const;
@@ -629,16 +630,19 @@ void tst_QXmlStream::initTestCase()
         QFile::remove(destinationPath); // copy will fail if file exists
         QVERIFY(QFile::copy(fileInfo.filePath(), destinationPath));
     }
+}
 
+void tst_QXmlStream::cleanupTestCase()
+{
+}
+
+void tst_QXmlStream::runTestSuite()
+{
     QFile file(m_tempDir.filePath(catalogFile));
     QVERIFY2(file.open(QIODevice::ReadOnly),
              qPrintable(QString::fromLatin1("Failed to open the test suite catalog; %1").arg(file.fileName())));
 
     QVERIFY(m_handler.runTests(&file));
-}
-
-void tst_QXmlStream::cleanupTestCase()
-{
 }
 
 void tst_QXmlStream::reportFailures() const
@@ -1292,6 +1296,14 @@ void tst_QXmlStream::hasAttribute() const
     // α is not representable in L1...
     QVERIFY(!atts.hasAttribute(QLatin1String("DOESNOTEXIST")));
 
+    /* string literals (UTF-8/16) */
+    QVERIFY(atts.hasAttribute(u8"atträbute"));
+    QVERIFY(atts.hasAttribute( u"atträbute"));
+    QVERIFY(atts.hasAttribute(u8"α"));
+    QVERIFY(atts.hasAttribute( u"α"));
+    QVERIFY(!atts.hasAttribute(u8"β"));
+    QVERIFY(!atts.hasAttribute( u"β"));
+
     /* Test with an empty & null namespaces. */
     QVERIFY(atts.hasAttribute(QString(), QLatin1String("attr2"))); /* A null string. */
     QVERIFY(atts.hasAttribute(QLatin1String(""), QLatin1String("attr2"))); /* An empty string. */
@@ -1900,4 +1912,3 @@ void tst_QXmlStream::tokenErrorHandling() const
 }
 
 #include "tst_qxmlstream.moc"
-// vim: et:ts=4:sw=4:sts=4

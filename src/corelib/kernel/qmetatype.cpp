@@ -460,7 +460,7 @@ const char *QtMetaTypePrivate::typedefNameForType(const QtPrivate::QMetaTypeInte
     \value IsPointer This type is a pointer to another type.
     \omitvalue WeakPointerToQObject
     \omitvalue TrackingPointerToQObject
-    \omitvalue IsGadget \omit This type is a Q_GADGET and it's corresponding QMetaObject can be accessed with QMetaType::metaObject Since 5.5. \endomit
+    \omitvalue IsGadget \omit (since Qt 5.5) This type is a Q_GADGET and its corresponding QMetaObject can be accessed with QMetaType::metaObject. \endomit
     \omitvalue PointerToGadget
     \omitvalue IsQmlList
     \value IsConst Indicates that values of this type are immutable; for instance, because they are pointers to const objects.
@@ -1258,26 +1258,26 @@ static const struct : QMetaTypeModuleHelper
 
         QMETATYPE_CONVERTER(QByteArrayList, QVariantList,
             result.reserve(source.size());
-            for (auto v: source)
+            for (const auto &v: source)
                 result.append(v.toByteArray());
             return true;
         );
         QMETATYPE_CONVERTER(QVariantList, QByteArrayList,
             result.reserve(source.size());
-            for (auto v: source)
+            for (const auto &v: source)
                 result.append(QVariant(v));
             return true;
         );
 
         QMETATYPE_CONVERTER(QStringList, QVariantList,
             result.reserve(source.size());
-            for (auto v: source)
+            for (const auto &v: source)
                 result.append(v.toString());
             return true;
         );
         QMETATYPE_CONVERTER(QVariantList, QStringList,
             result.reserve(source.size());
-            for (auto v: source)
+            for (const auto &v: source)
                 result.append(QVariant(v));
             return true;
         );
@@ -1965,13 +1965,13 @@ static bool convertFromEnum(QMetaType fromType, const void *from, QMetaType toTy
     QMetaEnum en = metaEnumFromType(fromType);
     if (en.isValid()) {
         if (en.isFlag()) {
-            const QByteArray keys = en.valueToKeys(ll);
+            const QByteArray keys = en.valueToKeys(static_cast<int>(ll));
             if (toType.id() == QMetaType::QString)
                 *static_cast<QString *>(to) = QString::fromUtf8(keys);
             else
                 *static_cast<QByteArray *>(to) = keys;
         } else {
-            const char *key = en.valueToKey(ll);
+            const char *key = en.valueToKey(static_cast<int>(ll));
             if (toType.id() == QMetaType::QString)
                 *static_cast<QString *>(to) = QString::fromUtf8(key);
             else
@@ -2901,6 +2901,59 @@ bool QMetaType::hasRegisteredDataStreamOperators() const
 }
 
 /*!
+   \since 6.6
+
+   If this metatype represents an enumeration, this method returns a
+   metatype of a numeric class of the same signedness and size as the
+   enums underlying type.
+   If it represents a QFlags type, it returns QMetaType::Int.
+   In all other cases an invalid QMetaType is returned.
+ */
+QMetaType QMetaType::underlyingType() const
+{
+    if (!d_ptr || !(flags() & IsEnumeration))
+        return {};
+    /* QFlags has enumeration set so that's handled here (qint32
+       case), as QFlags uses int as the underlying type
+       Note that we do some approximation here, as we cannot
+       differentiate between different underlying types of the
+       same size and signedness (consider char <-> (un)signed char,
+       int <-> long <-> long long).
+
+       ### TODO PENDING: QTBUG-111926 - QFlags supporting >32 bit int
+    */
+    if (flags() & IsUnsignedEnumeration) {
+        switch (sizeOf()) {
+        case 1:
+            return QMetaType::fromType<quint8>();
+        case 2:
+            return QMetaType::fromType<quint16>();
+        case 4:
+            return QMetaType::fromType<quint32>();
+        case 8:
+            return QMetaType::fromType<quint64>();
+        default:
+            break;
+        }
+    } else {
+        switch (sizeOf()) {
+        case 1:
+            return QMetaType::fromType<qint8>();
+        case 2:
+            return QMetaType::fromType<qint16>();
+        case 4:
+            return QMetaType::fromType<qint32>();
+        case 8:
+            return QMetaType::fromType<qint64>();
+        default:
+            break;
+        }
+    }
+    // int128 can be handled above once we have qint128
+    return QMetaType();
+}
+
+/*!
    \fn bool QMetaType::load(QDataStream &stream, int type, void *data)
    \overload
    \deprecated
@@ -3167,6 +3220,7 @@ QT_FOR_EACH_STATIC_PRIMITIVE_POINTER(QT_METATYPE_DECLARE_TEMPLATE_ITER)
 QT_FOR_EACH_STATIC_CORE_CLASS(QT_METATYPE_DECLARE_TEMPLATE_ITER)
 QT_FOR_EACH_STATIC_CORE_POINTER(QT_METATYPE_DECLARE_TEMPLATE_ITER)
 QT_FOR_EACH_STATIC_CORE_TEMPLATE(QT_METATYPE_DECLARE_TEMPLATE_ITER)
+
 #undef QT_METATYPE_DECLARE_TEMPLATE_ITER
 #endif
 }

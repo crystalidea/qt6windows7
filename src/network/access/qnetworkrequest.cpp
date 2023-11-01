@@ -6,7 +6,7 @@
 #include "qplatformdefs.h"
 #include "qnetworkcookie.h"
 #include "qsslconfiguration.h"
-#if QT_CONFIG(http) || defined(Q_QDOC)
+#if QT_CONFIG(http)
 #include "qhttp1configuration.h"
 #include "qhttp2configuration.h"
 #include "private/http2protocol_p.h"
@@ -221,7 +221,7 @@ QT_IMPL_METATYPE_EXTERN_TAGGED(QNetworkRequest::RedirectPolicy, QNetworkRequest_
         Requests only, type: QMetaType::Int (default: QNetworkRequest::Automatic)
         Indicates whether to use cached authorization credentials in the request,
         if available. If this is set to QNetworkRequest::Manual and the authentication
-        mechanism is 'Basic' or 'Digest', Qt will not send an an 'Authorization' HTTP
+        mechanism is 'Basic' or 'Digest', Qt will not send an 'Authorization' HTTP
         header with any cached credentials it may have for the request's URL.
         This attribute is set to QNetworkRequest::Manual by Qt WebKit when creating a cross-origin
         XMLHttpRequest where withCredentials has not been set explicitly to true by the
@@ -859,7 +859,7 @@ void QNetworkRequest::setPeerVerifyName(const QString &peerName)
     d->peerVerifyName = peerName;
 }
 
-#if QT_CONFIG(http) || defined(Q_QDOC)
+#if QT_CONFIG(http)
 /*!
     \since 6.5
 
@@ -969,9 +969,9 @@ void QNetworkRequest::setDecompressedSafetyCheckThreshold(qint64 threshold)
 {
     d->decompressedSafetyCheckThreshold = threshold;
 }
-#endif // QT_CONFIG(http) || defined(Q_QDOC)
+#endif // QT_CONFIG(http)
 
-#if QT_CONFIG(http) || defined(Q_QDOC) || defined (Q_OS_WASM)
+#if QT_CONFIG(http) || defined (Q_OS_WASM)
 /*!
     \since 5.15
 
@@ -1005,7 +1005,7 @@ void QNetworkRequest::setTransferTimeout(int timeout)
 {
     d->transferTimeout = timeout;
 }
-#endif // QT_CONFIG(http) || defined(Q_QDOC) || defined (Q_OS_WASM)
+#endif // QT_CONFIG(http) || defined (Q_OS_WASM)
 
 static QByteArray headerName(QNetworkRequest::KnownHeaders header)
 {

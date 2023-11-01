@@ -22,7 +22,7 @@ private slots:
 void tst_BenchlibCallgrind::failInChildProcess()
 {
 #ifdef HAVE_VALGRIND_H
-    static double f = 1.0;
+    [[maybe_unused]] static double f = 1.0;
     QBENCHMARK {
         for (int i = 0; i < 1000000; ++i) {
             f *= 1.1;
@@ -63,7 +63,7 @@ QTEST_MAIN_WRAPPER(tst_BenchlibCallgrind,
                              || qstrcmp(arg, "-callgrind") == 0;
                      }) == args.end()) {
         args.push_back("-callgrind");
-        argc = args.size();
+        argc = int(args.size());
         argv = const_cast<char**>(&args[0]);
     }
     QTEST_MAIN_SETUP())

@@ -182,28 +182,28 @@ QTimeZonePrivate::Data QTimeZonePrivate::dataForLocalTime(qint64 forLocalMSecs, 
 
     /*
       We need a UTC time at which to ask for the offset, in order to be able to
-      add that offset to forLocalMSecs, to get the UTC time we
-      need. Fortunately, no time-zone offset is more than 14 hours; and DST
-      transitions happen (much) more than thirty-two hours apart.  So sampling
-      offset sixteen hours each side gives us information we can be sure
+      add that offset to forLocalMSecs, to get the UTC time we need.
+      Fortunately, all time-zone offsets have been less than 17 hours; and DST
+      transitions happen (much) more than thirty-four hours apart. So sampling
+      offset seventeen hours each side gives us information we can be sure
       brackets the correct time and at most one DST transition.
     */
-    std::integral_constant<qint64, 16 * 3600 * 1000> sixteenHoursInMSecs;
-    static_assert(-sixteenHoursInMSecs / 1000 < QTimeZone::MinUtcOffsetSecs
-                  && sixteenHoursInMSecs / 1000 > QTimeZone::MaxUtcOffsetSecs);
+    std::integral_constant<qint64, 17 * 3600 * 1000> seventeenHoursInMSecs;
+    static_assert(-seventeenHoursInMSecs / 1000 < QTimeZone::MinUtcOffsetSecs
+                  && seventeenHoursInMSecs / 1000 > QTimeZone::MaxUtcOffsetSecs);
     qint64 millis;
     // Clip the bracketing times to the bounds of the supported range. Exclude
     // minMSecs(), because at least one backend (Windows) uses it for a
     // start-of-time fake transition, that we want previousTransition() to find.
     const qint64 recent =
-        qSubOverflow(forLocalMSecs, sixteenHoursInMSecs, &millis) || millis <= minMSecs()
+        qSubOverflow(forLocalMSecs, seventeenHoursInMSecs, &millis) || millis <= minMSecs()
         ? minMSecs() + 1 : millis; // Necessarily <= forLocalMSecs + 2.
     // (Given that minMSecs() is std::numeric_limits<qint64>::min() + 1.)
     const qint64 imminent =
-        qAddOverflow(forLocalMSecs, sixteenHoursInMSecs, &millis)
+        qAddOverflow(forLocalMSecs, seventeenHoursInMSecs, &millis)
         ? maxMSecs() : millis; // Necessarily >= forLocalMSecs
     // At most one of those was clipped to its boundary value:
-    Q_ASSERT(recent < imminent && sixteenHoursInMSecs < imminent - recent + 2);
+    Q_ASSERT(recent < imminent && seventeenHoursInMSecs < imminent - recent + 2);
     /*
       Offsets are Local - UTC, positive to the east of Greenwich, negative to
       the west; DST offset always exceeds standard offset, when DST applies.
@@ -639,9 +639,13 @@ QString QTimeZonePrivate::isoOffsetFormat(int offsetFromUtc, QTimeZone::NameType
 
 QByteArray QTimeZonePrivate::ianaIdToWindowsId(const QByteArray &id)
 {
+    // We don't have a Latin1/UTF-8 mixed comparator (QTBUG-100234),
+    // so we have to allocate here...
+    const auto idUtf8 = QString::fromUtf8(id);
+
     for (const QZoneData &data : zoneDataTable) {
         for (auto l1 : data.ids()) {
-            if (l1 == QByteArrayView(id))
+            if (l1 == idUtf8)
                 return toWindowsIdLiteral(data.windowsIdKey);
         }
     }

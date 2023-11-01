@@ -45,8 +45,8 @@ QTemporaryFileName::QTemporaryFileName(const QString &templateName)
 {
     // Ensure there is a placeholder mask
     QString qfilename = QDir::fromNativeSeparators(templateName);
-    uint phPos = qfilename.size();
-    uint phLength = 0;
+    qsizetype phPos = qfilename.size();
+    qsizetype phLength = 0;
 
     while (phPos != 0) {
         --phPos;
@@ -163,7 +163,7 @@ QFileSystemEntry::NativePath QTemporaryFileName::generateNext()
     \internal
 
     Generates a unique file path from the template \a templ and creates a new
-    file based based on those parameters: the \c templ.length characters in \c
+    file based on those parameters: the \c templ.length characters in \c
     templ.path starting at \c templ.pos will be replaced by a random sequence of
     characters. \a mode specifies the file mode bits (not used on Windows).
 
@@ -406,7 +406,7 @@ bool QTemporaryFileEngine::close()
 QString QTemporaryFileEngine::fileName(QAbstractFileEngine::FileName file) const
 {
     if (isUnnamedFile()) {
-        if (file == AbsoluteLinkTarget) {
+        if (file == AbsoluteLinkTarget || file == RawLinkPath) {
             // we know our file isn't (won't be) a symlink
             return QString();
         }

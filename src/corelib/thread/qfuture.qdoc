@@ -118,7 +118,8 @@
     combine several futures and track when the last or first of them completes.
 
     A ready QFuture object with a value or a QFuture object holding exception can
-    be created using convenience functions QtFuture::makeReadyFuture() and
+    be created using convenience functions QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeReadyRangeFuture(), and
     QtFuture::makeExceptionalFuture().
 
     \note Some APIs (see \l {QFuture::then()} or various QtConcurrent method
@@ -130,7 +131,8 @@
     \note To start a computation and store results in a QFuture, use QPromise or
     one of the APIs in the \l {Qt Concurrent} framework.
 
-    \sa QPromise, QtFuture::connect(), QtFuture::makeReadyFuture(),
+    \sa QPromise, QtFuture::connect(), QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeReadyRangeFuture(),
     QtFuture::makeExceptionalFuture(), QFutureWatcher, {Qt Concurrent}
 */
 
@@ -977,6 +979,12 @@
 
     \since 6.1
     \overload
+    \deprecated [6.10] Use makeReadyValueFuture() instead
+
+    The QtFuture::makeReadyFuture() method should be avoided because it has an
+    inconsistent set of overloads. It will be deprecated in future Qt releases.
+    Use QtFuture::makeReadyVoidFuture(), QtFuture::makeReadyValueFuture() or
+    QtFuture::makeReadyRangeFuture() instead.
 
     Creates and returns a QFuture which already has a result \a value.
     The returned QFuture has a type of std::decay_t<T>, where T is not void.
@@ -987,13 +995,21 @@
     const int result = *f.takeResult(); // result == 42
     \endcode
 
-    \sa QFuture, QtFuture::makeExceptionalFuture()
+    \sa QFuture, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeReadyRangeFuture(),
+    QtFuture::makeExceptionalFuture()
 */
 
 /*! \fn QFuture<void> QtFuture::makeReadyFuture()
 
     \since 6.1
     \overload
+    \deprecated [6.10] Use makeReadyVoidFuture() instead
+
+    The QtFuture::makeReadyFuture() method should be avoided because it has an
+    inconsistent set of overloads. It will be deprecated in future Qt releases.
+    Use QtFuture::makeReadyVoidFuture(), QtFuture::makeReadyValueFuture() or
+    QtFuture::makeReadyRangeFuture() instead.
 
     Creates and returns a void QFuture. Such QFuture can't store any result.
     One can use it to query the state of the computation.
@@ -1008,13 +1024,21 @@
     \endcode
 
     \sa QFuture, QFuture::isStarted(), QFuture::isRunning(),
-    QFuture::isFinished(), QtFuture::makeExceptionalFuture()
+    QFuture::isFinished(), QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeReadyRangeFuture(),
+    QtFuture::makeExceptionalFuture()
 */
 
 /*! \fn template<typename T> static QFuture<T> QtFuture::makeReadyFuture(const QList<T> &values)
 
     \since 6.1
     \overload
+    \deprecated [6.10] Use makeReadyRangeFuture() instead
+
+    The QtFuture::makeReadyFuture() method should be avoided because it has an
+    inconsistent set of overloads. It will be deprecated in future Qt releases.
+    Use QtFuture::makeReadyVoidFuture(), QtFuture::makeReadyValueFuture() or
+    QtFuture::makeReadyRangeFuture() instead.
 
     Creates and returns a QFuture which already has multiple results set from \a values.
 
@@ -1026,7 +1050,38 @@
     const auto results = f.results(); // results == { 1, 2, 3 }
     \endcode
 
-    \sa QFuture, QtFuture::makeExceptionalFuture()
+    \sa QFuture, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeReadyRangeFuture(),
+    QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn template<typename T> static QFuture<std::decay_t<T>> QtFuture::makeReadyValueFuture(T &&value)
+
+    \since 6.6
+
+    Creates and returns a QFuture which already has a result \a value.
+    The returned QFuture has a type of std::decay_t<T>, where T is not void.
+    The returned QFuture will already be in the finished state.
+
+    \snippet code/src_corelib_thread_qfuture.cpp 35
+
+    \sa QFuture, QtFuture::makeReadyRangeFuture(),
+    QtFuture::makeReadyVoidFuture(), QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn QFuture<void> QtFuture::makeReadyVoidFuture()
+
+    \since 6.6
+
+    Creates and returns a void QFuture. Such QFuture can't store any result.
+    One can use it to query the state of the computation.
+    The returned QFuture will already be in the finished state.
+
+    \snippet code/src_corelib_thread_qfuture.cpp 36
+
+    \sa QFuture, QFuture::isStarted(), QFuture::isRunning(),
+    QFuture::isFinished(), QtFuture::makeReadyValueFuture(),
+    QtFuture::makeReadyRangeFuture(), QtFuture::makeExceptionalFuture()
 */
 
 /*! \fn template<typename T> static QFuture<T> QtFuture::makeExceptionalFuture(const QException &exception)
@@ -1046,7 +1101,8 @@
     }
     \endcode
 
-    \sa QFuture, QException, QtFuture::makeReadyFuture()
+    \sa QFuture, QException, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture()
 */
 
 /*! \fn template<typename T> static QFuture<T> QtFuture::makeExceptionalFuture(std::exception_ptr exception)
@@ -1071,7 +1127,44 @@
     }
     \endcode
 
-    \sa QFuture, QException, QtFuture::makeReadyFuture()
+    \sa QFuture, QException, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture()
+*/
+
+/*! \fn template<typename Container, QtFuture::if_container_with_input_iterators<Container>> static QFuture<QtFuture::ContainedType<Container>> QtFuture::makeReadyRangeFuture(Container &&container)
+
+    \since 6.6
+    \overload
+
+    Takes an input container \a container and returns a QFuture with multiple
+    results of type \c ContainedType initialized from the values of the
+    \a container.
+
+    \note This overload only participates in overload resolution if the
+    \c Container has input iterators.
+
+    \snippet code/src_corelib_thread_qfuture.cpp 32
+    \dots
+    \snippet code/src_corelib_thread_qfuture.cpp 34
+
+    \sa QFuture, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeExceptionalFuture()
+*/
+
+/*! \fn template<typename ValueType> static QFuture<ValueType> QtFuture::makeReadyRangeFuture(std::initializer_list<ValueType> values)
+
+    \since 6.6
+    \overload
+
+    Returns a QFuture with multiple results of type \c ValueType initialized
+    from the input initializer list \a values.
+
+    \snippet code/src_corelib_thread_qfuture.cpp 33
+    \dots
+    \snippet code/src_corelib_thread_qfuture.cpp 34
+
+    \sa QFuture, QtFuture::makeReadyVoidFuture(),
+    QtFuture::makeReadyValueFuture(), QtFuture::makeExceptionalFuture()
 */
 
 /*! \fn template<class T> template<class Function> QFuture<typename QFuture<T>::ResultType<Function>> QFuture<T>::then(Function &&function)
@@ -1210,8 +1303,18 @@
     is attached. In this case it will be resolved in the current thread. Therefore, when
     in doubt, pass the context explicitly.
 
+    \target context_lifetime
+    If the \a context is destroyed before the chain has finished, the future is canceled.
+    This implies that a cancellation handler might be invoked when the \a context is not valid
+    anymore. To guard against this, capture the \a context as a QPointer:
+
+    \snippet code/src_corelib_thread_qfuture.cpp 37
+
+    When the context object is destroyed, cancellation happens immediately. Previous futures in the
+    chain are \e {not} cancelled and keep running until they are finished.
+
     \note When calling this method, it should be guaranteed that the \a context stays alive
-    throughout the execution of the chain.
+    during setup of the chain.
 
     \sa onFailed(), onCanceled()
 */
@@ -1276,8 +1379,11 @@
     be invoked from a non-gui thread. So \c this is provided as a context to \c .onFailed(),
     to make sure that it will be invoked in the main thread.
 
+    If the \a context is destroyed before the chain has finished, the future is canceled.
+    See \l {context_lifetime}{then()} for details.
+
     \note When calling this method, it should be guaranteed that the \a context stays alive
-    throughout the execution of the chain.
+    during setup of the chain.
 
     See the documentation of the other overload for more details about \a handler.
 
@@ -1339,8 +1445,11 @@
     invoked in the thread of the \a context object. This can be useful if the cancellation
     needs to be handled in a specific thread.
 
+    If the \a context is destroyed before the chain has finished, the future is canceled.
+    See \l {context_lifetime}{then()} for details.
+
     \note When calling this method, it should be guaranteed that the \a context stays alive
-    throughout the execution of the chain.
+    during setup of the chain.
 
     See the documentation of the other overload for more details about \a handler.
 

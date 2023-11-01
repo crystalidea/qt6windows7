@@ -216,6 +216,7 @@ qt_copy_or_install(FILES
                    cmake/QtAndroidHelpers.cmake
                    cmake/QtAppHelpers.cmake
                    cmake/QtAutogenHelpers.cmake
+                   cmake/QtBaseTopLevelHelpers.cmake
                    cmake/QtBuild.cmake
                    cmake/QtBuildInformation.cmake
                    cmake/QtCMakeHelpers.cmake
@@ -332,6 +333,7 @@ set(__public_cmake_helpers
     cmake/QtCopyFileIfDifferent.cmake
     cmake/QtFeature.cmake
     cmake/QtFeatureCommon.cmake
+    cmake/QtInitProject.cmake
     cmake/QtPublicAppleHelpers.cmake
     cmake/QtPublicCMakeHelpers.cmake
     cmake/QtPublicCMakeVersionHelpers.cmake
@@ -395,17 +397,30 @@ if(QT_WILL_INSTALL)
     )
 endif()
 
-if(MACOS)
-    qt_copy_or_install(FILES
-        cmake/macos/MacOSXBundleInfo.plist.in
-        DESTINATION "${__GlobalConfig_install_dir}/macos"
+if(APPLE)
+    if(MACOS)
+        set(platform_shortname "macos")
+    elseif(IOS)
+        set(platform_shortname "ios")
+    endif()
+
+    qt_copy_or_install(FILES "cmake/${platform_shortname}/Info.plist.app.in"
+        DESTINATION "${__GlobalConfig_install_dir}/${platform_shortname}"
     )
-elseif(IOS)
-    qt_copy_or_install(FILES
-        cmake/ios/Info.plist.app.in
-        cmake/ios/LaunchScreen.storyboard
-        DESTINATION "${__GlobalConfig_install_dir}/ios"
+    # For examples built as part of prefix build before install
+    file(COPY "cmake/${platform_shortname}/Info.plist.app.in"
+        DESTINATION "${__GlobalConfig_build_dir}/${platform_shortname}"
     )
+
+    if(IOS)
+        qt_copy_or_install(FILES "cmake/ios/LaunchScreen.storyboard"
+            DESTINATION "${__GlobalConfig_install_dir}/ios"
+        )
+        # For examples built as part of prefix build before install
+        file(COPY "cmake/ios/LaunchScreen.storyboard"
+            DESTINATION "${__GlobalConfig_build_dir}/ios"
+        )
+    endif()
 elseif(WASM)
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/util/wasm/wasmtestrunner/qt-wasmtestrunner.py"
         "${QT_BUILD_DIR}/${INSTALL_LIBEXECDIR}/qt-wasmtestrunner.py" @ONLY)

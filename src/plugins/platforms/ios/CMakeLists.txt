@@ -7,6 +7,7 @@
 
 qt_internal_add_plugin(QIOSIntegrationPlugin
     OUTPUT_NAME qios
+    STATIC # Force static, even in shared builds
     DEFAULT_IF ${QT_QPA_DEFAULT_PLATFORM} MATCHES ios
     PLUGIN_TYPE platforms
     SOURCES
@@ -33,6 +34,7 @@ qt_internal_add_plugin(QIOSIntegrationPlugin
         ${FWMetal}
         ${FWQuartzCore}
         ${FWUIKit}
+        ${FWCoreGraphics}
         Qt::CorePrivate
         Qt::GuiPrivate
 )

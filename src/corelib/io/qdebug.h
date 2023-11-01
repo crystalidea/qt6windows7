@@ -16,6 +16,7 @@
 #include <QtCore/qsharedpointer.h>
 
 // all these have already been included by various headers above, but don't rely on indirect includes:
+#include <chrono>
 #include <list>
 #include <map>
 #include <string>
@@ -67,6 +68,7 @@ class QT6_ONLY(Q_CORE_EXPORT) QDebug : public QIODeviceBase
     QT7_ONLY(Q_CORE_EXPORT) void putUcs4(uint ucs4);
     QT7_ONLY(Q_CORE_EXPORT) void putString(const QChar *begin, size_t length);
     QT7_ONLY(Q_CORE_EXPORT) void putByteArray(const char *begin, size_t length, Latin1Content content);
+    QT7_ONLY(Q_CORE_EXPORT) void putTimeUnit(qint64 num, qint64 den);
 public:
     explicit QDebug(QIODevice *device) : stream(new Stream(device)) {}
     explicit QDebug(QString *string) : stream(new Stream(string)) {}
@@ -189,6 +191,14 @@ public:
     { return *this << QString::fromUcs4(s.data(), s.size()); }
 #endif // !Q_QDOC
 
+    template <typename Rep, typename Period>
+    QDebug &operator<<(std::chrono::duration<Rep, Period> duration)
+    {
+        stream->ts << duration.count();
+        putTimeUnit(Period::num, Period::den);
+        return maybeSpace();
+    }
+
     template <typename T>
     static QString toString(T &&object)
     {
@@ -202,10 +212,12 @@ public:
 Q_DECLARE_SHARED(QDebug)
 
 class QDebugStateSaverPrivate;
-class Q_CORE_EXPORT QDebugStateSaver
+class QDebugStateSaver
 {
 public:
+    Q_NODISCARD_CTOR Q_CORE_EXPORT
     QDebugStateSaver(QDebug &dbg);
+    Q_CORE_EXPORT
     ~QDebugStateSaver();
 private:
     Q_DISABLE_COPY(QDebugStateSaver)
@@ -528,7 +540,7 @@ inline QDebug operator<<(QDebug debug, QKeyCombination combination)
     return debug;
 }
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
 
 // We provide QDebug stream operators for commonly used Core Foundation
 // and Core Graphics types, as well as NSObject. Additional CF/CG types
@@ -607,7 +619,7 @@ QT_FOR_EACH_MUTABLE_CORE_GRAPHICS_TYPE(QT_FORWARD_DECLARE_QDEBUG_OPERATOR_FOR_CF
 #undef QT_FORWARD_DECLARE_CG_TYPE
 #undef QT_FORWARD_DECLARE_MUTABLE_CG_TYPE
 
-#endif // Q_OS_MAC
+#endif // Q_OS_DARWIN
 
 QT_END_NAMESPACE
 

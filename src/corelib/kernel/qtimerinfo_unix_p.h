@@ -15,6 +15,8 @@
 // We mean it.
 //
 
+#include "qplatformdefs.h" // _POSIX_MONOTONIC_CLOCK-0
+
 #include <QtCore/private/qglobal_p.h>
 
 // #define QTIMERINFO_DEBUG
@@ -29,7 +31,7 @@ QT_BEGIN_NAMESPACE
 struct QTimerInfo {
     int id;           // - timer identifier
     Qt::TimerType timerType; // - timer type
-    qint64 interval;     // - timer interval in milliseconds
+    std::chrono::milliseconds interval; // - timer interval
     timespec timeout;  // - when to actually fire
     QObject *obj;     // - object to receive event
     QTimerInfo **activateRef; // - ref from activateTimers
@@ -43,16 +45,6 @@ struct QTimerInfo {
 
 class Q_CORE_EXPORT QTimerInfoList : public QList<QTimerInfo*>
 {
-#if ((_POSIX_MONOTONIC_CLOCK-0 <= 0) && !defined(Q_OS_MAC)) || defined(QT_BOOTSTRAPPED)
-    timespec previousTime;
-    clock_t previousTicks;
-    int ticksPerSecond;
-    int msPerTick;
-
-    bool timeChanged(timespec *delta);
-    void timerRepair(const timespec &);
-#endif
-
     // state variables used by activateTimers()
     QTimerInfo *firstTimerInfo;
 
@@ -62,20 +54,26 @@ public:
     timespec currentTime;
     timespec updateCurrentTime();
 
-    // must call updateCurrentTime() first!
-    void repairTimersIfNeeded();
-
     bool timerWait(timespec &);
     void timerInsert(QTimerInfo *);
 
     qint64 timerRemainingTime(int timerId);
+    std::chrono::milliseconds remainingDuration(int timerId);
 
     void registerTimer(int timerId, qint64 interval, Qt::TimerType timerType, QObject *object);
+    void registerTimer(int timerId, std::chrono::milliseconds interval, Qt::TimerType timerType,
+                       QObject *object);
     bool unregisterTimer(int timerId);
     bool unregisterTimers(QObject *object);
     QList<QAbstractEventDispatcher::TimerInfo> registeredTimers(QObject *object) const;
 
     int activateTimers();
+
+    QList::const_iterator findTimerById(int timerId) const
+    {
+        auto matchesId = [timerId](const QTimerInfo *t) { return t->id == timerId; };
+        return std::find_if(cbegin(), cend(), matchesId);
+    }
 };
 
 QT_END_NAMESPACE

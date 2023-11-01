@@ -307,7 +307,7 @@ QSimpleParsedNumber<double> qt_asciiToDouble(const char *num, qsizetype numLen,
         // a number over 2 GB in length is silly, just assume it isn't valid
         return {};
     } else {
-        d = conv.StringToDouble(num, numLen, &processed);
+        d = conv.StringToDouble(num, int(numLen), &processed);
     }
 
     if (!qIsFinite(d)) {
@@ -555,7 +555,9 @@ QString qulltoa(qulonglong number, int base, const QStringView zero)
 /*!
   \internal
 
-  Converts the initial portion of the string pointed to by \a s00 to a double, using the 'C' locale.
+  Converts the initial portion of the string pointed to by \a s00 to a double,
+  using the 'C' locale. The function sets the pointer pointed to by \a se to
+  point to the character past the last character converted.
  */
 double qstrntod(const char *s00, qsizetype len, const char **se, bool *ok)
 {

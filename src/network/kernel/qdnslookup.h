@@ -8,7 +8,6 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qshareddata.h>
-#include <QtCore/qsharedpointer.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qproperty.h>
 
@@ -147,6 +146,8 @@ class Q_NETWORK_EXPORT QDnsLookup : public QObject
     Q_PROPERTY(Type type READ type WRITE setType NOTIFY typeChanged BINDABLE bindableType)
     Q_PROPERTY(QHostAddress nameserver READ nameserver WRITE setNameserver NOTIFY nameserverChanged
                BINDABLE bindableNameserver)
+    Q_PROPERTY(quint16 nameserverPort READ nameserverPort WRITE setNameserverPort
+               NOTIFY nameserverPortChanged BINDABLE bindableNameserverPort)
 
 public:
     enum Error
@@ -158,7 +159,8 @@ public:
         InvalidReplyError,
         ServerFailureError,
         ServerRefusedError,
-        NotFoundError
+        NotFoundError,
+        TimeoutError,
     };
     Q_ENUM(Error)
 
@@ -179,6 +181,8 @@ public:
     explicit QDnsLookup(QObject *parent = nullptr);
     QDnsLookup(Type type, const QString &name, QObject *parent = nullptr);
     QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, QObject *parent = nullptr);
+    QDnsLookup(Type type, const QString &name, const QHostAddress &nameserver, quint16 port,
+               QObject *parent = nullptr);
     ~QDnsLookup();
 
     Error error() const;
@@ -196,6 +200,10 @@ public:
     QHostAddress nameserver() const;
     void setNameserver(const QHostAddress &nameserver);
     QBindable<QHostAddress> bindableNameserver();
+    quint16 nameserverPort() const;
+    void setNameserverPort(quint16 port);
+    QBindable<quint16> bindableNameserverPort();
+    void setNameserver(const QHostAddress &nameserver, quint16 port);
 
     QList<QDnsDomainNameRecord> canonicalNameRecords() const;
     QList<QDnsHostAddressRecord> hostAddressRecords() const;
@@ -215,10 +223,10 @@ Q_SIGNALS:
     void nameChanged(const QString &name);
     void typeChanged(Type type);
     void nameserverChanged(const QHostAddress &nameserver);
+    void nameserverPortChanged(quint16 port);
 
 private:
     Q_DECLARE_PRIVATE(QDnsLookup)
-    Q_PRIVATE_SLOT(d_func(), void _q_lookupFinished(const QDnsLookupReply &reply))
 };
 
 QT_END_NAMESPACE

@@ -77,16 +77,17 @@ void tst_QSqlRelationalDelegate::recreateTestTables(QSqlDatabase db)
 
 void tst_QSqlRelationalDelegate::initTestCase()
 {
-    foreach (const QString &dbname, dbs.dbNames) {
-        QSqlDatabase db=QSqlDatabase::database(dbname);
+    for (const QString &dbName : std::as_const(dbs.dbNames)) {
+        QSqlDatabase db = QSqlDatabase::database(dbName);
+        QSqlQuery q(db);
         QSqlDriver::DbmsType dbType = tst_Databases::getDatabaseType(db);
         if (dbType == QSqlDriver::Interbase) {
-            db.exec("SET DIALECT 3");
+            q.exec("SET DIALECT 3");
         } else if (dbType == QSqlDriver::MSSqlServer) {
-            db.exec("SET ANSI_DEFAULTS ON");
-            db.exec("SET IMPLICIT_TRANSACTIONS OFF");
+            q.exec("SET ANSI_DEFAULTS ON");
+            q.exec("SET IMPLICIT_TRANSACTIONS OFF");
         } else if (dbType == QSqlDriver::PostgreSQL) {
-            db.exec("set client_min_messages='warning'");
+            q.exec("set client_min_messages='warning'");
         }
         recreateTestTables(db);
     }
@@ -94,7 +95,7 @@ void tst_QSqlRelationalDelegate::initTestCase()
 
 void tst_QSqlRelationalDelegate::cleanupTestCase()
 {
-    foreach (const QString &dbName, dbs.dbNames) {
+    for (const QString &dbName : std::as_const(dbs.dbNames)) {
         QSqlDatabase db = QSqlDatabase::database(dbName);
         CHECK_DATABASE(db);
         dropTestTables(QSqlDatabase::database(dbName));

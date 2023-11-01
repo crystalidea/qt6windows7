@@ -161,7 +161,7 @@ struct QPropertyDelayedNotifications
         delayed->d_ptr = 0;
 
         if (observer)
-            observer.notify<QPropertyObserverPointer::Notify::OnlyChangeHandlers>(delayed->propertyData);
+            observer.notify(delayed->propertyData);
     }
 };
 
@@ -185,7 +185,7 @@ Q_CONSTINIT static thread_local QBindingStatus bindingStatus;
     properties need to be updated, preventing any external observer from noticing an inconsistent
     state.
 
-    \sa Qt::endPropertyUpdateGroup
+    \sa Qt::endPropertyUpdateGroup, QScopedPropertyUpdateGroup
 */
 void Qt::beginPropertyUpdateGroup()
 {
@@ -205,7 +205,7 @@ void Qt::beginPropertyUpdateGroup()
     \warning Calling endPropertyUpdateGroup without a preceding call to beginPropertyUpdateGroup
     results in undefined behavior.
 
-    \sa Qt::beginPropertyUpdateGroup
+    \sa Qt::beginPropertyUpdateGroup, QScopedPropertyUpdateGroup
 */
 void Qt::endPropertyUpdateGroup()
 {
@@ -235,11 +235,44 @@ void Qt::endPropertyUpdateGroup()
     while (data) {
         for (qsizetype i = 0; i < data->used; ++i)
             data->notify(i);
-        auto *next = data->next;
-        delete data;
-        data = next;
+        delete std::exchange(data, data->next);
     }
 }
+
+/*!
+    \since 6.6
+    \class QScopedPropertyUpdateGroup
+    \inmodule QtCore
+    \ingroup tools
+    \brief RAII class around Qt::beginPropertyUpdateGroup()/Qt::endPropertyUpdateGroup().
+
+    This class calls Qt::beginPropertyUpdateGroup() in its constructor and
+    Qt::endPropertyUpdateGroup() in its destructor, making sure the latter
+    function is reliably called even in the presence of early returns or thrown
+    exceptions.
+
+    \note Qt::endPropertyUpdateGroup() may re-throw exceptions thrown by
+    binding evaluations. This means your application may crash
+    (\c{std::terminate()} called) if another exception is causing
+    QScopedPropertyUpdateGroup's destructor to be called during stack
+    unwinding. If you expect exceptions from binding evaluations, use manual
+    Qt::endPropertyUpdateGroup() calls and \c{try}/\c{catch} blocks.
+
+    \sa QProperty
+*/
+
+/*!
+    \fn QScopedPropertyUpdateGroup::QScopedPropertyUpdateGroup()
+
+    Calls Qt::beginPropertyUpdateGroup().
+*/
+
+/*!
+    \fn QScopedPropertyUpdateGroup::~QScopedPropertyUpdateGroup()
+
+    Calls Qt::endPropertyUpdateGroup().
+*/
+
 
 // check everything stored in QPropertyBindingPrivate's union is trivially destructible
 // (though the compiler would also complain if that weren't the case)
@@ -288,22 +321,6 @@ bool QPropertyBindingPrivate::evaluateRecursive(PendingBindingObserverList &bind
     return evaluateRecursive_inline(bindingObservers, status);
 }
 
-void QPropertyBindingPrivate::notifyRecursive()
-{
-    if (!pendingNotify)
-        return;
-    pendingNotify = false;
-    Q_ASSERT(!updating);
-    updating = true;
-    if (firstObserver) {
-        firstObserver.noSelfDependencies(this);
-        firstObserver.notify(propertyDataPtr);
-    }
-    if (hasStaticObserver)
-        staticObserverCallback(propertyDataPtr);
-    updating = false;
-}
-
 void QPropertyBindingPrivate::notifyNonRecursive(const PendingBindingObserverList &bindingObservers)
 {
     notifyNonRecursive();
@@ -321,7 +338,7 @@ QPropertyBindingPrivate::NotificationState QPropertyBindingPrivate::notifyNonRec
     updating = true;
     if (firstObserver) {
         firstObserver.noSelfDependencies(this);
-        firstObserver.notifyOnlyChangeHandler(propertyDataPtr);
+        firstObserver.notify(propertyDataPtr);
     }
     if (hasStaticObserver)
         staticObserverCallback(propertyDataPtr);
@@ -621,7 +638,7 @@ void QPropertyBindingData::notifyObservers(QUntypedPropertyData *propertyDataPtr
             if (storage)
                 d = QPropertyBindingDataPointer {storage->bindingData(propertyDataPtr)};
             if (QPropertyObserverPointer observer = d.firstObserver())
-                observer.notifyOnlyChangeHandler(propertyDataPtr);
+                observer.notify(propertyDataPtr);
             for (auto &&bindingObserver: bindingObservers)
                 bindingObserver.binding()->notifyNonRecursive();
         }
@@ -658,11 +675,15 @@ QPropertyObserver::QPropertyObserver(ChangeHandler changeHandler)
     d.setChangeHandler(changeHandler);
 }
 
+#if QT_DEPRECATED_SINCE(6, 6)
 QPropertyObserver::QPropertyObserver(QUntypedPropertyData *data)
 {
+    QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
     aliasData = data;
     next.setTag(ObserverIsAlias);
+    QT_WARNING_POP
 }
+#endif
 
 /*! \internal
 */
@@ -741,7 +762,7 @@ void QPropertyObserverPointer::setBindingToNotify(QPropertyBindingPrivate *bindi
 
 /*!
     \internal
-    The same as as setBindingToNotify, but assumes that the tag is already correct.
+    The same as setBindingToNotify, but assumes that the tag is already correct.
  */
 void QPropertyObserverPointer::setBindingToNotify_unsafe(QPropertyBindingPrivate *binding)
 {
@@ -1347,15 +1368,6 @@ QString QPropertyBindingError::description() const
   \fn template <typename T> QProperty<T> &QProperty<T>::operator=(parameter_type newValue)
 
   Assigns \a newValue to this property and returns a reference to this QProperty.
-*/
-
-/*!
-  \fn template <typename T> QProperty<T> &QProperty<T>::operator=(const QPropertyBinding<T> &newBinding)
-
-  Associates the value of this property with the provided \a newBinding
-  expression and returns a reference to this property. The property's value is
-  set to the result of evaluating the new binding. Whenever a dependency of the
-  binding changes, the binding will be re-evaluated.
 */
 
 /*!
@@ -2023,26 +2035,6 @@ QString QPropertyBindingError::description() const
 */
 
 /*!
-  \fn template <typename T> QPropertyAlias<T> &QPropertyAlias<T>::operator=(T &&newValue)
-  \overload
-
-  Assigns \a newValue to the aliased property and returns a reference to this
-  QPropertyAlias.
-*/
-
-/*!
-  \fn template <typename T> QPropertyAlias<T> &QPropertyAlias<T>::operator=(const QPropertyBinding<T> &newBinding)
-  \overload
-
-  Associates the value of the aliased property with the provided \a newBinding
-  expression and returns a reference to this alias. The property's value is set
-  to the result of evaluating the new binding. Whenever a dependency of the
-  binding changes, the binding will be re-evaluated, and the property's value
-  gets updated accordingly.
-
-*/
-
-/*!
   \fn template <typename T> QPropertyBinding<T> QPropertyAlias<T>::setBinding(const QPropertyBinding<T> &newBinding)
 
   Associates the value of the aliased property with the provided \a newBinding
@@ -2494,8 +2486,13 @@ QPropertyAdaptorSlotObject::QPropertyAdaptorSlotObject(QObject *o, const QMetaPr
 {
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
 void QPropertyAdaptorSlotObject::impl(int which, QSlotObjectBase *this_, QObject *r, void **a,
                                       bool *ret)
+#else
+void QPropertyAdaptorSlotObject::impl(QSlotObjectBase *this_, QObject *r, void **a, int which,
+                                      bool *ret)
+#endif
 {
     auto self = static_cast<QPropertyAdaptorSlotObject *>(this_);
     switch (which) {

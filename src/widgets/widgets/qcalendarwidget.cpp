@@ -2492,12 +2492,13 @@ void QCalendarWidget::showToday()
     \snippet code/src_gui_widgets_qcalendarwidget.cpp 1
     \endtable
 
-    The default minimum date is November 25, 4714 BCE.
-
     When setting a minimum date, the maximumDate and selectedDate
     properties are adjusted if the selection range becomes invalid. If
     the provided date is not a valid QDate object, the
     setMinimumDate() function does nothing.
+
+    The default minimum date is November 25, 4714 BCE.
+    You can restore this default by calling clearMinimumDate() (since Qt 6.6).
 
     \sa setDateRange()
 */
@@ -2527,6 +2528,11 @@ void QCalendarWidget::setMinimumDate(QDate date)
     }
 }
 
+void QCalendarWidget::clearMinimumDate()
+{
+    setMinimumDate(QDate::fromJulianDay(1));
+}
+
 /*!
     \property QCalendarWidget::maximumDate
     \brief the maximum date of the currently specified date range.
@@ -2542,12 +2548,13 @@ void QCalendarWidget::setMinimumDate(QDate date)
     \snippet code/src_gui_widgets_qcalendarwidget.cpp 2
     \endtable
 
-    The default maximum date is December 31, 9999 CE.
-
     When setting a maximum date, the minimumDate and selectedDate
     properties are adjusted if the selection range becomes invalid. If
     the provided date is not a valid QDate object, the
     setMaximumDate() function does nothing.
+
+    The default maximum date is December 31, 9999 CE.
+    You can restore this default by calling clearMaximumDate() (since Qt 6.6).
 
     \sa setDateRange()
 */
@@ -2575,6 +2582,11 @@ void QCalendarWidget::setMaximumDate(QDate date)
         d->m_navigator->setDate(newDate);
         emit selectionChanged();
     }
+}
+
+void QCalendarWidget::clearMaximumDate()
+{
+    setMaximumDate(QDate(9999, 12, 31));
 }
 
 /*!
@@ -2861,7 +2873,7 @@ QMap<QDate, QTextCharFormat> QCalendarWidget::dateTextFormat() const
 }
 
 /*!
-    Returns a QTextCharFormat for \a date. The char format can be be
+    Returns a QTextCharFormat for \a date. The char format can be
     empty if the date is not renderd specially.
 */
 QTextCharFormat QCalendarWidget::dateTextFormat(QDate date) const

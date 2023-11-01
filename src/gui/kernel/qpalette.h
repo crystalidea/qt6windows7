@@ -45,6 +45,7 @@ public:
     operator QVariant() const;
 
     // Do not change the order, the serialization format depends on it
+    // Ensure these values are kept in sync with QQuickColorGroup's properties.
     enum ColorGroup { Active, Disabled, Inactive, NColorGroups, Current, All, Normal = Active };
     Q_ENUM(ColorGroup)
     enum ColorRole { WindowText, Button, Light, Midlight, Dark, Mid,
@@ -55,7 +56,8 @@ public:
                      NoRole,
                      ToolTipBase, ToolTipText,
                      PlaceholderText,
-                     NColorRoles = PlaceholderText + 1,
+                     Accent,
+                     NColorRoles = Accent + 1,
                    };
     Q_ENUM(ColorRole)
 
@@ -98,6 +100,7 @@ public:
     inline const QBrush &link() const { return brush(Link); }
     inline const QBrush &linkVisited() const { return brush(LinkVisited); }
     inline const QBrush &placeholderText() const { return brush(PlaceholderText); }
+    inline const QBrush &accent() const { return brush(Accent); }
 
     bool operator==(const QPalette &p) const;
     inline bool operator!=(const QPalette &p) const { return !(operator==(p)); }

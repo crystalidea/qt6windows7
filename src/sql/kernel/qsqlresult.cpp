@@ -3,9 +3,7 @@
 
 #include "qsqlresult.h"
 
-#include "qhash.h"
 #include "qlist.h"
-#include "qpointer.h"
 #include "qsqldriver.h"
 #include "qsqlerror.h"
 #include "qsqlfield.h"
@@ -15,7 +13,6 @@
 #include "qvariant.h"
 #include "qdatetime.h"
 #include "private/qsqldriver_p.h"
-#include <QDebug>
 
 QT_BEGIN_NAMESPACE
 
@@ -26,7 +23,7 @@ QString QSqlResultPrivate::holderAt(int index) const
     return holders.size() > index ? holders.at(index).holderName : fieldSerial(index);
 }
 
-QString QSqlResultPrivate::fieldSerial(int i) const
+QString QSqlResultPrivate::fieldSerial(qsizetype i) const
 {
     return QString(":%1"_L1).arg(i);
 }
@@ -40,15 +37,15 @@ static bool qIsAlnum(QChar ch)
 
 QString QSqlResultPrivate::positionalToNamedBinding(const QString &query) const
 {
-    int n = query.size();
+    const qsizetype n = query.size();
 
     QString result;
     result.reserve(n * 5 / 4);
     QChar closingQuote;
-    int count = 0;
+    qsizetype count = 0;
     bool ignoreBraces = (sqldriver->dbmsType() == QSqlDriver::PostgreSQL);
 
-    for (int i = 0; i < n; ++i) {
+    for (qsizetype i = 0; i < n; ++i) {
         QChar ch = query.at(i);
         if (!closingQuote.isNull()) {
             if (ch == closingQuote) {
@@ -87,13 +84,13 @@ QString QSqlResultPrivate::namedToPositionalBinding(const QString &query)
         query.trimmed().startsWith("EXECUTE BLOCK"_L1, Qt::CaseInsensitive))
         return query;
 
-    int n = query.size();
+    const qsizetype n = query.size();
 
     QString result;
     result.reserve(n);
     QChar closingQuote;
     int count = 0;
-    int i = 0;
+    qsizetype i = 0;
     bool ignoreBraces = (sqldriver->dbmsType() == QSqlDriver::PostgreSQL);
 
     while (i < n) {
@@ -627,12 +624,9 @@ bool QSqlResult::exec()
     // fake preparation - just replace the placeholders..
     QString query = lastQuery();
     if (d->binds == NamedBinding) {
-        int i;
-        QVariant val;
-        QString holder;
-        for (i = d->holders.size() - 1; i >= 0; --i) {
-            holder = d->holders.at(i).holderName;
-            val = d->values.value(d->indexes.value(holder).value(0,-1));
+        for (qsizetype i = d->holders.size() - 1; i >= 0; --i) {
+            const QString &holder = d->holders.at(i).holderName;
+            const QVariant val = d->values.value(d->indexes.value(holder).value(0,-1));
             QSqlField f(""_L1, val.metaType());
             if (QSqlResultPrivate::isVariantNull(val))
                 f.setValue(QVariant());
@@ -642,21 +636,18 @@ bool QSqlResult::exec()
                                    holder.size(), driver()->formatValue(f));
         }
     } else {
-        QString val;
         qsizetype i = 0;
-        int idx = 0;
-        for (idx = 0; idx < d->values.size(); ++idx) {
+        for (const QVariant &var : std::as_const(d->values)) {
             i = query.indexOf(u'?', i);
             if (i == -1)
                 continue;
-            QVariant var = d->values.value(idx);
             QSqlField f(""_L1, var.metaType());
             if (QSqlResultPrivate::isVariantNull(var))
                 f.clear();
             else
                 f.setValue(var);
-            val = driver()->formatValue(f);
-            query = query.replace(i, 1, driver()->formatValue(f));
+            const QString val = driver()->formatValue(f);
+            query = query.replace(i, 1, val);
             i += val.size();
         }
     }
@@ -793,16 +784,31 @@ int QSqlResult::boundValueCount() const
 }
 
 /*!
-    Returns a vector of the result's bound values for the current
+    Returns a list of the result's bound values for the current
     record (row).
 
     \sa boundValueCount()
 */
-QList<QVariant> &QSqlResult::boundValues() const
+QVariantList QSqlResult::boundValues(QT6_IMPL_NEW_OVERLOAD) const
 {
     Q_D(const QSqlResult);
-    return const_cast<QSqlResultPrivate *>(d)->values;
+    return d->values;
 }
+
+/*!
+    \overload
+
+    Returns a mutable reference to the list of the result's bound values
+    for the current record (row).
+
+    \sa boundValueCount()
+*/
+QVariantList &QSqlResult::boundValues(QT6_IMPL_NEW_OVERLOAD)
+{
+    Q_D(QSqlResult);
+    return d->values;
+}
+
 
 /*!
     Returns the binding syntax used by prepared queries.
@@ -847,10 +853,24 @@ void QSqlResult::resetBindCount()
 }
 
 /*!
+    Returns the names of all bound values.
+
+    \sa boundValue(), boundValueName()
+ */
+QStringList QSqlResult::boundValueNames() const
+{
+    Q_D(const QSqlResult);
+    QList<QString> ret;
+    for (const QHolder &holder : std::as_const(d->holders))
+        ret.push_back(holder.holderName);
+    return ret;
+}
+
+/*!
     Returns the name of the bound value at position \a index in the
     current record (row).
 
-    \sa boundValue()
+    \sa boundValue(), boundValueNames()
 */
 QString QSqlResult::boundValueName(int index) const
 {
@@ -948,11 +968,13 @@ bool QSqlResult::execBatch(bool arrayBind)
     Q_UNUSED(arrayBind);
     Q_D(QSqlResult);
 
-    QList<QVariant> values = d->values;
+    const QList<QVariant> values = d->values;
     if (values.size() == 0)
         return false;
-    for (int i = 0; i < values.at(0).toList().size(); ++i) {
-        for (int j = 0; j < values.size(); ++j)
+    const qsizetype batchCount = values.at(0).toList().size();
+    const qsizetype valueCount = values.size();
+    for (qsizetype i = 0; i < batchCount; ++i) {
+        for (qsizetype j = 0; j < valueCount; ++j)
             bindValue(j, values.at(j).toList().at(i), QSql::In);
         if (!exec())
             return false;

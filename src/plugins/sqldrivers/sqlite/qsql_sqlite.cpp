@@ -49,9 +49,9 @@ static QString _q_escapeIdentifier(const QString &identifier, QSqlDriver::Identi
         return res;
     if (!identifier.isEmpty() && !identifier.startsWith(u'"') && !identifier.endsWith(u'"')) {
         res.replace(u'"', "\"\""_L1);
-        res.prepend(u'"').append(u'"');
         if (type == QSqlDriver::TableName)
             res.replace(u'.', "\".\""_L1);
+        res = u'"' + res + u'"';
     }
     return res;
 }
@@ -984,7 +984,7 @@ bool QSQLiteDriver::subscribeToNotification(const QString &name)
     }
 
     if (d->notificationid.contains(name)) {
-        qWarning("Already subscribing to '%s'.", qPrintable(name));
+        qWarning("Already subscribing to '%ls'.", qUtf16Printable(name));
         return false;
     }
 
@@ -1005,7 +1005,7 @@ bool QSQLiteDriver::unsubscribeFromNotification(const QString &name)
     }
 
     if (!d->notificationid.contains(name)) {
-        qWarning("Not subscribed to '%s'.", qPrintable(name));
+        qWarning("Not subscribed to '%ls'.", qUtf16Printable(name));
         return false;
     }
 

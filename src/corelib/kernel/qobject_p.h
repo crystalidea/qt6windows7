@@ -18,17 +18,26 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include "QtCore/qcoreevent.h"
+#include <QtCore/qfunctionaltools_impl.h>
 #include "QtCore/qlist.h"
 #include "QtCore/qobject.h"
 #include "QtCore/qpointer.h"
-#include "QtCore/qsharedpointer.h"
 #include "QtCore/qvariant.h"
 #include "QtCore/qproperty.h"
+#include <QtCore/qshareddata.h>
 #include "QtCore/private/qproperty_p.h"
 
 #include <string>
 
 QT_BEGIN_NAMESPACE
+
+#ifdef Q_MOC_RUN
+#define QT_ANONYMOUS_PROPERTY(text) QT_ANONYMOUS_PROPERTY(text)
+#define QT_ANONYMOUS_PRIVATE_PROPERTY(d, text) QT_ANONYMOUS_PRIVATE_PROPERTY(d, text)
+#elif !defined QT_NO_META_MACROS
+#define QT_ANONYMOUS_PROPERTY(...) QT_ANNOTATE_CLASS(qt_anonymous_property, __VA_ARGS__)
+#define QT_ANONYMOUS_PRIVATE_PROPERTY(d, text) QT_ANNOTATE_CLASS2(qt_anonymous_private_property, d, text)
+#endif
 
 class QVariant;
 class QThreadData;
@@ -103,6 +112,7 @@ public:
     struct ConnectionOrSignalVector;
     struct SignalVector;
     struct Sender;
+    struct TaggedSignalVector;
 
     /*
         This contains the all connections from and to an object.
@@ -246,28 +256,7 @@ namespace QtPrivate {
 inline const QObject *getQObject(const QObjectPrivate *d) { return d->q_func(); }
 
 template <typename Func>
-struct FunctionStorageByValue
-{
-    Func f;
-    Func &func() noexcept { return f; }
-};
-
-template <typename Func>
-struct FunctionStorageEmptyBaseClassOptimization : Func
-{
-    Func &func() noexcept { return *this; }
-    using Func::Func;
-};
-
-template <typename Func>
-using FunctionStorage = typename std::conditional_t<
-        std::conjunction_v<
-            std::is_empty<Func>,
-            std::negation<std::is_final<Func>>
-        >,
-        FunctionStorageEmptyBaseClassOptimization<Func>,
-        FunctionStorageByValue<Func>
-    >;
+using FunctionStorage = QtPrivate::CompactStorage<Func>;
 
 template <typename ObjPrivate> inline void assertObjectType(QObjectPrivate *d)
 {
@@ -279,18 +268,23 @@ template<typename Func, typename Args, typename R>
 class QPrivateSlotObject : public QSlotObjectBase, private FunctionStorage<Func>
 {
     typedef QtPrivate::FunctionPointer<Func> FuncType;
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     static void impl(int which, QSlotObjectBase *this_, QObject *r, void **a, bool *ret)
+#else
+    static void impl(QSlotObjectBase *this_, QObject *r, void **a, int which, bool *ret)
+#endif
     {
+        const auto that = static_cast<QPrivateSlotObject*>(this_);
         switch (which) {
             case Destroy:
-                delete static_cast<QPrivateSlotObject*>(this_);
+                delete that;
                 break;
             case Call:
-                FuncType::template call<Args, R>(static_cast<QPrivateSlotObject*>(this_)->func(),
+                FuncType::template call<Args, R>(that->object(),
                                                  static_cast<typename FuncType::Object *>(QObjectPrivate::get(r)), a);
                 break;
             case Compare:
-                *ret = *reinterpret_cast<Func *>(a) == static_cast<QPrivateSlotObject*>(this_)->func();
+                *ret = *reinterpret_cast<Func *>(a) == that->object();
                 break;
             case NumOperations: ;
         }
@@ -457,7 +451,9 @@ class QBoolBlocker
 {
     Q_DISABLE_COPY_MOVE(QBoolBlocker)
 public:
-    explicit inline QBoolBlocker(bool &b, bool value = true) : block(b), reset(b) { block = value; }
+    Q_NODISCARD_CTOR explicit QBoolBlocker(bool &b, bool value = true)
+        : block(b), reset(b)
+    { block = value; }
     inline ~QBoolBlocker() { block = reset; }
 
 private:

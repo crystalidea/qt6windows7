@@ -2,20 +2,18 @@
 // Copyright (C) 2018 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include <QtNetwork>
-
 #include "client.h"
 #include "connection.h"
 #include "peermanager.h"
+
+#include <QNetworkInterface>
 
 static const qint32 BroadcastInterval = 2000;
 static const unsigned broadcastPort = 45000;
 
 PeerManager::PeerManager(Client *client)
-    : QObject(client)
+    : QObject(client), client(client)
 {
-    this->client = client;
-
     static const char *envVariables[] = {
         "USERNAME", "USER", "USERDOMAIN", "HOSTNAME", "DOMAINNAME"
     };
@@ -30,7 +28,6 @@ PeerManager::PeerManager(Client *client)
         username = "unknown";
 
     updateAddresses();
-    serverPort = 0;
 
     broadcastSocket.bind(QHostAddress::Any, broadcastPort, QUdpSocket::ShareAddress
                          | QUdpSocket::ReuseAddressHint);
@@ -59,11 +56,7 @@ void PeerManager::startBroadcasting()
 
 bool PeerManager::isLocalHostAddress(const QHostAddress &address) const
 {
-    for (const QHostAddress &localAddress : ipAddresses) {
-        if (address.isEqual(localAddress))
-            return true;
-    }
-    return false;
+    return ipAddresses.contains(address);
 }
 
 void PeerManager::sendBroadcastDatagram()
@@ -79,8 +72,7 @@ void PeerManager::sendBroadcastDatagram()
 
     bool validBroadcastAddresses = true;
     for (const QHostAddress &address : std::as_const(broadcastAddresses)) {
-        if (broadcastSocket.writeDatagram(datagram, address,
-                                          broadcastPort) == -1)
+        if (broadcastSocket.writeDatagram(datagram, address, broadcastPort) == -1)
             validBroadcastAddresses = false;
     }
 

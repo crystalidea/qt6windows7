@@ -24,6 +24,7 @@ QT_BEGIN_NAMESPACE
 class QThreadData;
 class QThreadPrivate;
 class QAbstractEventDispatcher;
+class QEventLoopLocker;
 
 class Q_CORE_EXPORT QThread : public QObject
 {
@@ -92,6 +93,7 @@ public:
     static void sleep(unsigned long);
     static void msleep(unsigned long);
     static void usleep(unsigned long);
+    static void sleep(std::chrono::nanoseconds nsec);
 
 Q_SIGNALS:
     void started(QPrivateSignal);
@@ -108,6 +110,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QThread)
+    friend class QEventLoopLocker;
 
 #if QT_CONFIG(cxx11_future)
     [[nodiscard]] static QThread *createThreadImpl(std::future<void> &&future);
@@ -157,7 +160,7 @@ inline Qt::HANDLE QThread::currentThreadId() noexcept
     // See https://akkadia.org/drepper/tls.pdf for x86 ABI
 #if defined(Q_PROCESSOR_X86_32) && ((defined(Q_OS_LINUX) && defined(__GLIBC__)) || defined(Q_OS_FREEBSD)) // x86 32-bit always uses GS
     __asm__("movl %%gs:%c1, %0" : "=r" (tid) : "i" (2 * sizeof(void*)) : );
-#elif defined(Q_PROCESSOR_X86_64) && defined(Q_OS_DARWIN64)
+#elif defined(Q_PROCESSOR_X86_64) && defined(Q_OS_DARWIN)
     // 64bit macOS uses GS, see https://github.com/apple/darwin-xnu/blob/master/libsyscall/os/tsd.h
     __asm__("movq %%gs:0, %0" : "=r" (tid) : : );
 #elif defined(Q_PROCESSOR_X86_64) && ((defined(Q_OS_LINUX) && defined(__GLIBC__)) || defined(Q_OS_FREEBSD))

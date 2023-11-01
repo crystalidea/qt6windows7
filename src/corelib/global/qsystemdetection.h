@@ -2,10 +2,6 @@
 // Copyright (C) 2019 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#ifndef QGLOBAL_H
-# include <QtCore/qglobal.h>
-#endif
-
 #if 0
 #pragma qt_class(QtSystemDetection)
 #pragma qt_sync_skip_header_check
@@ -54,14 +50,10 @@
 
 #if defined(__APPLE__) && (defined(__GNUC__) || defined(__xlC__) || defined(__xlc__))
 #  include <TargetConditionals.h>
+#  define Q_OS_APPLE
 #  if defined(TARGET_OS_MAC) && TARGET_OS_MAC
 #    define Q_OS_DARWIN
 #    define Q_OS_BSD4
-#    ifdef __LP64__
-#      define Q_OS_DARWIN64
-#    else
-#      define Q_OS_DARWIN32
-#    endif
 #    if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 #      define QT_PLATFORM_UIKIT
 #      if defined(TARGET_OS_WATCH) && TARGET_OS_WATCH
@@ -157,92 +149,32 @@
 
 // Compatibility synonyms
 #ifdef Q_OS_DARWIN
-#define Q_OS_MAC
-#endif
-#ifdef Q_OS_DARWIN32
-#define Q_OS_MAC32
-#endif
-#ifdef Q_OS_DARWIN64
-#define Q_OS_MAC64
-#endif
-#ifdef Q_OS_MACOS
-#define Q_OS_MACX
-#define Q_OS_OSX
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wunknown-pragmas"
+#  define Q_OS_MAC // FIXME: Deprecate
+#  ifdef __LP64__
+#    define Q_OS_DARWIN64
+#    pragma clang deprecated(Q_OS_DARWIN64, "use Q_OS_DARWIN and QT_POINTER_SIZE/Q_PROCESSOR_* instead")
+#    define Q_OS_MAC64
+#    pragma clang deprecated(Q_OS_MAC64, "use Q_OS_DARWIN and QT_POINTER_SIZE/Q_PROCESSOR_* instead")
+#  else
+#    define Q_OS_DARWIN32
+#    pragma clang deprecated(Q_OS_DARWIN32, "use Q_OS_DARWIN and QT_POINTER_SIZE/Q_PROCESSOR_* instead")
+#    define Q_OS_MAC32
+#    pragma clang deprecated(Q_OS_MAC32, "use Q_OS_DARWIN and QT_POINTER_SIZE/Q_PROCESSOR_* instead")
+#  endif
+#  ifdef Q_OS_MACOS
+#    define Q_OS_MACX
+#    pragma clang deprecated(Q_OS_MACX, "use Q_OS_MACOS instead")
+#    define Q_OS_OSX
+#    pragma clang deprecated(Q_OS_OSX, "use Q_OS_MACOS instead")
+#  endif
+#  pragma clang diagnostic pop
 #endif
 
 #ifdef Q_OS_DARWIN
 #  include <Availability.h>
 #  include <AvailabilityMacros.h>
-#
-#  ifdef Q_OS_MACOS
-#    if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_10_6
-#       undef __MAC_OS_X_VERSION_MIN_REQUIRED
-#       define __MAC_OS_X_VERSION_MIN_REQUIRED __MAC_10_6
-#    endif
-#    if !defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_6
-#       undef MAC_OS_X_VERSION_MIN_REQUIRED
-#       define MAC_OS_X_VERSION_MIN_REQUIRED MAC_OS_X_VERSION_10_6
-#    endif
-#  endif
-#
-#  // Numerical checks are preferred to named checks, but to be safe
-#  // we define the missing version names in case Qt uses them.
-#
-#  if !defined(__MAC_10_11)
-#       define __MAC_10_11 101100
-#  endif
-#  if !defined(__MAC_10_12)
-#       define __MAC_10_12 101200
-#  endif
-#  if !defined(__MAC_10_13)
-#       define __MAC_10_13 101300
-#  endif
-#  if !defined(__MAC_10_14)
-#       define __MAC_10_14 101400
-#  endif
-#  if !defined(__MAC_10_15)
-#       define __MAC_10_15 101500
-#  endif
-#  if !defined(__MAC_10_16)
-#       define __MAC_10_16 101600
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_11)
-#       define MAC_OS_X_VERSION_10_11 __MAC_10_11
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_12)
-#       define MAC_OS_X_VERSION_10_12 __MAC_10_12
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_13)
-#       define MAC_OS_X_VERSION_10_13 __MAC_10_13
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_14)
-#       define MAC_OS_X_VERSION_10_14 __MAC_10_14
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_15)
-#       define MAC_OS_X_VERSION_10_15 __MAC_10_15
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_16)
-#       define MAC_OS_X_VERSION_10_16 __MAC_10_16
-#  endif
-#
-#  if !defined(__IPHONE_10_0)
-#       define __IPHONE_10_0 100000
-#  endif
-#  if !defined(__IPHONE_10_1)
-#       define __IPHONE_10_1 100100
-#  endif
-#  if !defined(__IPHONE_10_2)
-#       define __IPHONE_10_2 100200
-#  endif
-#  if !defined(__IPHONE_10_3)
-#       define __IPHONE_10_3 100300
-#  endif
-#  if !defined(__IPHONE_11_0)
-#       define __IPHONE_11_0 110000
-#  endif
-#  if !defined(__IPHONE_12_0)
-#       define __IPHONE_12_0 120000
-#  endif
 
 #  define QT_DARWIN_PLATFORM_SDK_EQUAL_OR_ABOVE(macos, ios, tvos, watchos) \
     ((defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && macos != __MAC_NA && __MAC_OS_X_VERSION_MAX_ALLOWED >= macos) || \
@@ -278,13 +210,7 @@
 #  define QT_WATCHOS_DEPLOYMENT_TARGET_BELOW(watchos) \
       QT_DARWIN_DEPLOYMENT_TARGET_BELOW(__MAC_NA, __IPHONE_NA, __TVOS_NA, watchos)
 
-// Compatibility synonyms, do not use
-#  define QT_MAC_PLATFORM_SDK_EQUAL_OR_ABOVE(osx, ios) QT_MACOS_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(osx, ios)
-#  define QT_MAC_DEPLOYMENT_TARGET_BELOW(osx, ios) QT_MACOS_IOS_DEPLOYMENT_TARGET_BELOW(osx, ios)
-#  define QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(osx) QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(osx)
-#  define QT_OSX_DEPLOYMENT_TARGET_BELOW(osx) QT_MACOS_DEPLOYMENT_TARGET_BELOW(osx)
-
-#else
+#else // !Q_OS_DARWIN
 
 #define QT_DARWIN_PLATFORM_SDK_EQUAL_OR_ABOVE(macos, ios, tvos, watchos) (0)
 #define QT_MACOS_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(macos, ios) (0)
@@ -292,9 +218,6 @@
 #define QT_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(ios) (0)
 #define QT_TVOS_PLATFORM_SDK_EQUAL_OR_ABOVE(tvos) (0)
 #define QT_WATCHOS_PLATFORM_SDK_EQUAL_OR_ABOVE(watchos) (0)
-
-#define QT_MAC_PLATFORM_SDK_EQUAL_OR_ABOVE(osx, ios) (0)
-#define QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(osx) (0)
 
 #endif // Q_OS_DARWIN
 
