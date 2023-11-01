@@ -91,6 +91,8 @@ public:
     bool wakeup;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
+#elif defined(Q_OS_WIN)
+    Qt::HANDLE event;
 #endif
 };
 

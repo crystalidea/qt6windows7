@@ -569,6 +569,8 @@ struct QD3D11SwapChain : public QRhiSwapChain
     QRhiRenderPassDescriptor *newCompatibleRenderPassDescriptor() override;
     bool createOrResize() override;
 
+    bool createOrResizeWin7();
+
     void releaseBuffers();
     bool newColorBuffer(const QSize &size, DXGI_FORMAT format, DXGI_SAMPLE_DESC sampleDesc,
                         ID3D11Texture2D **tex, ID3D11RenderTargetView **rtv) const;
@@ -740,6 +742,8 @@ public:
     IDXGIFactory1 *dxgiFactory = nullptr;
     IDCompositionDevice *dcompDevice = nullptr;
     bool supportsAllowTearing = false;
+    bool supportsFlipSwapchain = false; // win7
+    bool forceFlipDiscard = false; // win7
     bool deviceLost = false;
     QRhiD3D11NativeHandles nativeHandlesStruct;
     QRhiDriverInfo driverInfoStruct;
