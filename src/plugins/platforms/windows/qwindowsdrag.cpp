@@ -670,7 +670,7 @@ static HRESULT startDoDragDrop(LPDATAOBJECT pDataObj, LPDROPSOURCE pDropSource, 
                 const quint32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
 
                 POINTER_INFO pointerInfo{};
-                if (!GetPointerInfo(pointerId, &pointerInfo))
+                if (!QWindowsContext::user32dll.getPointerInfo || !QWindowsContext::user32dll.getPointerInfo(pointerId, &pointerInfo))
                     return E_FAIL;
 
                 if (pointerInfo.pointerFlags & POINTER_FLAG_PRIMARY) {
