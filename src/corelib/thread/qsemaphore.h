@@ -5,7 +5,7 @@
 #define QSEMAPHORE_H
 
 #include <QtCore/qglobal.h>
-#include <QtCore/qmutex.h> // for convertToMilliseconds()
+#include <QtCore/qdeadlinetimer.h>
 
 #include <chrono>
 
@@ -14,7 +14,6 @@ QT_REQUIRE_CONFIG(thread);
 QT_BEGIN_NAMESPACE
 
 class QSemaphorePrivate;
-
 class Q_CORE_EXPORT QSemaphore
 {
 public:
@@ -23,10 +22,14 @@ public:
 
     void acquire(int n = 1);
     bool tryAcquire(int n = 1);
+    QT_CORE_INLINE_SINCE(6, 6)
     bool tryAcquire(int n, int timeout);
+    bool tryAcquire(int n, QDeadlineTimer timeout);
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     template <typename Rep, typename Period>
     bool tryAcquire(int n, std::chrono::duration<Rep, Period> timeout)
-    { return tryAcquire(n, QtPrivate::convertToMilliseconds(timeout)); }
+    { return tryAcquire(n, QDeadlineTimer(timeout)); }
+#endif
 
     void release(int n = 1);
 
@@ -53,14 +56,25 @@ private:
     };
 };
 
+#if QT_CORE_INLINE_IMPL_SINCE(6, 6)
+bool QSemaphore::tryAcquire(int n, int timeout)
+{
+    return tryAcquire(n, QDeadlineTimer(timeout));
+}
+#endif
+
 class QSemaphoreReleaser
 {
 public:
+    Q_NODISCARD_CTOR
     QSemaphoreReleaser() = default;
+    Q_NODISCARD_CTOR
     explicit QSemaphoreReleaser(QSemaphore &sem, int n = 1) noexcept
         : m_sem(&sem), m_n(n) {}
+    Q_NODISCARD_CTOR
     explicit QSemaphoreReleaser(QSemaphore *sem, int n = 1) noexcept
         : m_sem(sem), m_n(n) {}
+    Q_NODISCARD_CTOR
     QSemaphoreReleaser(QSemaphoreReleaser &&other) noexcept
         : m_sem(other.cancel()), m_n(other.m_n) {}
     QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_MOVE_AND_SWAP(QSemaphoreReleaser)

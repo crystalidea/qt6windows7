@@ -195,7 +195,7 @@ emscripten::val makeSaveFileOptions(const QStringList &filterList, const std::st
     if (!suggestedName.empty())
         options.set("suggestedName", emscripten::val(suggestedName));
 
-    if (auto typeList = LocalFileApi::qtFilterListToTypes(filterList))
+    if (auto typeList = qtFilterListToTypes(filterList))
         options.set("types", emscripten::val(std::move(*typeList)));
 
     return options;
@@ -206,6 +206,6 @@ std::string makeFileInputAccept(const QStringList &filterList)
     return qtFilterListToFileInputAccept(filterList);
 }
 
-}  // namespace LocalFileApi
+} // namespace LocalFileApi
 
 QT_END_NAMESPACE

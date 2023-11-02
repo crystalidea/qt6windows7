@@ -57,7 +57,9 @@ const char *Style = R"css(
     display: none;
 }
 
-.qt-window.has-border:not(.maximized) .resize-outline {
+.qt-window.no-resize > .resize-outline { display: none; }
+
+.qt-window.has-border:not(.maximized):not(.no-resize) .resize-outline {
     display: block;
 }
 
@@ -163,13 +165,13 @@ const char *Style = R"css(
     pointer-events: none;
 }
 
+.title-bar div {
+    pointer-events: none;
+}
+
 .qt-window-a11y-container {
     position: absolute;
     z-index: -1;
-}
-
-.title-bar div {
-    pointer-events: none;
 }
 
 .title-bar .image-button {

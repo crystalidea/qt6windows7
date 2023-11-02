@@ -178,7 +178,7 @@ void tst_QCryptographicHash::hmac_addData()
         mac.reset();
         mac.addData(data);
         [[maybe_unused]]
-        auto r = mac.result();
+        auto r = mac.resultView();
     }
 }
 

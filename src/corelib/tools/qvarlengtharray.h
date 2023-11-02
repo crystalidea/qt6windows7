@@ -243,6 +243,10 @@ protected:
         }
     }
 
+    void assign_impl(qsizetype prealloc, void *array, qsizetype n, const T &t);
+    template <typename Iterator>
+    void assign_impl(qsizetype prealloc, void *array, Iterator first, Iterator last);
+
     bool isValidIterator(const const_iterator &i) const
     {
         const std::less<const T *> less = {};
@@ -253,8 +257,13 @@ protected:
 // Prealloc = 256 by default, specified in qcontainerfwd.h
 template<class T, qsizetype Prealloc>
 class QVarLengthArray
-    : public QVLABase<T>, // ### Qt 7: swap base class order
+#if QT_VERSION >= QT_VERSION_CHECK(7,0,0) || defined(QT_BOOTSTRAPPED)
+    : public QVLAStorage<sizeof(T), alignof(T), Prealloc>,
+      public QVLABase<T>
+#else
+    : public QVLABase<T>,
       public QVLAStorage<sizeof(T), alignof(T), Prealloc>
+#endif
 {
     template <class S, qsizetype Prealloc2>
     friend class QVarLengthArray;
@@ -266,6 +275,8 @@ class QVarLengthArray
 
     template <typename U>
     using if_copyable = std::enable_if_t<std::is_copy_constructible_v<U>, bool>;
+    template <typename InputIterator>
+    using if_input_iterator = QtPrivate::IfIsInputIterator<InputIterator>;
 public:
     using size_type = typename Base::size_type;
     using value_type = typename Base::value_type;
@@ -327,7 +338,7 @@ public:
     {
     }
 
-    template <typename InputIterator, QtPrivate::IfIsInputIterator<InputIterator> = true>
+    template <typename InputIterator, if_input_iterator<InputIterator> = true>
     inline QVarLengthArray(InputIterator first, InputIterator last)
         : QVarLengthArray()
     {
@@ -374,9 +385,7 @@ public:
 
     QVarLengthArray<T, Prealloc> &operator=(std::initializer_list<T> list)
     {
-        resize(qsizetype(list.size()));
-        std::copy(list.begin(), list.end(),
-                  QT_MAKE_CHECKED_ARRAY_ITERATOR(begin(), size()));
+        assign(list);
         return *this;
     }
 
@@ -491,6 +500,15 @@ public:
     void insert(qsizetype i, T &&t);
     void insert(qsizetype i, const T &t);
     void insert(qsizetype i, qsizetype n, const T &t);
+
+    QVarLengthArray &assign(qsizetype n, const T &t)
+    { Base::assign_impl(Prealloc, this->array, n, t); return *this; }
+    template <typename InputIterator, if_input_iterator<InputIterator> = true>
+    QVarLengthArray &assign(InputIterator first, InputIterator last)
+    { Base::assign_impl(Prealloc, this->array, first, last); return *this; }
+    QVarLengthArray &assign(std::initializer_list<T> list)
+    { assign(list.begin(), list.end()); return *this; }
+
 #ifdef Q_QDOC
     void replace(qsizetype i, const T &t);
     void remove(qsizetype i, qsizetype n = 1);
@@ -739,6 +757,61 @@ Q_OUTOFLINE_TEMPLATE void QVLABase<T>::append_impl(qsizetype prealloc, void *arr
         memcpy(static_cast<void *>(end()), static_cast<const void *>(abuf), increment * sizeof(T));
 
     this->s = asize;
+}
+
+template <class T>
+Q_OUTOFLINE_TEMPLATE void QVLABase<T>::assign_impl(qsizetype prealloc, void *array, qsizetype n, const T &t)
+{
+    Q_ASSERT(n >= 0);
+    if (n > capacity()) {
+        reallocate_impl(prealloc, array, 0, capacity()); // clear
+        resize_impl(prealloc, array, n, t);
+    } else {
+        auto mid = (std::min)(n, size());
+        std::fill(data(), data() + mid, t);
+        std::uninitialized_fill(data() + mid, data() + n, t);
+        s = n;
+        erase(data() + n, data() + size());
+    }
+}
+
+template <class T>
+template <typename Iterator>
+Q_OUTOFLINE_TEMPLATE void QVLABase<T>::assign_impl(qsizetype prealloc, void *array, Iterator first, Iterator last)
+{
+    // This function only provides the basic exception guarantee.
+    constexpr bool IsFwdIt =
+            std::is_convertible_v<typename std::iterator_traits<Iterator>::iterator_category,
+                                  std::forward_iterator_tag>;
+    if constexpr (IsFwdIt) {
+        const qsizetype n = std::distance(first, last);
+        if (n > capacity())
+            reallocate_impl(prealloc, array, 0, n); // clear & reserve n
+    }
+
+    auto dst = begin();
+    const auto dend = end();
+    while (true) {
+        if (first == last) {          // ran out of elements to assign
+            std::destroy(dst, dend);
+            break;
+        }
+        if (dst == dend) {            // ran out of existing elements to overwrite
+            if constexpr (IsFwdIt) {
+                dst = std::uninitialized_copy(first, last, dst);
+                break;
+            } else {
+                do {
+                    emplace_back_impl(prealloc, array, *first);
+                } while (++first != last);
+                return; // size() is already correct (and dst invalidated)!
+            }
+        }
+        *dst = *first;                // overwrite existing element
+        ++dst;
+        ++first;
+    }
+    this->s = dst - begin();
 }
 
 template <class T>

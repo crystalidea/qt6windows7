@@ -30,6 +30,7 @@ macro(qt_internal_get_internal_add_module_keywords option_args single_args multi
         EXTERNAL_HEADERS_DIR
         PRIVATE_HEADER_FILTERS
         QPA_HEADER_FILTERS
+        RHI_HEADER_FILTERS
         HEADER_SYNC_SOURCE_DIRECTORY
         ${__default_target_info_args}
     )
@@ -112,6 +113,10 @@ endfunction()
 #
 #   QPA_HEADER_FILTERS
 #     The regular expressions that filter QPA header files out of target sources.
+#     The value must use the following format 'regex1|regex2|regex3'.
+#
+#   RHI_HEADER_FILTERS
+#     The regular expressions that filter RHI header files out of target sources.
 #     The value must use the following format 'regex1|regex2|regex3'.
 #
 #   HEADER_SYNC_SOURCE_DIRECTORY
@@ -326,14 +331,24 @@ function(qt_internal_add_module target)
                      EXPORT_PROPERTIES "${export_properties}")
     endif()
 
+    # FIXME: This workaround is needed because the deployment logic
+    # for iOS and WASM just copies/embeds the directly linked library,
+    # which will just be a versioned symlink to the actual library.
+    if((UIKIT OR WASM) AND BUILD_SHARED_LIBS)
+        set(version_args "")
+    else()
+        set(version_args
+            VERSION ${PROJECT_VERSION}
+            SOVERSION ${PROJECT_VERSION_MAJOR})
+    endif()
+
     if(NOT arg_HEADER_MODULE)
         set_target_properties(${target} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${QT_BUILD_DIR}/${INSTALL_LIBDIR}"
             RUNTIME_OUTPUT_DIRECTORY "${QT_BUILD_DIR}/${INSTALL_BINDIR}"
             ARCHIVE_OUTPUT_DIRECTORY "${QT_BUILD_DIR}/${INSTALL_LIBDIR}"
-            VERSION ${PROJECT_VERSION}
-            SOVERSION ${PROJECT_VERSION_MAJOR}
-            )
+            ${version_args}
+        )
         qt_set_target_info_properties(${target} ${ARGN})
         qt_handle_multi_config_output_dirs("${target}")
 
@@ -435,6 +450,13 @@ function(qt_internal_add_module target)
         endif()
         set_target_properties(${target}
             PROPERTIES _qt_module_qpa_headers_filter_regex "${qpa_filter_regex}")
+
+        set(rhi_filter_regex "")
+        if(arg_RHI_HEADER_FILTERS)
+            set(rhi_filter_regex "${arg_RHI_HEADER_FILTERS}")
+        endif()
+        set_target_properties(${target}
+            PROPERTIES _qt_module_rhi_headers_filter_regex "${rhi_filter_regex}")
 
         set(private_filter_regex ".+_p(ch)?\\.h")
         if(arg_PRIVATE_HEADER_FILTERS)
@@ -793,6 +815,11 @@ set(QT_ALLOW_MISSING_TOOLS_PACKAGES TRUE)")
         EXPORT_NAME_PREFIX ${INSTALL_CMAKE_NAMESPACE}${target}
         CONFIG_INSTALL_DIR "${config_install_dir}")
 
+    qt_internal_export_genex_properties(TARGETS ${target}
+        EXPORT_NAME_PREFIX ${INSTALL_CMAKE_NAMESPACE}${target}
+        CONFIG_INSTALL_DIR "${config_install_dir}"
+    )
+
     ### fixme: cmake is missing a built-in variable for this. We want to apply it only to modules and plugins
     # that belong to Qt.
     if(NOT arg_HEADER_MODULE)
@@ -878,6 +905,7 @@ function(qt_finalize_module target)
         PUBLIC ${module_headers_public} "${module_depends_header}"
         PRIVATE ${module_headers_private}
         QPA ${module_headers_qpa}
+        RHI ${module_headers_rhi}
     )
 
     qt_finalize_framework_headers_copy(${target})
@@ -910,6 +938,7 @@ endfunction()
 #  * foo_versioned_inner_include_dir with the value "QtCore/6.2.0/QtCore"
 #  * foo_private_include_dir with the value "QtCore/6.2.0/QtCore/private"
 #  * foo_qpa_include_dir with the value "QtCore/6.2.0/QtCore/qpa"
+#  * foo_rhi_include_dir with the value "QtCore/6.2.0/QtCore/rhi"
 #  * foo_interface_name the interface name of the module stored in _qt_module_interface_name
 #    property, e.g. Core.
 #
@@ -932,6 +961,9 @@ endfunction()
 #  * foo_<build|install>_qpa_include_dir with
 #    qtbase_build_dir/include/QtCore/6.2.0/QtCore/qpa for build interface and
 #    include/QtCore/6.2.0/QtCore/qpa for install interface.
+#  * foo_<build|install>_rhi_include_dir with
+#    qtbase_build_dir/include/QtCore/6.2.0/QtCore/rhi for build interface and
+#    include/QtCore/6.2.0/QtCore/rhi for install interface.
 # The following values are set by the function and might be useful in caller's scope:
 #  * repo_install_interface_include_dir contains path to the top-level repository include directory,
 #    e.g. qtbase_build_dir/include
@@ -966,6 +998,8 @@ the different base name for the module info variables.")
         "${${result}_versioned_inner_include_dir}/private")
     set("${result}_qpa_include_dir"
         "${${result}_versioned_inner_include_dir}/qpa")
+    set("${result}_rhi_include_dir"
+        "${${result}_versioned_inner_include_dir}/rhi")
 
     # Module build interface directories
     set(repo_build_interface_include_dir "${QT_BUILD_DIR}/include")
@@ -979,6 +1013,8 @@ the different base name for the module info variables.")
         "${repo_build_interface_include_dir}/${${result}_private_include_dir}")
     set("${result}_build_interface_qpa_include_dir"
         "${repo_build_interface_include_dir}/${${result}_qpa_include_dir}")
+    set("${result}_build_interface_rhi_include_dir"
+        "${repo_build_interface_include_dir}/${${result}_rhi_include_dir}")
 
     # Module install interface directories
     set(repo_install_interface_include_dir "${INSTALL_INCLUDEDIR}")
@@ -992,6 +1028,8 @@ the different base name for the module info variables.")
         "${repo_install_interface_include_dir}/${${result}_private_include_dir}")
     set("${result}_install_interface_qpa_include_dir"
         "${repo_install_interface_include_dir}/${${result}_qpa_include_dir}")
+    set("${result}_install_interface_rhi_include_dir"
+        "${repo_install_interface_include_dir}/${${result}_rhi_include_dir}")
 
     set("${result}" "${module}" PARENT_SCOPE)
     set("${result}_versioned" "${module_versioned}" PARENT_SCOPE)
@@ -1005,6 +1043,7 @@ the different base name for the module info variables.")
         "${${result}_versioned_inner_include_dir}" PARENT_SCOPE)
     set("${result}_private_include_dir" "${${result}_private_include_dir}" PARENT_SCOPE)
     set("${result}_qpa_include_dir" "${${result}_qpa_include_dir}" PARENT_SCOPE)
+    set("${result}_rhi_include_dir" "${${result}_rhi_include_dir}" PARENT_SCOPE)
     set("${result}_interface_name" "${module_interface_name}" PARENT_SCOPE)
 
     # Setting module build interface directories in parent scope
@@ -1019,6 +1058,8 @@ the different base name for the module info variables.")
         "${${result}_build_interface_private_include_dir}" PARENT_SCOPE)
     set("${result}_build_interface_qpa_include_dir"
         "${${result}_build_interface_qpa_include_dir}" PARENT_SCOPE)
+    set("${result}_build_interface_rhi_include_dir"
+        "${${result}_build_interface_rhi_include_dir}" PARENT_SCOPE)
 
     # Setting module install interface directories in parent scope
     set(repo_install_interface_include_dir "${repo_install_interface_include_dir}" PARENT_SCOPE)
@@ -1032,6 +1073,8 @@ the different base name for the module info variables.")
         "${${result}_install_interface_private_include_dir}" PARENT_SCOPE)
     set("${result}_install_interface_qpa_include_dir"
         "${${result}_install_interface_qpa_include_dir}" PARENT_SCOPE)
+    set("${result}_install_interface_rhi_include_dir"
+        "${${result}_install_interface_rhi_include_dir}" PARENT_SCOPE)
 endfunction()
 
 function(qt_internal_list_to_json_array out_var list_var)
@@ -1075,6 +1118,10 @@ function(qt_describe_module target)
     endif()
 
     set(extra_build_information "")
+    if(NOT QT_NAMESPACE STREQUAL "")
+        string(APPEND extra_build_information "
+        \"namespace\": \"${QT_NAMESPACE}\",")
+    endif()
     if(ANDROID)
         string(APPEND extra_build_information "
         \"android\": {
@@ -1135,7 +1182,7 @@ endfunction()
 function(qt_internal_install_module_headers target)
     set(options)
     set(one_value_args)
-    set(multi_value_args PUBLIC PRIVATE QPA)
+    set(multi_value_args PUBLIC PRIVATE QPA RHI)
     cmake_parse_arguments(arg "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     qt_internal_module_info(module ${target})
@@ -1160,6 +1207,7 @@ function(qt_internal_install_module_headers target)
             PUBLIC ${arg_PUBLIC}
             PRIVATE ${arg_PRIVATE}
             QPA ${arg_QPA}
+            RHI ${arg_RHI}
         )
     else()
         if(arg_PUBLIC)
@@ -1173,6 +1221,9 @@ function(qt_internal_install_module_headers target)
         if(arg_QPA)
             qt_install(FILES ${arg_QPA} DESTINATION "${module_install_interface_qpa_include_dir}")
         endif()
+        if(arg_RHI)
+            qt_install(FILES ${arg_RHI} DESTINATION "${module_install_interface_rhi_include_dir}")
+        endif()
     endif()
 endfunction()
 
@@ -1180,6 +1231,7 @@ function(qt_internal_collect_module_headers out_var target)
     set(${out_var}_public "")
     set(${out_var}_private "")
     set(${out_var}_qpa "")
+    set(${out_var}_rhi "")
     set(${out_var}_all "")
 
     qt_internal_get_target_sources(sources ${target})
@@ -1200,6 +1252,7 @@ function(qt_internal_collect_module_headers out_var target)
     get_target_property(public_filter ${target} _qt_module_public_headers_filter_regex)
     get_target_property(private_filter ${target} _qt_module_private_headers_filter_regex)
     get_target_property(qpa_filter ${target} _qt_module_qpa_headers_filter_regex)
+    get_target_property(rhi_filter ${target} _qt_module_rhi_headers_filter_regex)
 
     set(condition_independent_headers_warning "")
     foreach(file_path IN LISTS sources)
@@ -1251,6 +1304,8 @@ function(qt_internal_collect_module_headers out_var target)
         list(APPEND ${out_var}_all "${file_path}")
         if(qpa_filter AND file_name MATCHES "${qpa_filter}")
             list(APPEND ${out_var}_qpa "${file_path}")
+        elseif(rhi_filter AND file_name MATCHES "${rhi_filter}")
+            list(APPEND ${out_var}_rhi "${file_path}")
         elseif(private_filter AND file_name MATCHES "${private_filter}")
             list(APPEND ${out_var}_private "${file_path}")
         elseif((NOT public_filter OR file_name MATCHES "${public_filter}")
@@ -1274,7 +1329,7 @@ function(qt_internal_collect_module_headers out_var target)
     endif()
 
 
-    set(header_types public private qpa)
+    set(header_types public private qpa rhi)
     set(has_header_types_properties "")
     foreach(header_type IN LISTS header_types)
         get_target_property(current_propety_value ${target} _qt_module_has_${header_type}_headers)
@@ -1296,5 +1351,6 @@ function(qt_internal_collect_module_headers out_var target)
             _qt_module_has_public_headers
             _qt_module_has_private_headers
             _qt_module_has_qpa_headers
+            _qt_module_has_rhi_headers
     )
 endfunction()

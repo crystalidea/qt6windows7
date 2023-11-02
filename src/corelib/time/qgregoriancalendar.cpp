@@ -3,11 +3,31 @@
 
 #include "qgregoriancalendar_p.h"
 #include "qcalendarmath_p.h"
+
 #include <QtCore/qdatetime.h>
 
 QT_BEGIN_NAMESPACE
 
 using namespace QRoundingDown;
+
+// Verification that QRoundingDown::qDivMod() works correctly:
+static_assert(qDivMod<2>(-86400).quotient == -43200);
+static_assert(qDivMod<2>(-86400).remainder == 0);
+static_assert(qDivMod<86400>(-86400).quotient == -1);
+static_assert(qDivMod<86400>(-86400).remainder == 0);
+static_assert(qDivMod<86400>(-86401).quotient == -2);
+static_assert(qDivMod<86400>(-86401).remainder == 86399);
+static_assert(qDivMod<86400>(-100000).quotient == -2);
+static_assert(qDivMod<86400>(-100000).remainder == 72800);
+static_assert(qDivMod<86400>(-172799).quotient == -2);
+static_assert(qDivMod<86400>(-172799).remainder == 1);
+static_assert(qDivMod<86400>(-172800).quotient == -2);
+static_assert(qDivMod<86400>(-172800).remainder == 0);
+
+// Uncomment to verify error on bad denominator is clear and intelligible:
+// static_assert(qDivMod<1>(17).remainder == 0);
+// static_assert(qDivMod<0>(17).remainder == 0);
+// static_assert(qDivMod<std::numeric_limits<unsigned>::max()>(17).remainder == 0);
 
 /*!
     \since 5.14
@@ -73,41 +93,27 @@ bool QGregorianCalendar::validParts(int year, int month, int day)
 
 int QGregorianCalendar::weekDayOfJulian(qint64 jd)
 {
-    return qMod(jd, 7) + 1;
+    return int(qMod<7>(jd) + 1);
 }
 
 bool QGregorianCalendar::dateToJulianDay(int year, int month, int day, qint64 *jd) const
 {
-    return julianFromParts(year, month, day, jd);
+    const auto maybe = julianFromParts(year, month, day);
+    if (maybe)
+        *jd = *maybe;
+    return bool(maybe);
 }
 
-bool QGregorianCalendar::julianFromParts(int year, int month, int day, qint64 *jd)
+QCalendar::YearMonthDay QGregorianCalendar::julianDayToDate(qint64 jd) const
 {
-    Q_ASSERT(jd);
-    if (!validParts(year, month, day))
-        return false;
-
-    if (year < 0)
-        ++year;
-
-    /*
-     * Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
-     * This formula is correct for all julian days, when using mathematical integer
-     * division (round to negative infinity), not c++11 integer division (round to zero)
-     */
-    int    a = month < 3 ? 1 : 0;
-    qint64 y = qint64(year) + 4800 - a;
-    int    m = month + 12 * a - 3;
-    *jd = day + qDiv(153 * m + 2, 5) - 32045
-        + 365 * y + qDiv(y, 4) - qDiv(y, 100) + qDiv(y, 400);
-    return true;
+    return partsFromJulian(jd);
 }
 
 int QGregorianCalendar::yearStartWeekDay(int year)
 {
     // Equivalent to weekDayOfJulian(julianForParts({year, 1, 1})
     const int y = year - (year < 0 ? 800 : 801);
-    return qMod(y + qDiv(y, 4) - qDiv(y, 100) + qDiv(y, 400), 7) + 1;
+    return qMod<7>(y + qDiv<4>(y) - qDiv<100>(y) + qDiv<400>(y)) + 1;
 }
 
 int QGregorianCalendar::yearSharingWeekDays(QDate date)
@@ -156,34 +162,52 @@ int QGregorianCalendar::yearSharingWeekDays(QDate date)
     return res;
 }
 
-QCalendar::YearMonthDay QGregorianCalendar::julianDayToDate(qint64 jd) const
+/*
+ * Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
+ * This formula is correct for all julian days, when using mathematical integer
+ * division (round to negative infinity), not c++11 integer division (round to zero).
+ *
+ * The source given uses 4801 BCE as base date; the following adjusts that by
+ * 4800 years to simplify part of the arithmetic (and match more closely what we
+ * do for Milankovic).
+ */
+
+using namespace QRomanCalendrical;
+// End a Gregorian four-century cycle on 1 BC's leap day:
+constexpr qint64 BaseJd = LeapDayGregorian1Bce;
+// Every four centures there are 97 leap years:
+constexpr unsigned FourCenturies = 400 * 365 + 97;
+
+std::optional<qint64> QGregorianCalendar::julianFromParts(int year, int month, int day)
 {
-    return partsFromJulian(jd);
+    if (!validParts(year, month, day))
+        return std::nullopt;
+
+    const auto yearDays = yearMonthToYearDays(year, month);
+    const qint64 y = yearDays.year;
+    const qint64 fromYear = 365 * y + qDiv<4>(y) - qDiv<100>(y) + qDiv<400>(y);
+    return fromYear + yearDays.days + day + BaseJd;
 }
 
 QCalendar::YearMonthDay QGregorianCalendar::partsFromJulian(qint64 jd)
 {
-    /*
-     * Math from The Calendar FAQ at http://www.tondering.dk/claus/cal/julperiod.php
-     * This formula is correct for all julian days, when using mathematical integer
-     * division (round to negative infinity), not c++11 integer division (round to zero)
-     */
-    qint64 a = jd + 32044;
-    qint64 b = qDiv(4 * a + 3, 146097);
-    int    c = a - qDiv(146097 * b, 4);
+    const qint64 dayNumber = jd - BaseJd;
+    const qint64 century = qDiv<FourCenturies>(4 * dayNumber - 1);
+    const int dayInCentury = dayNumber - qDiv<4>(FourCenturies * century);
 
-    int    d = qDiv(4 * c + 3, 1461);
-    int    e = c - qDiv(1461 * d, 4);
-    int    m = qDiv(5 * e + 2, 153);
+    const int yearInCentury = qDiv<FourYears>(4 * dayInCentury - 1);
+    const int dayInYear = dayInCentury - qDiv<4>(FourYears * yearInCentury);
+    const int m = qDiv<FiveMonths>(5 * dayInYear - 3);
+    Q_ASSERT(m < 12 && m >= 0);
+    // That m is a month adjusted to March = 0, with Jan = 10, Feb = 11 in the previous year.
+    const int yearOffset = m < 10 ? 0 : 1;
 
-    int y = 100 * b + d - 4800 + qDiv(m, 10);
+    const int y = 100 * century + yearInCentury + yearOffset;
+    const int month = m + 3 - 12 * yearOffset;
+    const int day = dayInYear - qDiv<5>(FiveMonths * m + 2);
 
     // Adjust for no year 0
-    int year = y > 0 ? y : y - 1;
-    int month = m + 3 - 12 * qDiv(m, 10);
-    int day = e - qDiv(153 * m + 2, 5) + 1;
-
-    return QCalendar::YearMonthDay(year, month, day);
+    return QCalendar::YearMonthDay(y > 0 ? y : y - 1, month, day);
 }
 
 QT_END_NAMESPACE

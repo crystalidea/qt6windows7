@@ -25,6 +25,8 @@ private slots:
     void fromByteArray();
     void toRfc4122();
     void fromRfc4122();
+    void id128();
+    void uint128();
     void createUuidV3OrV5();
     void check_QDataStream();
     void isNull();
@@ -98,7 +100,7 @@ void tst_QUuid::fromChar()
     QCOMPARE(QUuid(), QUuid("fc69b59e-cc34-"));
     QCOMPARE(QUuid(), QUuid("fc69b59e-cc34"));
     QCOMPARE(QUuid(), QUuid("cc34"));
-    QCOMPARE(QUuid(), QUuid(NULL));
+    QCOMPARE(QUuid(), QUuid(nullptr));
 
     QCOMPARE(uuidB, QUuid(QString("{1ab6e93a-b1cb-4a87-ba47-ec7e99039a7b}")));
 }
@@ -215,6 +217,81 @@ void tst_QUuid::fromRfc4122()
     QCOMPARE(uuidA, QUuid::fromRfc4122(QByteArray::fromHex("fc69b59ecc344436a43cee95d128b8c5")));
 
     QCOMPARE(uuidB, QUuid::fromRfc4122(QByteArray::fromHex("1ab6e93ab1cb4a87ba47ec7e99039a7b")));
+}
+
+void tst_QUuid::id128()
+{
+    constexpr QUuid::Id128Bytes bytesA = { {
+        0xfc, 0x69, 0xb5, 0x9e,
+        0xcc, 0x34,
+        0x44, 0x36,
+        0xa4, 0x3c, 0xee, 0x95, 0xd1, 0x28, 0xb8, 0xc5,
+    } };
+    constexpr QUuid::Id128Bytes bytesB = { {
+        0x1a, 0xb6, 0xe9, 0x3a,
+        0xb1, 0xcb,
+        0x4a, 0x87,
+        0xba, 0x47, 0xec, 0x7e, 0x99, 0x03, 0x9a, 0x7b,
+    } };
+
+    QCOMPARE(QUuid(bytesA), uuidA);
+    QCOMPARE(QUuid(bytesB), uuidB);
+    QVERIFY(memcmp(uuidA.toBytes().data, bytesA.data, sizeof(QUuid::Id128Bytes)) == 0);
+    QVERIFY(memcmp(uuidB.toBytes().data, bytesB.data, sizeof(QUuid::Id128Bytes)) == 0);
+
+    QUuid::Id128Bytes leBytesA = {};
+    for (int i = 0; i < 16; i++)
+        leBytesA.data[15 - i] = bytesA.data[i];
+    QCOMPARE(QUuid(leBytesA, QSysInfo::LittleEndian), uuidA);
+    QVERIFY(memcmp(uuidA.toBytes(QSysInfo::LittleEndian).data, leBytesA.data, sizeof(leBytesA)) == 0);
+
+    // check the new q{To,From}{Big,Little}Endian() overloads
+    QUuid::Id128Bytes roundtrip = qFromLittleEndian(qToLittleEndian(bytesA));
+    QVERIFY(memcmp(roundtrip.data, bytesA.data, sizeof(bytesA)) == 0);
+    roundtrip = qFromBigEndian(qToBigEndian(bytesA));
+    QVERIFY(memcmp(roundtrip.data, bytesA.data, sizeof(bytesA)) == 0);
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+    const QUuid::Id128Bytes beBytesA = qToBigEndian(leBytesA);
+    QVERIFY(memcmp(beBytesA.data, bytesA.data, sizeof(beBytesA)) == 0);
+    const QUuid::Id128Bytes otherLeBytesA = qFromBigEndian(bytesA);
+    QVERIFY(memcmp(otherLeBytesA.data, leBytesA.data, sizeof(leBytesA)) == 0);
+#else // Q_BIG_ENDIAN
+    const QUuid::Id128Bytes otherLeBytesA = qToLittleEndian(bytesA);
+    QVERIFY(memcmp(otherLeBytesA.data, leBytesA.data, sizeof(leBytesA)) == 0);
+    const QUuid::Id128Bytes beBytesA = qFromLittleEndian(leBytesA);
+    QVERIFY(memcmp(beBytesA.data, bytesA.data, sizeof(beBytesA)) == 0);
+#endif // Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+}
+
+void tst_QUuid::uint128()
+{
+#ifdef QT_SUPPORTS_INT128
+    constexpr quint128 u = quint128(Q_UINT64_C(0xfc69b59ecc344436)) << 64
+                            | Q_UINT64_C(0xa43cee95d128b8c5); // This is LE
+    constexpr quint128 be = qToBigEndian(u);
+    constexpr QUuid uuid = QUuid::fromUInt128(be);
+    static_assert(uuid.toUInt128() == be, "Round-trip through QUuid failed");
+
+    QCOMPARE(uuid, uuidA);
+    QCOMPARE(quint64(uuid.toUInt128() >> 64), quint64(be >> 64));
+    QCOMPARE(quint64(uuid.toUInt128()), quint64(be));
+
+    quint128 le = qFromBigEndian(be);
+    QCOMPARE(quint64(uuid.toUInt128(QSysInfo::LittleEndian) >> 64), quint64(le >> 64));
+    QCOMPARE(quint64(uuid.toUInt128(QSysInfo::LittleEndian)), quint64(le));
+    QCOMPARE(QUuid::fromUInt128(le, QSysInfo::LittleEndian), uuidA);
+
+    QUuid::Id128Bytes bytes = { .data128 = { qToBigEndian(u) } };
+    QUuid uuid2(bytes);
+    QCOMPARE(uuid2, uuid);
+
+    // verify that toBytes() and toUInt128() provide bytewise similar result
+    constexpr quint128 val = uuid.toUInt128();
+    bytes = uuid.toBytes();
+    QVERIFY(memcmp(&val, bytes.data, sizeof(val)) == 0);
+#else
+    QSKIP("This platform has no support for 128-bit integer");
+#endif
 }
 
 void tst_QUuid::createUuidV3OrV5()
@@ -396,7 +473,7 @@ void tst_QUuid::processUniqueness()
     QString processTwoOutput;
 
     // Start it once
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
     process.start("testProcessUniqueness/testProcessUniqueness.app");
 #elif defined(Q_OS_ANDROID)
     process.start("libtestProcessUniqueness.so");
@@ -407,7 +484,7 @@ void tst_QUuid::processUniqueness()
     processOneOutput = process.readAllStandardOutput();
 
     // Start it twice
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
     process.start("testProcessUniqueness/testProcessUniqueness.app");
 #elif defined(Q_OS_ANDROID)
     process.start("libtestProcessUniqueness.so");

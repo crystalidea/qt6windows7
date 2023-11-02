@@ -12,7 +12,6 @@
 #include <qdebug.h>
 #include <qdir.h>
 #include <qfileinfo.h>
-#include <qscopedvaluerollback.h>
 #include <qstringlist.h>
 
 #if defined(Q_OS_WIN)
@@ -40,7 +39,6 @@
 
 #ifdef Q_OS_WIN
 #define DRIVE "Q:"
-extern Q_CORE_EXPORT int qt_ntfs_permission_lookup;
 #else
 #define DRIVE
 #endif
@@ -453,8 +451,7 @@ void tst_QDir::mkdirWithPermissions()
     QFETCH(QFile::Permissions, permissions);
 
 #ifdef Q_OS_WIN
-    QScopedValueRollback<int> ntfsMode(qt_ntfs_permission_lookup);
-    ++qt_ntfs_permission_lookup;
+    QNtfsPermissionCheckGuard permissionGuard;
 #endif
 #ifdef Q_OS_UNIX
     auto restoreMask = qScopeGuard([oldMask = umask(0)] { umask(oldMask); });
@@ -796,6 +793,12 @@ void tst_QDir::entryListWithTestFiles_data()
     QTest::newRow("QDir::AllEntries") << (m_dataPath + "/entrylist/") << QStringList("*")
                               << int(QDir::AllEntries) << int(QDir::Name)
                               << filterLinks(QString(".,..,directory,file,linktodirectory.lnk,linktofile.lnk,writable").split(','));
+    // Tests an assert in QDirSortItemComparator, when QDir::LocaleAware is set
+    // a QCollator is used
+    QTest::newRow("QDir::AllEntries")
+        << (m_dataPath + "/entrylist/") << QStringList("*")
+        << int(QDir::AllEntries) << int(QDir::Name | QDir::LocaleAware)
+        << filterLinks(QString(".,..,directory,file,linktodirectory.lnk,linktofile.lnk,writable").split(','));
     QTest::newRow("QDir::Files") << (m_dataPath + "/entrylist/") << QStringList("*")
                                  << int(QDir::Files) << int(QDir::Name)
                                  << filterLinks(QString("file,linktofile.lnk,writable").split(','));
@@ -999,7 +1002,7 @@ void tst_QDir::entryListTimedSort()
 
     QFileInfo aFileInfo(aFile);
     QFileInfo bFileInfo(bFile);
-    QVERIFY(bFileInfo.lastModified().msecsTo(aFileInfo.lastModified()) < 0);
+    QVERIFY(bFileInfo.lastModified(QTimeZone::UTC).msecsTo(aFileInfo.lastModified(QTimeZone::UTC)) < 0);
 
     QCOMPARE(actual.size(), 2);
     QCOMPARE(actual.first(), bFileInfo.fileName());
@@ -1618,7 +1621,7 @@ void tst_QDir::rename()
     QDir dir;
     QVERIFY(dir.rename("rename-test", "rename-test-renamed"));
     QVERIFY(dir.rename("rename-test-renamed", "rename-test"));
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_DARWIN)
     QVERIFY(!dir.rename("rename-test", "/etc/rename-test-renamed"));
 #elif !defined(Q_OS_WIN)
     // on windows this is possible - maybe make the test a bit better

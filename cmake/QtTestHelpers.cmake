@@ -247,6 +247,7 @@ function(qt_internal_add_test_to_batch batch_name name)
 
     # Lazy-init the test batch
     if(NOT TARGET ${target})
+        qt_internal_library_deprecation_level(deprecation_define)
         qt_internal_add_executable(${target}
             ${exceptions_text}
             ${gui_text}
@@ -254,11 +255,16 @@ function(qt_internal_add_test_to_batch batch_name name)
             NO_INSTALL
             OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/build_dir"
             SOURCES "${QT_CMAKE_DIR}/qbatchedtestrunner.in.cpp"
-            DEFINES QTEST_BATCH_TESTS
+            DEFINES QTEST_BATCH_TESTS ${deprecation_define}
             INCLUDE_DIRECTORIES ${private_includes}
             LIBRARIES ${QT_CMAKE_EXPORT_NAMESPACE}::Core
                     ${QT_CMAKE_EXPORT_NAMESPACE}::Test
                     ${QT_CMAKE_EXPORT_NAMESPACE}::TestPrivate
+                    # Add GUI by default so that the plugins link properly with non-standalone
+                    # build of tests. Plugin handling is currently only done in
+                    # qt_internal_add_executable if Gui is present. This should be reevaluated with
+                    # multiple batches.
+                    ${QT_CMAKE_EXPORT_NAMESPACE}::Gui
         )
 
         set_property(TARGET ${target} PROPERTY _qt_has_exceptions ${arg_EXCEPTIONS})
@@ -309,17 +315,12 @@ function(qt_internal_add_test_to_batch batch_name name)
     list(PREPEND batched_test_list ${name})
     set_property(GLOBAL PROPERTY _qt_batched_test_list_property ${batched_test_list})
 
-    qt_internal_library_deprecation_level(deprecation_define)
-
     # Merge the current test with the rest of the batch
     qt_internal_extend_target(${target}
         INCLUDE_DIRECTORIES ${arg_INCLUDE_DIRECTORIES}
         PUBLIC_LIBRARIES ${arg_PUBLIC_LIBRARIES}
         LIBRARIES ${arg_LIBRARIES}
         SOURCES ${arg_SOURCES}
-        DEFINES
-            ${arg_DEFINES}
-            ${deprecation_define}
         COMPILE_OPTIONS ${arg_COMPILE_OPTIONS}
         COMPILE_FLAGS ${arg_COMPILE_FLAGS}
         LINK_OPTIONS ${arg_LINK_OPTIONS}
@@ -336,7 +337,7 @@ function(qt_internal_add_test_to_batch batch_name name)
         set_source_files_properties(${source}
                                     TARGET_DIRECTORY ${target}
                                     PROPERTIES COMPILE_DEFINITIONS
-                                        "BATCHED_TEST_NAME=\"${name}\"")
+                                        "BATCHED_TEST_NAME=\"${name}\";${arg_DEFINES}" )
     endforeach()
     set(${batch_name} ${target} PARENT_SCOPE)
 
@@ -361,6 +362,34 @@ function(qt_internal_is_in_test_batch out name)
             set(${out} TRUE PARENT_SCOPE)
         endif()
     endif()
+endfunction()
+
+function(qt_internal_is_skipped_test out name)
+    get_target_property(is_skipped_test ${name} _qt_is_skipped_test)
+    set(${out} ${is_skipped_test} PARENT_SCOPE)
+endfunction()
+
+function(qt_internal_set_skipped_test name)
+    set_target_properties(${name} PROPERTIES _qt_is_skipped_test TRUE)
+endfunction()
+
+function(qt_internal_is_qtbase_test out)
+    get_filename_component(dir "${CMAKE_CURRENT_BINARY_DIR}" ABSOLUTE)
+    set(${out} FALSE PARENT_SCOPE)
+
+    while(TRUE)
+        get_filename_component(filename "${dir}" NAME)
+        if("${filename}" STREQUAL "qtbase")
+            set(${out} TRUE PARENT_SCOPE)
+            break()
+        endif()
+
+        set(prev_dir "${dir}")
+        get_filename_component(dir "${dir}" DIRECTORY)
+        if("${dir}" STREQUAL "${prev_dir}")
+            break()
+        endif()
+    endwhile()
 endfunction()
 
 function(qt_internal_get_batched_test_arguments out testname)
@@ -403,6 +432,32 @@ function(qt_internal_add_test name)
     _qt_internal_validate_all_args_are_parsed(arg)
     _qt_internal_validate_no_unity_build(arg)
 
+    set(batch_current_test FALSE)
+    if(QT_BUILD_TESTS_BATCHED AND NOT arg_NO_BATCH AND NOT arg_QMLTEST AND NOT arg_MANUAL
+            AND ("${QT_STANDALONE_TEST_PATH}" STREQUAL ""
+                 OR DEFINED ENV{QT_BATCH_STANDALONE_TESTS}))
+        set(batch_current_test TRUE)
+    endif()
+
+    if(batch_current_test OR (QT_BUILD_TESTS_BATCHED AND arg_QMLTEST))
+        if (QT_SUPERBUILD OR DEFINED ENV{TESTED_MODULE_COIN})
+            set(is_qtbase_test FALSE)
+            if(QT_SUPERBUILD)
+                qt_internal_is_qtbase_test(is_qtbase_test)
+            elseif($ENV{TESTED_MODULE_COIN} STREQUAL "qtbase")
+                set(is_qtbase_test TRUE)
+            endif()
+            if(NOT is_qtbase_test)
+                file(GENERATE OUTPUT "dummy${name}.cpp" CONTENT "int main() { return 0; }")
+                # Add a dummy target to tackle some potential problems
+                qt_internal_add_executable(${name} SOURCES "dummy${name}.cpp")
+                # Batched tests outside of qtbase are unsupported and skipped
+                qt_internal_set_skipped_test(${name})
+                return()
+            endif()
+        endif()
+    endif()
+
     if (NOT arg_OUTPUT_DIRECTORY)
         set(arg_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     endif()
@@ -421,9 +476,8 @@ function(qt_internal_add_test name)
             "removed in a future Qt version. Use the LIBRARIES option instead.")
     endif()
 
-    if(NOT arg_NO_BATCH AND QT_BUILD_TESTS_BATCHED AND NOT arg_QMLTEST AND NOT arg_MANUAL)
+    if(batch_current_test)
         qt_internal_add_test_to_batch(name ${name} ${ARGN})
-        set(setting_up_batched_test TRUE)
     elseif(arg_SOURCES)
         if(QT_BUILD_TESTS_BATCHED AND arg_QMLTEST)
             message(WARNING "QML tests won't be batched - unsupported (yet)")
@@ -499,7 +553,6 @@ function(qt_internal_add_test name)
         qt_internal_extend_target("${name}" CONDITION ANDROID
             LIBRARIES ${QT_CMAKE_EXPORT_NAMESPACE}::Gui
         )
-        set(setting_up_batched_test FALSE)
         set_target_properties(${name} PROPERTIES _qt_is_test_executable TRUE)
         set_target_properties(${name} PROPERTIES _qt_is_manual_test ${arg_MANUAL})
     endif()
@@ -550,7 +603,7 @@ function(qt_internal_add_test name)
     elseif(WASM)
         # The test script expects an html file. In case of batched tests, the
         # version specialized for running batches has to be supplied.
-        if(setting_up_batched_test)
+        if(batch_current_test)
             get_target_property(batch_output_dir ${name} RUNTIME_OUTPUT_DIRECTORY)
             set(test_executable "${batch_output_dir}/${name}.html")
         else()
@@ -562,11 +615,16 @@ function(qt_internal_add_test name)
         list(APPEND extra_test_args "--silence_timeout=60")
         # TODO: Add functionality to specify browser
         list(APPEND extra_test_args "--browser=chrome")
+        list(APPEND extra_test_args "--browser_args=\"--password-store=basic\"")
+        list(APPEND extra_test_args "--kill_exit")
 
-        # We always want to enable asyncify for tests, as some of them use exec
+        # Tests may require asyncify if they use exec(). Enable asyncify for
+        # batched tests since this is the configuration used on the CI system.
         # Optimize for size (-Os), since asyncify tends to make the resulting
         # binary very large
-        target_link_options("${name}" PRIVATE "SHELL:-s ASYNCIFY" "-Os")
+        if(batch_current_test)
+            target_link_options("${name}" PRIVATE "SHELL:-s ASYNCIFY" "-Os")
+        endif()
 
         # This tells cmake to run the tests with this script, since wasm files can't be
         # executed directly
@@ -588,9 +646,11 @@ function(qt_internal_add_test name)
     endif()
 
     if(NOT arg_MANUAL)
-        if(setting_up_batched_test)
+        if(batch_current_test)
             qt_internal_get_batched_test_arguments(batched_test_args ${testname})
             list(PREPEND extra_test_args ${batched_test_args})
+        elseif(WASM AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+            list(PREPEND extra_test_args "qvisualoutput")
         endif()
 
         qt_internal_collect_command_environment(test_env_path test_env_plugin_path)
@@ -661,10 +721,29 @@ function(qt_internal_add_test name)
             foreach(testdata IN LISTS arg_TESTDATA)
                 list(APPEND builtin_files ${testdata})
             endforeach()
+            foreach(file IN LISTS builtin_files)
+                set_source_files_properties(${file}
+                    PROPERTIES QT_SKIP_QUICKCOMPILER TRUE
+                )
+            endforeach()
 
-            set(blacklist_path "BLACKLIST")
-            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${blacklist_path}")
-                list(APPEND builtin_files ${blacklist_path})
+            if(batch_current_test)
+                set(blacklist_path "BLACKLIST")
+                if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${blacklist_path}")
+                    get_target_property(blacklist_files ${name} _qt_blacklist_files)
+                    if(NOT blacklist_files)
+                        set_target_properties(${name} PROPERTIES _qt_blacklist_files "")
+                        set(blacklist_files "")
+                        cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY \"${CMAKE_SOURCE_DIR}\" CALL \"_qt_internal_finalize_batch\" \"${name}\") ")
+                    endif()
+                    list(PREPEND blacklist_files "${CMAKE_CURRENT_SOURCE_DIR}/${blacklist_path}")
+                    set_target_properties(${name} PROPERTIES _qt_blacklist_files "${blacklist_files}")
+                endif()
+            else()
+                set(blacklist_path "BLACKLIST")
+                if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${blacklist_path}")
+                    list(APPEND builtin_files ${blacklist_path})
+                endif()
             endif()
 
             list(REMOVE_DUPLICATES builtin_files)
@@ -762,7 +841,8 @@ for this function. Will be ignored")
     endif()
 
     set(executable_name ${arg_NAME})
-    if(QT_BUILD_TESTS_BATCHED)
+    qt_internal_is_in_test_batch(is_in_batch ${executable_name})
+    if(is_in_batch)
         _qt_internal_test_batch_target_name(executable_name)
     endif()
     add_test(NAME "${arg_NAME}" COMMAND "${CMAKE_COMMAND}" "-P" "${arg_OUTPUT_FILE}"
@@ -828,8 +908,8 @@ function(qt_internal_add_test_helper name)
 
     set(extra_args_to_pass)
     if(NOT arg_OVERRIDE_OUTPUT_DIRECTORY)
-        if(QT_BUILD_TESTS_BATCHED)
-            _qt_internal_test_batch_target_name(test_batch_target_name)
+        _qt_internal_test_batch_target_name(test_batch_target_name)
+        if(QT_BUILD_TESTS_BATCHED AND TARGET ${test_batch_target_name})
             get_target_property(
                 test_batch_output_dir ${test_batch_target_name} RUNTIME_OUTPUT_DIRECTORY)
             set(extra_args_to_pass OUTPUT_DIRECTORY "${test_batch_output_dir}")

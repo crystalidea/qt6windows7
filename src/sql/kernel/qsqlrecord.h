@@ -5,6 +5,7 @@
 #define QSQLRECORD_H
 
 #include <QtSql/qtsqlglobal.h>
+#include <QtCore/qshareddata.h>
 #include <QtCore/qstring.h>
 
 QT_BEGIN_NAMESPACE
@@ -13,14 +14,19 @@ QT_BEGIN_NAMESPACE
 class QSqlField;
 class QVariant;
 class QSqlRecordPrivate;
+QT_DECLARE_QESDP_SPECIALIZATION_DTOR_WITH_EXPORT(QSqlRecordPrivate, Q_SQL_EXPORT)
 
 class Q_SQL_EXPORT QSqlRecord
 {
 public:
     QSqlRecord();
     QSqlRecord(const QSqlRecord& other);
+    QSqlRecord(QSqlRecord &&other) noexcept = default;
     QSqlRecord& operator=(const QSqlRecord& other);
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_MOVE_AND_SWAP(QSqlRecord)
     ~QSqlRecord();
+
+    void swap(QSqlRecord &other) noexcept { d.swap(other.d); }
 
     bool operator==(const QSqlRecord &other) const;
     inline bool operator!=(const QSqlRecord &other) const { return !operator==(other); }
@@ -60,8 +66,10 @@ public:
 
 private:
     void detach();
-    QSqlRecordPrivate* d;
+    QExplicitlySharedDataPointer<QSqlRecordPrivate> d;
 };
+
+Q_DECLARE_SHARED(QSqlRecord)
 
 #ifndef QT_NO_DEBUG_STREAM
 Q_SQL_EXPORT QDebug operator<<(QDebug, const QSqlRecord &);

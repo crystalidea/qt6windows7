@@ -22,6 +22,7 @@
 #include "qdbuspendingcall_p.h"
 
 #include "qdbusthreaddebug_p.h"
+#include "qdbusmetatype_p.h"
 
 #include <algorithm>
 
@@ -82,6 +83,13 @@ void QDBusConnectionManager::removeConnection(const QString &name)
 
 QDBusConnectionManager::QDBusConnectionManager()
 {
+    // Ensure that the custom metatype registry is created before the instance
+    // of this class. This will ensure that the registry is not destroyed before
+    // the connection manager at application exit (see also QTBUG-58732). This
+    // works with compilers that use mechanism similar to atexit() to call
+    // destructurs for global statics.
+    QDBusMetaTypeId::init();
+
     connect(this, &QDBusConnectionManager::connectionRequested,
             this, &QDBusConnectionManager::executeConnectionRequest, Qt::BlockingQueuedConnection);
     connect(this, &QDBusConnectionManager::serverRequested,
@@ -124,9 +132,7 @@ void QDBusConnectionManager::run()
 
     // cleanup:
     const auto locker = qt_scoped_lock(mutex);
-    for (QHash<QString, QDBusConnectionPrivate *>::const_iterator it = connectionHash.constBegin();
-         it != connectionHash.constEnd(); ++it) {
-        QDBusConnectionPrivate *d = it.value();
+    for (QDBusConnectionPrivate *d : std::as_const(connectionHash)) {
         if (!d->ref.deref()) {
             delete d;
         } else {
@@ -150,12 +156,9 @@ QDBusConnectionPrivate *QDBusConnectionManager::connectToBus(QDBusConnection::Bu
     data.suspendedDelivery = suspendedDelivery;
 
     emit connectionRequested(&data);
-    if (suspendedDelivery && data.result->connection) {
-        data.result->ref.ref();
-        QDBusConnectionDispatchEnabler *o = new QDBusConnectionDispatchEnabler(data.result);
-        QTimer::singleShot(0, o, SLOT(execute()));
-        o->moveToThread(qApp->thread());    // qApp was checked in the caller
-    }
+    if (suspendedDelivery && data.result->connection)
+        data.result->enableDispatchDelayed(qApp); // qApp was checked in the caller
+
     return data.result;
 }
 

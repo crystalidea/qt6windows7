@@ -34,7 +34,9 @@ private slots:
     void find();
     void insert();
     void failedInsertReturnsInvalidKey();
+#if QT_DEPRECATED_SINCE(6, 6)
     void replace();
+#endif
     void remove();
     void clear();
     void pixmapKey();
@@ -120,11 +122,15 @@ void tst_QPixmapCache::setCacheLimit()
     QVERIFY(!QPixmapCache::find(key, p1));
 
     QPixmapCache::setCacheLimit(1000);
+#if QT_DEPRECATED_SINCE(6, 6)
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     p1 = new QPixmap(2, 3);
     QVERIFY(!QPixmapCache::replace(key, *p1));
     QVERIFY(!QPixmapCache::find(key, p1));
 
     delete p1;
+#endif // QT_DEPRECATED_SINCE(6, 6)
 
     //Let check if keys are released when the pixmap cache is
     //full or has been flushed.
@@ -317,6 +323,9 @@ void tst_QPixmapCache::failedInsertReturnsInvalidKey()
     QVERIFY(!success);       // QString API
 }
 
+#if QT_DEPRECATED_SINCE(6, 6)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 void tst_QPixmapCache::replace()
 {
     //The int part of the API
@@ -345,6 +354,8 @@ void tst_QPixmapCache::replace()
     //Broken keys
     QCOMPARE(QPixmapCache::replace(QPixmapCache::Key(), p2), false);
 }
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(6, 6)
 
 void tst_QPixmapCache::remove()
 {

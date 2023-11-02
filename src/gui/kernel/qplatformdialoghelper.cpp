@@ -768,7 +768,7 @@ public:
     {}
 
     QString windowTitle;
-    QMessageDialogOptions::Icon icon;
+    QMessageDialogOptions::StandardIcon icon;
     QString text;
     QString informativeText;
     QString detailedText;
@@ -778,6 +778,7 @@ public:
     QPixmap iconPixmap;
     QString checkBoxLabel;
     Qt::CheckState checkBoxState = Qt::Unchecked;
+    QMessageDialogOptions::Options options;
 };
 
 QMessageDialogOptions::QMessageDialogOptions(QMessageDialogOptionsPrivate *dd)
@@ -819,12 +820,12 @@ void QMessageDialogOptions::setWindowTitle(const QString &title)
     d->windowTitle = title;
 }
 
-QMessageDialogOptions::Icon QMessageDialogOptions::icon() const
+QMessageDialogOptions::StandardIcon QMessageDialogOptions::standardIcon() const
 {
     return d->icon;
 }
 
-void QMessageDialogOptions::setIcon(Icon icon)
+void QMessageDialogOptions::setStandardIcon(StandardIcon icon)
 {
     d->icon = icon;
 }
@@ -923,6 +924,29 @@ Qt::CheckState QMessageDialogOptions::checkBoxState() const
 {
     return d->checkBoxState;
 }
+
+void QMessageDialogOptions::setOption(QMessageDialogOptions::Option option, bool on)
+{
+    if (!(d->options & option) != !on)
+        setOptions(d->options ^ option);
+}
+
+bool QMessageDialogOptions::testOption(QMessageDialogOptions::Option option) const
+{
+    return d->options & option;
+}
+
+void QMessageDialogOptions::setOptions(QMessageDialogOptions::Options options)
+{
+    if (options != d->options)
+        d->options = options;
+}
+
+QMessageDialogOptions::Options QMessageDialogOptions::options() const
+{
+    return d->options;
+}
+
 
 QPlatformDialogHelper::ButtonRole QPlatformDialogHelper::buttonRole(QPlatformDialogHelper::StandardButton button)
 {

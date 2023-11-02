@@ -9,9 +9,9 @@ exists($$QMAKE_QT_CONFIG) {
 
     ## qmake puts a space if done otherwise
     !isEmpty(QT_WASM_EXTRA_EXPORTED_METHODS): {
-        EXPORTED_METHODS = UTF16ToString,stringToUTF16,JSEvents,specialHTMLTargets,$$QT_WASM_EXTRA_EXPORTED_METHODS
+        EXPORTED_METHODS = UTF16ToString,stringToUTF16,JSEvents,specialHTMLTargets,FS,$$QT_WASM_EXTRA_EXPORTED_METHODS
     } else {
-        EXPORTED_METHODS = UTF16ToString,stringToUTF16,JSEvents,specialHTMLTargets
+        EXPORTED_METHODS = UTF16ToString,stringToUTF16,JSEvents,specialHTMLTargets,FS
     }
     EMCC_LFLAGS += -s EXPORTED_RUNTIME_METHODS=$$EXPORTED_METHODS
 
@@ -45,6 +45,17 @@ exists($$QMAKE_QT_CONFIG) {
         QMAKE_CXXFLAGS += -O2 -msimd128 -msse -msse2
         QMAKE_LFLAGS       += -msimd128 -msse -msse2
         QMAKE_LFLAGS_DEBUG += -msimd128 -msse -msse2
+    }
+
+    qtConfig(shared) {
+        contains(TEMPLATE, .*app) {
+            EMCC_MODULE_FLAGS = -s MAIN_MODULE=1
+        }
+        contains(TEMPLATE, .*lib):!static: {
+            EMCC_MODULE_FLAGS = -s SIDE_MODULE=1
+        }
+        EMCC_CFLAGS += $$EMCC_MODULE_FLAGS
+        EMCC_LFLAGS += $$EMCC_MODULE_FLAGS
     }
 
     QMAKE_LFLAGS       += $$EMCC_LFLAGS
@@ -81,11 +92,16 @@ contains(TEMPLATE, .*app) {
         WASM_PLUGIN_PATH = $$PWD/../../../src/plugins/platforms/wasm
     }
 
+    PRELOAD = ""
+    shared {
+        PRELOAD = "preload:\ ['qt_plugins.json',\ 'qt_qml_imports.json'],"
+    }
+
     # Copy/Generate main .html file (e.g. myapp.html) from the webassembly_shell.html by
     # replacing the app name placeholder with the actual app name.
     apphtml.name = application main html file
     apphtml.output = $$DESTDIR/$$TARGET_HTML
-    apphtml.commands = $$QMAKE_STREAM_EDITOR -e s/@APPNAME@/$$TARGET_BASE/g $$WASM_PLUGIN_PATH/wasm_shell.html > $$DESTDIR/$$TARGET_HTML
+    apphtml.commands = $$QMAKE_STREAM_EDITOR -e s/@APPNAME@/$$TARGET_BASE/g -e s/@PRELOAD@/$$PRELOAD/g $$WASM_PLUGIN_PATH/wasm_shell.html > $$DESTDIR/$$TARGET_HTML
     apphtml.input = $$WASM_PLUGIN_PATH/wasm_shell.html
     apphtml.depends = $$apphtml.input
     QMAKE_EXTRA_COMPILERS += apphtml

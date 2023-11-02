@@ -15,19 +15,17 @@
 // We mean it.
 //
 
+#include <QtCore/qbasictimer.h>
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qdatetime.h>
 #include <QtCore/qdir.h>
-#include <QtCore/qtimer.h>
 #include <QtCore/qhash.h>
 
 #include "qfilesystemwatcher_p.h"
 
 QT_REQUIRE_CONFIG(filesystemwatcher);
 QT_BEGIN_NAMESPACE
-
-enum { PollingInterval = 1000 };
 
 class QPollingFileSystemWatcherEngine : public QFileSystemWatcherEngine
 {
@@ -46,7 +44,7 @@ class QPollingFileSystemWatcherEngine : public QFileSystemWatcherEngine
             : ownerId(fileInfo.ownerId()),
               groupId(fileInfo.groupId()),
               permissions(fileInfo.permissions()),
-              lastModified(fileInfo.lastModified())
+              lastModified(fileInfo.lastModified(QTimeZone::UTC))
         {
             if (fileInfo.isDir()) {
                 entries = fileInfo.absoluteDir().entryList(QDir::AllEntries);
@@ -65,7 +63,7 @@ class QPollingFileSystemWatcherEngine : public QFileSystemWatcherEngine
             return (ownerId != fileInfo.ownerId()
                     || groupId != fileInfo.groupId()
                     || permissions != fileInfo.permissions()
-                    || lastModified != fileInfo.lastModified());
+                    || lastModified != fileInfo.lastModified(QTimeZone::UTC));
         }
     };
 
@@ -77,11 +75,11 @@ public:
     QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
     QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
 
-private Q_SLOTS:
-    void timeout();
+private:
+    void timerEvent(QTimerEvent *) final;
 
 private:
-    QTimer timer;
+    QBasicTimer timer;
 };
 
 QT_END_NAMESPACE

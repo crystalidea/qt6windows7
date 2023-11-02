@@ -1170,6 +1170,10 @@ void tst_QStringApiSymmetry::overload()
     // check the common overload sets defined above to be free of ambiguities
     // for arguments of type T
 
+    QT_WARNING_PUSH
+    // GCC complains about "t" and "ct"
+    QT_WARNING_DISABLE_GCC("-Wmaybe-uninitialized")
+
     using CT = const T;
 
     T t = {};
@@ -1218,6 +1222,7 @@ void tst_QStringApiSymmetry::overload()
             overload_sr_v(CT());
         }
     }
+    QT_WARNING_POP
 }
 
 void tst_QStringApiSymmetry::overload_special()
@@ -1482,8 +1487,9 @@ void tst_QStringApiSymmetry::localeAwareCompare_data()
         return false;
     };
 #else
-    // Otherwise, trust that setlocale() reconfigures QString::localeAwareCompare():
-    const auto canTest = [](const char *) { return true; };
+    const auto canTest = [](const char *wanted) {
+        return QLocale(wanted) == QLocale::c() || QLocale(wanted) == QLocale::system().collation();
+    };
 #endif
     // Update tailpiece's max-value for this if you add a new locale group
     int countGroups = 0;

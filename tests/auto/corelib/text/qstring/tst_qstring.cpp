@@ -27,9 +27,11 @@
 #include <qhash.h>
 #include <private/qtools_p.h>
 
+#include <forward_list>
 #include <string>
 #include <algorithm>
 #include <limits>
+#include <sstream>
 
 #include "../shared/test_number_shared.h"
 #include "../../../../shared/localechange.h"
@@ -281,11 +283,22 @@ static void do_apply1(MemFun mf)
     QFETCH(A1, a1);
     QFETCH(QString, expected);
 
-    Arg<ArgType>(arg).apply1(s, mf, a1);
+    // Test when the string is shared
+    QString str = s;
+    Arg<ArgType>(arg).apply1(str, mf, a1);
 
-    QCOMPARE(s, expected);
-    QCOMPARE(s.isEmpty(), expected.isEmpty());
-    QCOMPARE(s.isNull(), expected.isNull());
+    QCOMPARE(str, expected);
+    QCOMPARE(str.isEmpty(), expected.isEmpty());
+    QCOMPARE(str.isNull(), expected.isNull());
+
+    // Test when the string is not shared
+    str = s;
+    str.detach();
+    Arg<ArgType>(arg).apply1(str, mf, a1);
+    QCOMPARE(str, expected);
+    QCOMPARE(str.isEmpty(), expected.isEmpty());
+    // A detached string is not null
+    // QCOMPARE(str.isNull(), expected.isNull());
 }
 
 class tst_QString : public QObject
@@ -519,6 +532,10 @@ private slots:
 
     void insert_special_cases();
 
+    void assign();
+    void assign_shared();
+    void assign_uses_prepend_buffer();
+
     void simplified_data();
     void simplified();
     void trimmed();
@@ -563,6 +580,7 @@ private slots:
 
     void STL();
     void macTypes();
+    void wasmTypes();
     void isEmpty();
     void isNull();
     void nullness();
@@ -795,7 +813,14 @@ void tst_QString::replace_qchar_qchar()
     QFETCH(Qt::CaseSensitivity, cs);
     QFETCH(QString, expected);
 
-    QCOMPARE(src.replace(before, after, cs), expected);
+    QString str = src;
+    // Test when string is shared
+    QCOMPARE(str.replace(before, after, cs), expected);
+
+    str = src;
+    // Test when it's not shared
+    str.detach();
+    QCOMPARE(str.replace(before, after, cs), expected);
 }
 
 void tst_QString::replace_qchar_qstring_data()
@@ -840,7 +865,14 @@ void tst_QString::replace_qchar_qstring()
     QFETCH(Qt::CaseSensitivity, cs);
     QFETCH(QString, expected);
 
-    QCOMPARE(src.replace(before, after, cs), expected);
+    // Test when string needs detach
+    QString s = src;
+    QCOMPARE(s.replace(before, after, cs), expected);
+
+    // Test when it's not shared
+    s = src;
+    s.detach();
+    QCOMPARE(s.replace(before, after, cs), expected);
 }
 
 void tst_QString::replace_uint_uint_data()
@@ -1390,11 +1422,21 @@ void tst_QString::STL()
 
 void tst_QString::macTypes()
 {
-#ifndef Q_OS_MAC
+#ifndef Q_OS_DARWIN
     QSKIP("This is a Mac-only test");
 #else
     extern void tst_QString_macTypes(); // in qcore_foundation.mm
     tst_QString_macTypes();
+#endif
+}
+
+void tst_QString::wasmTypes()
+{
+#ifndef Q_OS_WASM
+    QSKIP("This is a WASM-only test");
+#else
+    extern void tst_QString_wasmTypes(); // in qcore_wasm.cpp
+    tst_QString_wasmTypes();
 #endif
 }
 
@@ -2891,6 +2933,7 @@ void tst_QString::insert_data(DataOptions options)
     QTest::newRow("a.insert(1, ba)") << a << baC << 1 << (a + ba);
     QTest::newRow("ba.insert(1, a)") << ba << aC << 1 << (ba + a);
     QTest::newRow("ba.insert(2, b)") << ba << bC << 2 << (ba + b);
+    QTest::newRow("ba.insert(10, b)") << ba << bC << 10 << (ba + QString(10 - ba.size(), u' ') + b);
 
     QTest::newRow("null-insert-0-yumlaut") << null << yumlautC << 0 << yumlaut;
     QTest::newRow("empty-insert-0-yumlaut") << empty << yumlautC << 0 << yumlaut;
@@ -2969,23 +3012,64 @@ void tst_QString::insert_data(DataOptions options)
 void tst_QString::insert_special_cases()
 {
     QString a;
-    a = u"Ys"_s;
-    QCOMPARE(a.insert(1, u'e'), u"Yes");
-    QCOMPARE(a.insert(3, u'!'), u"Yes!");
-    QCOMPARE(a.insert(5, u'?'), u"Yes! ?");
-    QCOMPARE(a.insert(-1, u'a'), u"Yes! a?");
+    QString dummy_share;
+
+    {
+        // Test when string is not shared
+        a = u"Ys"_s;
+        QCOMPARE(a.insert(1, u'e'), u"Yes");
+        QCOMPARE(a.insert(3, u'!'), u"Yes!");
+        QCOMPARE(a.insert(5, u'?'), u"Yes! ?");
+        QCOMPARE(a.insert(-1, u'a'), u"Yes! a?");
+    }
+    {
+        // Test when string is shared
+        a = u"Ys"_s;
+        dummy_share = a;
+        QCOMPARE(a.insert(1, u'e'), u"Yes");
+        dummy_share = a;
+        QCOMPARE(a.insert(3, u'!'), u"Yes!");
+        dummy_share = a;
+        QCOMPARE(a.insert(5, u'?'), u"Yes! ?");
+        dummy_share = a;
+        QCOMPARE(a.insert(-1, u'a'), u"Yes! a?");
+    }
 
     a = u"ABC"_s;
-    QCOMPARE(a.insert(5, u"DEF"_s), u"ABC  DEF"_s);
+    dummy_share = a;
+    QCOMPARE(dummy_share.insert(5, u"DEF"_s), u"ABC  DEF"_s); // Shared
+    QCOMPARE(a.insert(5, u"DEF"_s), u"ABC  DEF"_s); // Not shared after dummy_shared.insert()
 
-    a = u"ABC"_s;
-    QCOMPARE(a.insert(2, QString()), u"ABC");
-    QCOMPARE(a.insert(0, u"ABC"_s), u"ABCABC");
-    QCOMPARE(a, u"ABCABC");
-    QCOMPARE(a.insert(0, a), u"ABCABCABCABC");
-    QCOMPARE(a, u"ABCABCABCABC");
-    QCOMPARE(a.insert(0, u'<'), u"<ABCABCABCABC");
-    QCOMPARE(a.insert(1, u'>'), u"<>ABCABCABCABC");
+    {
+        // Test when string is not shared
+        a = u"ABC"_s;
+        QCOMPARE(a.insert(2, QString()), u"ABC");
+        QCOMPARE(a.insert(0, u"ABC"_s), u"ABCABC");
+        QCOMPARE(a, u"ABCABC");
+        QCOMPARE(a.insert(0, a), u"ABCABCABCABC");
+
+        QCOMPARE(a, u"ABCABCABCABC");
+        QCOMPARE(a.insert(0, u'<'), u"<ABCABCABCABC");
+        QCOMPARE(a.insert(1, u'>'), u"<>ABCABCABCABC");
+    }
+    {
+        // Test when string is shared
+        a = u"ABC"_s;
+        dummy_share = a;
+        QCOMPARE(a.insert(2, QString()), u"ABC");
+        dummy_share = a;
+        QCOMPARE(a.insert(0, u"ABC"_s), u"ABCABC");
+        dummy_share = a;
+        QCOMPARE(a, u"ABCABC");
+        dummy_share = a;
+        QCOMPARE(a.insert(0, a), u"ABCABCABCABC");
+
+        QCOMPARE(a, u"ABCABCABCABC");
+        dummy_share = a;
+        QCOMPARE(a.insert(0, u'<'), u"<ABCABCABCABC");
+        dummy_share = a;
+        QCOMPARE(a.insert(1, u'>'), u"<>ABCABCABCABC");
+    }
 
     const QString montreal = QStringLiteral("Montreal");
     {
@@ -3003,7 +3087,7 @@ void tst_QString::insert_special_cases()
     {
         // Test when string is shared
         a = u"Meal"_s;
-        QString dummy_share = a;
+        dummy_share = a;
         QCOMPARE(a.insert(1, "ontr"_L1), montreal);
         dummy_share = a;
         QCOMPARE(a.insert(4, ""_L1), montreal);
@@ -3017,14 +3101,40 @@ void tst_QString::insert_special_cases()
         QCOMPARE(a.insert(0, u"a"_s), "aMontreal"_L1);
     }
 
-    a = u"Mont"_s;
-    QCOMPARE(a.insert(a.size(), "real"_L1), montreal);
-    QCOMPARE(a.insert(a.size() + 1, "ABC"_L1), u"Montreal ABC");
+    {
+        // Test when string is not shared
+        a = u"Mont"_s;
+        QCOMPARE(a.insert(a.size(), "real"_L1), montreal);
+        QCOMPARE(a.insert(a.size() + 1, "ABC"_L1), u"Montreal ABC");
+    }
+    {
+        // Test when string is shared
+        a = u"Mont"_s;
+        dummy_share = a;
+        QCOMPARE(a.insert(a.size(), "real"_L1), montreal);
+        dummy_share = a;
+        QCOMPARE(a.insert(a.size() + 1, "ABC"_L1), u"Montreal ABC");
+    }
 
-    a = u"AEF"_s;
-    QCOMPARE(a.insert(1, "BCD"_L1), u"ABCDEF");
-    QCOMPARE(a.insert(3, "-"_L1), u"ABC-DEF");
-    QCOMPARE(a.insert(a.size() + 1, "XYZ"_L1), u"ABC-DEF XYZ");
+    {
+        // Test when string is not shared
+        a = u"AEF"_s;
+        QCOMPARE(a.insert(1, "BCD"_L1), u"ABCDEF");
+        QCOMPARE(a.insert(3, "-"_L1), u"ABC-DEF");
+        QCOMPARE(a.insert(a.size() + 1, "XYZ"_L1), u"ABC-DEF XYZ");
+    }
+
+    {
+        // Test when string is shared
+        a = u"AEF"_s;
+        dummy_share = a ;
+        QCOMPARE(a.insert(1, "BCD"_L1), u"ABCDEF");
+        dummy_share = a ;
+        QCOMPARE(a.insert(3, "-"_L1), u"ABC-DEF");
+        dummy_share = a ;
+        QCOMPARE(a.insert(a.size() + 1, "XYZ"_L1), u"ABC-DEF XYZ");
+    }
+
 
     {
         a = u"one"_s;
@@ -3038,12 +3148,20 @@ void tst_QString::insert_special_cases()
         QString b(a.data_ptr()->freeSpaceAtEnd(), u'b');
         QCOMPARE(a.insert(a.size() + 1, b), u"aone "_s + b);
     }
+
     {
         a = u"onetwothree"_s;
         while (a.size() - 1)
             a.remove(0, 1);
         QString b(a.data_ptr()->freeSpaceAtEnd() + 1, u'b');
         QCOMPARE(a.insert(a.size() + 1, QLatin1String(b.toLatin1())), u"e "_s + b);
+    }
+    {
+        a = u"onetwothree"_s;
+        while (a.size() - 1)
+            a.remove(0, 1);
+        QString b(a.data_ptr()->freeSpaceAtEnd() + 1, u'b');
+        QCOMPARE(a.insert(a.size() + 1, b), u"e "_s + b);
     }
 }
 
@@ -3293,6 +3411,225 @@ void tst_QString::appendFromRawData()
     QCOMPARE_NE((void *)copy.constData(), (void *)str.constData());
 }
 
+void tst_QString::assign()
+{
+    // QString &assign(QAnyStringView)
+    {
+        QString str;
+        QCOMPARE(str.assign("data"), u"data");
+        QCOMPARE(str.size(), 4);
+        QCOMPARE(str.assign(u8"data\0data"), u"data\0data");
+        QCOMPARE(str.size(), 4);
+        QCOMPARE(str.assign(u"\0data\0data"), u"\0data\0data");
+        QCOMPARE(str.size(), 0);
+        QCOMPARE(str.assign(QAnyStringView("data\0")), u"data\0");
+        QCOMPARE(str.size(), 4);
+        QCOMPARE(str.assign(QStringView(u"(ノಠ益ಠ)ノ彡┻━┻\0")), u"(ノಠ益ಠ)ノ彡┻━┻\0");
+        QCOMPARE(str.size(), 11);
+        QCOMPARE(str.assign(QUtf8StringView(u8"٩(⁎❛ᴗ❛⁎)۶")), u"٩(⁎❛ᴗ❛⁎)۶");
+        QCOMPARE(str.size(), 9);
+        QCOMPARE(str.assign(QLatin1String("datadata")), u"datadata");
+        QCOMPARE(str.size(), 8);
+    }
+    // QString &assign(qsizetype, char);
+    {
+        QString str;
+        QCOMPARE(str.assign(3, u'è'), u"èèè");
+        QCOMPARE(str.size(), 3);
+        QCOMPARE(str.assign(20, u'd').assign(2, u'ᴗ'), u"ᴗᴗ");
+        QCOMPARE(str.size(), 2);
+        QCOMPARE(str.assign(0, u'x').assign(5, QLatin1Char('d')), u"ddddd");
+        QCOMPARE(str.size(), 5);
+        QCOMPARE(str.assign(3, u'x'), u"xxx");
+        QCOMPARE(str.size(), 3);
+    }
+    // QString &assign(InputIterator, InputIterator)
+    {
+        // Forward iterator versions
+        QString str;
+        const QString tstr = QString::fromUtf8(u8"(ノಠ益ಠ)\0ノ彡┻━┻");
+        QCOMPARE(str.assign(tstr.begin(), tstr.end()), u"(ノಠ益ಠ)\0ノ彡┻━┻");
+        QCOMPARE(str.size(), 6);
+
+        auto oldCap = str.capacity();
+        str.assign(tstr.begin(), tstr.begin()); // empty range
+        QCOMPARE_EQ(str.capacity(), oldCap);
+        QCOMPARE_EQ(str.size(), 0);
+
+        const char16_t c16[] = u"٩(⁎❛ᴗ❛⁎)۶ 🤷";
+        str.assign(std::begin(c16), std::end(c16) - 1);
+        QCOMPARE(str, c16);
+
+        std::u16string c16str(c16);
+        str.assign(c16str.begin(), c16str.end());
+        QCOMPARE(str, c16);
+
+        oldCap = str.capacity();
+        str.assign(c16str.begin(), c16str.begin()); // empty range
+        QCOMPARE_EQ(str.capacity(), oldCap);
+        QCOMPARE_EQ(str.size(), 0);
+
+        const char32_t c32[] = U"٩(⁎❛ᴗ❛⁎)۶ 🤷";
+        str.assign(std::begin(c32), std::end(c32) - 1);
+        QCOMPARE(str, c16);
+
+        std::u32string c32str(c32);
+        str.assign(c32str.begin(), c32str.end());
+        QCOMPARE(str, c16);
+
+        oldCap = str.capacity();
+        str.assign(c32str.begin(), c32str.begin()); // empty range
+        QCOMPARE_EQ(str.capacity(), oldCap);
+        QCOMPARE_EQ(str.size(), 0);
+
+        QVarLengthArray<QLatin1Char, 5> l1ch = {'F'_L1, 'G'_L1, 'H'_L1, 'I'_L1, 'J'_L1};
+        str.assign(l1ch.begin(), l1ch.end());
+        QCOMPARE(str, u"FGHIJ");
+        std::forward_list<QChar> qch = {u'G', u'H', u'I', u'J', u'K'};
+        str.assign(qch.begin(), qch.end());
+        QCOMPARE(str, u"GHIJK");
+        const QList<char16_t> qch16 = {u'X', u'H', u'I', u'J', u'K'}; // QList<T>::iterator need not be T*
+        str.assign(qch16.begin(), qch16.end());
+        QCOMPARE(str, u"XHIJK");
+#if defined(Q_OS_WIN)
+        QVarLengthArray<wchar_t> wch = {L'A', L'B', L'C', L'D', L'E'};
+        str.assign(wch.begin(), wch.end());
+        QCOMPARE(str, u"ABCDE");
+#endif
+        // Input iterator versions
+        std::stringstream ss("50 51 52 53 54");
+        str.assign(std::istream_iterator<ushort>{ss}, std::istream_iterator<ushort>{});
+        QCOMPARE(str, u"23456");
+
+        oldCap = str.capacity();
+        str.assign(std::istream_iterator<ushort>{}, std::istream_iterator<ushort>{}); // empty range
+        QCOMPARE_EQ(str.capacity(), oldCap);
+        QCOMPARE_EQ(str.size(), 0);
+    }
+    // Test chaining
+    {
+        QString str;
+        QString tstr = u"TEST DATA"_s;
+        str.assign(tstr.begin(), tstr.end()).assign({"Hello World!"}).assign(5, u'T');
+        QCOMPARE(str, u"TTTTT");
+        QCOMPARE(str.size(), 5);
+        QCOMPARE(str.assign(300, u'T').assign({"[̲̅$̲̅(̲̅5̲̅)̲̅$̲̅]"}), u"[̲̅$̲̅(̲̅5̲̅)̲̅$̲̅]");
+        QCOMPARE(str.size(), 19);
+        QCOMPARE(str.assign(10, u'c').assign(str.begin(), str.end()), str);
+        QCOMPARE(str.size(), 10);
+        QCOMPARE(str.assign("data").assign(QByteArrayView::fromArray(
+            {std::byte('T'), std::byte('T'), std::byte('T')})), u"TTT");
+        QCOMPARE(str.size(), 3);
+        QCOMPARE(str.assign("data").assign("\0data"), u"\0data");
+        QCOMPARE(str.size(), 0);
+    }
+}
+
+void tst_QString::assign_shared()
+{
+    {
+        QString str = "DATA"_L1;
+        QVERIFY(str.isDetached());
+        auto strCopy = str;
+        QVERIFY(!str.isDetached());
+        QVERIFY(!strCopy.isDetached());
+        QVERIFY(str.isSharedWith(strCopy));
+        QVERIFY(strCopy.isSharedWith(str));
+
+        str.assign(4, u'D');
+        QVERIFY(str.isDetached());
+        QVERIFY(strCopy.isDetached());
+        QVERIFY(!str.isSharedWith(strCopy));
+        QVERIFY(!strCopy.isSharedWith(str));
+        QCOMPARE(str, u"DDDD");
+        QCOMPARE(strCopy, u"DATA");
+    }
+    {
+        QString str = "DATA"_L1;
+        QVERIFY(str.isDetached());
+        auto copyForwardIt = str;
+        QVERIFY(!str.isDetached());
+        QVERIFY(!copyForwardIt.isDetached());
+        QVERIFY(str.isSharedWith(copyForwardIt));
+        QVERIFY(copyForwardIt.isSharedWith(str));
+
+        QString tstr = u"DDDD"_s;
+        str.assign(tstr.begin(), tstr.end());
+        QVERIFY(str.isDetached());
+        QVERIFY(copyForwardIt.isDetached());
+        QVERIFY(!str.isSharedWith(copyForwardIt));
+        QVERIFY(!copyForwardIt.isSharedWith(str));
+        QCOMPARE(str, u"DDDD");
+        QCOMPARE(copyForwardIt, u"DATA");
+    }
+    {
+        QString str = "DATA"_L1;
+        QVERIFY(str.isDetached());
+        auto copyInputIt = str;
+        QVERIFY(!str.isDetached());
+        QVERIFY(!copyInputIt.isDetached());
+        QVERIFY(str.isSharedWith(copyInputIt));
+        QVERIFY(copyInputIt.isSharedWith(str));
+
+        std::stringstream ss("49 50 51 52 53 54 ");
+        str.assign(std::istream_iterator<ushort>{ss}, std::istream_iterator<ushort>{});
+        QVERIFY(str.isDetached());
+        QVERIFY(copyInputIt.isDetached());
+        QVERIFY(!str.isSharedWith(copyInputIt));
+        QVERIFY(!copyInputIt.isSharedWith(str));
+
+        QCOMPARE(str, u"123456");
+        QCOMPARE(copyInputIt, u"DATA");
+    }
+}
+
+void tst_QString::assign_uses_prepend_buffer()
+{
+    const auto capBegin = [](const QString &s) {
+        return s.begin() - s.d.freeSpaceAtBegin();
+    };
+    const auto capEnd = [](const QString &s) {
+        return s.end() + s.d.freeSpaceAtEnd();
+    };
+    // QString &assign(QAnyStringView)
+    {
+        QString withFreeSpaceAtBegin;
+        for (int i = 0; i < 100 && withFreeSpaceAtBegin.d.freeSpaceAtBegin() < 2; ++i)
+            withFreeSpaceAtBegin.prepend(u'd');
+        QCOMPARE_GT(withFreeSpaceAtBegin.d.freeSpaceAtBegin(), 1);
+
+        const auto oldCapBegin = capBegin(withFreeSpaceAtBegin);
+        const auto oldCapEnd = capEnd(withFreeSpaceAtBegin);
+
+        QString test(withFreeSpaceAtBegin.d.freeSpaceAtBegin(), u'ȍ');
+        withFreeSpaceAtBegin.assign(test);
+
+        QCOMPARE_EQ(withFreeSpaceAtBegin.d.freeSpaceAtBegin(), 0); // we used the prepend buffer
+        QCOMPARE_EQ(capBegin(withFreeSpaceAtBegin), oldCapBegin);
+        QCOMPARE_EQ(capEnd(withFreeSpaceAtBegin), oldCapEnd);
+        QCOMPARE(withFreeSpaceAtBegin, test);
+    }
+    // QString &assign(InputIterator, InputIterator)
+    {
+        QString withFreeSpaceAtBegin;
+        for (int i = 0; i < 100 && withFreeSpaceAtBegin.d.freeSpaceAtBegin() < 2; ++i)
+            withFreeSpaceAtBegin.prepend(u'd');
+        QCOMPARE_GT(withFreeSpaceAtBegin.d.freeSpaceAtBegin(), 1);
+
+        const auto oldCapBegin = capBegin(withFreeSpaceAtBegin);
+        const auto oldCapEnd = capEnd(withFreeSpaceAtBegin);
+
+        std::stringstream ss;
+        for (qsizetype i = 0; i < withFreeSpaceAtBegin.d.freeSpaceAtBegin(); ++i)
+            ss << "d ";
+
+        withFreeSpaceAtBegin.assign(std::istream_iterator<ushort>{ss}, std::istream_iterator<ushort>{});
+        QCOMPARE_EQ(withFreeSpaceAtBegin.d.freeSpaceAtBegin(), 0); // we used the prepend buffer
+        QCOMPARE_EQ(capBegin(withFreeSpaceAtBegin), oldCapBegin);
+        QCOMPARE_EQ(capEnd(withFreeSpaceAtBegin), oldCapEnd);
+    }
+}
+
 void tst_QString::operator_pluseq_special_cases()
 {
     QString a;
@@ -3534,18 +3871,36 @@ void tst_QString::replace_uint_uint()
     QFETCH( int, len );
     QFETCH( QString, after );
 
+    // Test when the string is shared
     QString s1 = string;
     s1.replace( (uint) index, (int) len, after );
     QTEST( s1, "result" );
+    // Test when it's not shared
+    s1 = string;
+    s1.detach();
+    s1.replace((uint)index, (int)len, after);
+    QTEST(s1, "result");
 
+    // Test when the string is shared
     QString s2 = string;
-    s2.replace( (uint) index, (uint) len, after.unicode(), after.size() );
-    QTEST( s2, "result" );
+    s2.replace((uint)index, (uint)len, after.unicode(), after.size());
+    QTEST(s2, "result");
+    // Test when it's not shared
+    s2 = string;
+    s2.detach();
+    s2.replace((uint)index, (uint)len, after.unicode(), after.size());
+    QTEST(s2, "result");
 
-    if ( after.size() == 1 ) {
+    if (after.size() == 1) {
+        // Test when the string is shared
         QString s3 = string;
-        s3.replace( (uint) index, (uint) len, QChar(after[0]) );
-        QTEST( s3, "result" );
+        s3.replace((uint)index, (uint)len, QChar(after[0]));
+        QTEST(s3, "result");
+        // Test when it's not shared
+        s3 = string;
+        s3.detach();
+        s3.replace((uint)index, (uint)len, QChar(after[0]));
+        QTEST(s3, "result");
 
 #if !defined(QT_NO_CAST_FROM_ASCII)
         // Testing replace(qsizetype, qsizetype, QLatin1Char) calls aren't ambiguous
@@ -3696,15 +4051,6 @@ void tst_QString::replace_string()
         s4.begin(); // Test when isShared() is false
         s4.replace(ch, after, cs);
         QCOMPARE(s4, result);
-
-#if !defined(QT_NO_CAST_FROM_ASCII)
-        // Test replace(QLatin1Char, after, cs) calls aren't ambiguous
-        if ( QChar(ch.toLatin1()) == ch ) {
-            QString s2 = string;
-            s2.replace( ch.toLatin1(), after, cs );
-            QCOMPARE(s2, result);
-        }
-#endif
     }
 
     QString s3 = string;
@@ -5939,24 +6285,23 @@ void tst_QString::arg()
 
     // ### Qt 7: clean this up, leave just the #else branch
 #if QT_VERSION < QT_VERSION_CHECK(6, 6, 0)
-    static const QRegularExpression nonAsciiArgWarning(
-            u"QString::arg\\(\\): the replacement \".*\" contains non-ASCII digits"_s);
+    static const QRegularExpression nonAsciiArgWarning("QString::arg\\(\\): the replacement \".*\" contains non-ASCII digits");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%¹"_s.arg(u"foo"), u"foo");
+    QCOMPARE( QString("%¹").arg("foo"), QString("foo") );
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%¹%1"_s.arg(u"foo"), u"foofoo");
+    QCOMPARE( QString("%¹%1").arg("foo"), QString("foofoo") );
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%1²"_s.arg(u"E=mc"), u"E=mc");
-    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%1²%2"_s.arg(u"a").arg(u"b"), u"ba");
+    QCOMPARE( QString("%1²").arg("E=mc"), QString("E=mc") );
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QCOMPARE( QString("%1²%2").arg("a").arg("b"), QString("ba") );
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%¹%1²%2"_s.arg(u"a").arg(u"b"), u"a%1²b");
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
     QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
-    QCOMPARE(u"%2²%1"_s.arg(u"a").arg(u"b"), u"ba");
+    QCOMPARE( QString("%¹%1²%2").arg("a").arg("b"), QString("a%1²b") );
+    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QTest::ignoreMessage(QtWarningMsg, nonAsciiArgWarning);
+    QCOMPARE( QString("%2²%1").arg("a").arg("b"), QString("ba") );
 #else
     QTest::ignoreMessage(QtWarningMsg, "QString::arg: Argument missing: %¹, foo");
     QCOMPARE(u"%¹"_s.arg(foo), u"%¹");
@@ -8426,7 +8771,6 @@ void tst_QString::removeIf()
     QString a;
 
     auto pred = [](const QChar &c) { return c.isLower(); };
-
     a.removeIf(pred);
     QVERIFY(a.isEmpty());
     QVERIFY(!a.isDetached());
@@ -8445,7 +8789,7 @@ void tst_QString::removeIf()
     QCOMPARE(a, u"ABCD");
     QCOMPARE(b, "aABbcCDd"_L1);
 
-    auto removeA = [](const QChar c) { return c == u'a' || c == u'A'; };
+    auto removeA = [](const char c) { return c == 'a' || c == 'A'; };
 
     a = "aBcAbCa"_L1; // Not shared
     QCOMPARE(a.removeIf(removeA), u"BcbC");

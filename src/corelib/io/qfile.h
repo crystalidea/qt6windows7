@@ -26,6 +26,34 @@ namespace std {
 
 QT_BEGIN_NAMESPACE
 
+#ifdef Q_OS_WIN
+
+#if QT_DEPRECATED_SINCE(6,6)
+QT_DEPRECATED_VERSION_X_6_6("Use QNtfsPermissionCheckGuard RAII class instead.")
+Q_CORE_EXPORT extern int qt_ntfs_permission_lookup;      // defined in qfilesystemengine_win.cpp
+#endif
+
+Q_CORE_EXPORT bool qEnableNtfsPermissionChecks() noexcept;
+Q_CORE_EXPORT bool qDisableNtfsPermissionChecks() noexcept;
+Q_CORE_EXPORT bool qAreNtfsPermissionChecksEnabled() noexcept;
+
+class QNtfsPermissionCheckGuard
+{
+    Q_DISABLE_COPY_MOVE(QNtfsPermissionCheckGuard)
+public:
+    Q_NODISCARD_CTOR
+    QNtfsPermissionCheckGuard()
+    {
+        qEnableNtfsPermissionChecks();
+    }
+
+    ~QNtfsPermissionCheckGuard()
+    {
+        qDisableNtfsPermissionChecks();
+    }
+};
+#endif // Q_OS_WIN
+
 #if QT_CONFIG(cxx17_filesystem)
 namespace QtPrivate {
 inline QString fromFilesystemPath(const std::filesystem::path &path)

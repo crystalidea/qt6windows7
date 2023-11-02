@@ -2417,16 +2417,12 @@ void QGraphicsScene::addItem(QGraphicsItem *item)
         return;
     }
 
-    // QDeclarativeItems do not rely on initial itemChanged message, as the componentComplete
-    // function allows far more opportunity for delayed-construction optimization.
-    if (!item->d_ptr->isDeclarativeItem) {
-        if (d->unpolishedItems.isEmpty()) {
-            QMetaMethod method = metaObject()->method(d->polishItemsIndex);
-            method.invoke(this, Qt::QueuedConnection);
-        }
-        d->unpolishedItems.append(item);
-        item->d_ptr->pendingPolish = true;
+    if (d->unpolishedItems.isEmpty()) {
+        QMetaMethod method = metaObject()->method(d->polishItemsIndex);
+        method.invoke(this, Qt::QueuedConnection);
     }
+    d->unpolishedItems.append(item);
+    item->d_ptr->pendingPolish = true;
 
     // Detach this item from its parent if the parent's scene is different
     // from this scene.
@@ -2888,7 +2884,7 @@ void QGraphicsScene::setFocusItem(QGraphicsItem *item, Qt::FocusReason focusReas
 
 /*!
     Returns \c true if the scene has focus; otherwise returns \c false. If the scene
-    has focus, it will will forward key events from QKeyEvent to any item that
+    has focus, it will forward key events from QKeyEvent to any item that
     has focus.
 
     \sa setFocus(), setFocusItem()

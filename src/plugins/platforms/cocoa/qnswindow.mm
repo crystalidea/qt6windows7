@@ -58,6 +58,15 @@ static bool isMouseEvent(NSEvent *ev)
 }
 @end
 
+
+NSWindow<QNSWindowProtocol> *qnswindow_cast(NSWindow *window)
+{
+    if ([window conformsToProtocol:@protocol(QNSWindowProtocol)])
+        return static_cast<QCocoaNSWindow *>(window);
+    else
+        return nil;
+}
+
 @implementation QNSWindow
 #define QNSWINDOW_PROTOCOL_IMPLMENTATION 1
 #include "qnswindow.mm"
@@ -216,6 +225,7 @@ static bool isMouseEvent(NSEvent *ev)
     m_platformWindow->setWindowFilePath(window->filePath()); // Also sets window icon
     m_platformWindow->setWindowState(window->windowState());
     m_platformWindow->setOpacity(window->opacity());
+    m_platformWindow->setVisible(window->isVisible());
 }
 
 - (NSString *)description

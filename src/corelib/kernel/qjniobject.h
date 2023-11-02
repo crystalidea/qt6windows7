@@ -436,14 +436,6 @@ private:
     void callVoidMethodV(JNIEnv *env, jmethodID id, ...) const;
     // ### Qt 7: merge into ... overload
     void callVoidMethodV(JNIEnv *env, jmethodID id, va_list args) const;
-    QJniObject callObjectMethodV(const char *methodName, const char *signature,
-                                 va_list args) const;
-
-    static QJniObject callStaticObjectMethodV(const char *className, const char *methodName,
-                                              const char *signature, va_list args);
-
-    static QJniObject callStaticObjectMethodV(jclass clazz, const char *methodName,
-                                              const char *signature, va_list args);
 
     bool isSameObject(jobject obj) const;
     bool isSameObject(const QJniObject &other) const;

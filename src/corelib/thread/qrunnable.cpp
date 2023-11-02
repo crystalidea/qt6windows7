@@ -3,10 +3,33 @@
 
 #include "qrunnable.h"
 
+#include <QtCore/qlogging.h>
+
 QT_BEGIN_NAMESPACE
 
 QRunnable::~QRunnable()
 {
+}
+
+/*!
+    \internal
+    Prints a warning and returns nullptr.
+*/
+QRunnable *QRunnable::warnNullCallable()
+{
+    qWarning("Trying to create null QRunnable. This may stop working.");
+    return nullptr;
+}
+
+
+QRunnable::QGenericRunnable::~QGenericRunnable()
+{
+    runHelper->destroy();
+}
+
+void QRunnable::QGenericRunnable::run()
+{
+    runHelper->run();
 }
 
 /*!
@@ -77,31 +100,20 @@ QRunnable::~QRunnable()
     \sa autoDelete(), QThreadPool
 */
 
-class FunctionRunnable : public QRunnable
-{
-    std::function<void()> m_functionToRun;
-public:
-    FunctionRunnable(std::function<void()> functionToRun) : m_functionToRun(std::move(functionToRun))
-    {
-    }
-    void run() override
-    {
-        m_functionToRun();
-    }
-};
-
 /*!
+    \fn template<typename Callable, if_callable<Callable>> QRunnable *QRunnable::create(Callable &&callableToRun);
     \since 5.15
 
-    Creates a QRunnable that calls \a functionToRun in run().
+    Creates a QRunnable that calls \a callableToRun in run().
 
     Auto-deletion is enabled by default.
 
+    \note This function participates in overload resolution only if \c Callable
+    is a function or function object which can be called with zero arguments.
+
+    \note In Qt versions prior to 6.6, this method took copyable functions only.
+
     \sa run(), autoDelete()
 */
-QRunnable *QRunnable::create(std::function<void()> functionToRun)
-{
-    return new FunctionRunnable(std::move(functionToRun));
-}
 
 QT_END_NAMESPACE

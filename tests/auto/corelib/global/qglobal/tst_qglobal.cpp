@@ -10,7 +10,48 @@
 #include <QString>
 #include <QtVersion>
 
+#include <array>
 #include <cmath>
+
+QT_BEGIN_NAMESPACE
+namespace QTest {
+#ifdef QT_SUPPORTS_INT128
+namespace detail {
+    char *i128ToStringHelper(std::array<char, 64> &buffer, quint128 n)
+    {
+        auto dst = buffer.data() + buffer.size();
+        *--dst = '\0'; // NUL-terminate
+        if (n == 0) {
+            *--dst = '0'; // and done
+        } else {
+            while (n != 0) {
+                *--dst = "0123456789"[n % 10];
+                n /= 10;
+            }
+        }
+        return dst;
+    }
+}
+template <>
+char *toString(const qint128 &i)
+{
+    if (i == std::numeric_limits<qint128>::min()) // -i is not representable, hardcode:
+        return qstrdup("-170141183460469231731687303715884105728");
+    std::array<char, 64> buffer;
+    auto dst = detail::i128ToStringHelper(buffer, i < 0 ? -i : i);
+    if (i < 0)
+        *--dst = '-';
+    return qstrdup(dst);
+}
+template <>
+char *toString(const quint128 &i)
+{
+    std::array<char, 64> buffer;
+    return qstrdup(detail::i128ToStringHelper(buffer, i));
+}
+#endif // QT_SUPPORTS_INT128
+} // namespace QTest
+QT_END_NAMESPACE
 
 class tst_QGlobal: public QObject
 {
@@ -28,6 +69,7 @@ private slots:
     void qCoreAppStartupFunction();
     void qCoreAppStartupFunctionRestart();
     void integerForSize();
+    void int128Literals();
     void buildAbiEndianness();
     void testqOverload();
     void testqMinMax();
@@ -37,12 +79,19 @@ private slots:
     void qRoundDoubles();
     void PRImacros();
     void testqToUnderlying();
+    void nodiscardConstructor();
 };
 
 extern "C" {        // functions in qglobal.c
 void tst_GlobalTypes();
 int tst_QtVersion();
 const char *tst_qVersion();
+#if QT_SUPPORTS_INT128
+qint128 tst_qint128_min();
+qint128 tst_qint128_max();
+quint128 tst_quint128_max();
+#endif
+
 }
 
 void tst_QGlobal::cMode()
@@ -421,11 +470,166 @@ void tst_QGlobal::integerForSize()
     static_assert(sizeof(QIntegerForSize<2>::Signed) == 2);
     static_assert(sizeof(QIntegerForSize<4>::Signed) == 4);
     static_assert(sizeof(QIntegerForSize<8>::Signed) == 8);
+#ifdef QT_SUPPORTS_INT128
+    static_assert(sizeof(QIntegerForSize<16>::Signed) == 16);
+#endif
 
     static_assert(sizeof(QIntegerForSize<1>::Unsigned) == 1);
     static_assert(sizeof(QIntegerForSize<2>::Unsigned) == 2);
     static_assert(sizeof(QIntegerForSize<4>::Unsigned) == 4);
     static_assert(sizeof(QIntegerForSize<8>::Unsigned) == 8);
+#ifdef QT_SUPPORTS_INT128
+    static_assert(sizeof(QIntegerForSize<16>::Unsigned) == 16);
+#endif
+}
+
+void tst_QGlobal::int128Literals()
+{
+#ifdef QT_SUPPORTS_INT128
+#define COMPARE_EQ(lhs, rhs, Expected128) do { \
+        constexpr auto lhs_ = lhs; \
+        static_assert(std::is_same_v<std::remove_cv_t<decltype(lhs_)>, Expected128>); \
+        QCOMPARE_EQ(lhs_, rhs); \
+    } while (0)
+    COMPARE_EQ(Q_INT128_MIN, std::numeric_limits<qint128>::min(), qint128);
+    COMPARE_EQ(Q_INT128_MAX, std::numeric_limits<qint128>::max(), qint128);
+    COMPARE_EQ(Q_UINT128_MAX, std::numeric_limits<quint128>::max(), quint128);
+    QCOMPARE_EQ(tst_qint128_min(), Q_INT128_MIN);
+    QCOMPARE_EQ(tst_qint128_max(), Q_INT128_MAX);
+    QCOMPARE_EQ(tst_quint128_max(), Q_UINT128_MAX);
+    {
+        #define CHECK_S(x) COMPARE_EQ(Q_INT128_C(x), Q_INT64_C(x), qint128)
+        #define CHECK_U(x) COMPARE_EQ(Q_UINT128_C(x), Q_UINT64_C(x), quint128);
+        #define CHECK(x) do { CHECK_S(x); CHECK_U(x); } while (0)
+        // basics:
+        CHECK(0);
+        CHECK(1);
+        CHECK_S(-1);
+        QCOMPARE_EQ(Q_INT64_C(9223372036854775807), std::numeric_limits<qint64>::max());
+        CHECK(9223372036854775807); // LLONG_MAX
+        // Q_INT64_C(-9223372036854775808) gives -Wimplicitly-unsigned-literal on GCC, so use numeric_limits:
+        {
+            constexpr auto i = Q_INT128_C(-9223372036854775808); // LLONG_MIN
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint64>::min());
+        }
+        // actual 128-bit numbers
+        {
+            constexpr auto i = Q_INT128_C( 9223372036854775808); // LLONG_MAX + 1
+            constexpr auto u = Q_UINT128_C(9223372036854775808); // LLONG_MAX + 1
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, qint128{ std::numeric_limits<qint64>::max()} + 1);
+            QCOMPARE_EQ(u, quint128{std::numeric_limits<qint64>::max()} + 1);
+        }
+        {
+            constexpr auto i = Q_INT128_C(-9223372036854775809); // LLONG_MIN - 1
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            QCOMPARE_EQ(i, qint128{std::numeric_limits<qint64>::min()} - 1);
+        }
+        {
+            constexpr auto i = Q_INT128_C( 18446744073709551616); // ULLONG_MAX + 1
+            constexpr auto u = Q_UINT128_C(18446744073709551616);
+            constexpr auto expected = qint128{1} << 64;
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(expected), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, expected);
+            QCOMPARE_EQ(u, quint128{expected});
+        }
+        {
+            // compilers don't let one write signed _MIN literals, so use MIN + 1:
+            // Q_INT128_C(-170141183460469231731687303715884105728) gives
+            //   ERROR: ~~~ outside range of representable values of type qint128
+            // This is because the unary minus is technically speaking not part of
+            // the literal, but called on the result of the literal.
+            constexpr auto i = Q_INT128_C(-170141183460469231731687303715884105727); // 128-bit MIN + 1
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint128>::min() + 1);
+        }
+        {
+            constexpr auto i = Q_INT128_C( 170141183460469231731687303715884105727); // MAX
+            constexpr auto u = Q_UINT128_C(340282366920938463463374607431768211455); // UMAX
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint128>::max());
+            QCOMPARE_EQ(u, std::numeric_limits<quint128>::max());
+            QCOMPARE_EQ(u, Q_UINT128_C(-1));
+        }
+
+        // binary literals:
+        CHECK(0b0);
+        CHECK(0b1);
+        CHECK_S(-0b1);
+        CHECK(0b01);
+        CHECK(0b10);
+        CHECK(0b1'1); // with digit separator
+        CHECK(0b0111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111);
+        //bytes |---1---| |---2---| |---3---| |---4---| |---5---| |---6---| |---7---| |---8---|
+        {
+            //                        bytes: |---1---| |---2---| |---3---| |---4---| |---5---| |---6---| |---7---| |---8---| |---9---| |--10---| |--11---| |--12---| |--13---| |--14---| |--15---| |--16---|
+            constexpr auto i = Q_INT128_C( 0b0111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111);
+            constexpr auto u = Q_UINT128_C(0b1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111'1111);
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint128>::max());
+            QCOMPARE_EQ(u, std::numeric_limits<quint128>::max());
+            QCOMPARE_EQ(u, Q_UINT128_C(-0b1));
+        }
+
+        // octal literals:
+        CHECK(00);
+        CHECK(01);
+        CHECK(02);
+        CHECK(03);
+        CHECK(04);
+        CHECK(05);
+        CHECK(06);
+        CHECK(07);
+        CHECK_S(-01);
+        CHECK(010);
+        CHECK_S(-01'0); // with digit separator
+        CHECK(07'7777'7777'7777'7777'7777); // LLONG_MAX
+        {
+            //                        bits: 120| 108|  96|  84|  72|  60|  48|  36|  24|  12|   0|
+            constexpr auto i = Q_INT128_C( 0177'7777'7777'7777'7777'7777'7777'7777'7777'7777'7777);
+            constexpr auto u = Q_UINT128_C(0377'7777'7777'7777'7777'7777'7777'7777'7777'7777'7777);
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint128>::max());
+            QCOMPARE_EQ(u, std::numeric_limits<quint128>::max());
+            QCOMPARE_EQ(u, Q_UINT128_C(-01));
+        }
+
+        // hex literals:
+        CHECK(0x0);
+        CHECK(0x1);
+        CHECK(0x9);
+        CHECK(0xA);
+        CHECK(0xB);
+        CHECK(0xC);
+        CHECK(0xD);
+        CHECK(0xE);
+        CHECK(0x0F);
+        CHECK(0x10);
+        CHECK_S(-0x1);
+        CHECK_S(-0x1'0); // with digit separator
+        CHECK(0x7FFF'FFFF'FFFF'FFFF);
+        {
+            constexpr auto i = Q_INT128_C( 0x7FFF'FFFF'FFFF'FFFF'FFFF'FFFF'FFFF'FFFF);
+            constexpr auto u = Q_UINT128_C(0xFFFF'FFFF'FFFF'FFFF'FFFF'FFFF'FFFF'FFFF);
+            static_assert(std::is_same_v<decltype(i), const qint128>);
+            static_assert(std::is_same_v<decltype(u), const quint128>);
+            QCOMPARE_EQ(i, std::numeric_limits<qint128>::max());
+            QCOMPARE_EQ(u, std::numeric_limits<quint128>::max());
+            QCOMPARE_EQ(Q_UINT128_C(-1), u);
+        }
+    #undef CHECK
+    }
+#undef COMPARE_EQ
+#else
+    QSKIP("This test requires 128-bit integer support enabled in the compiler.");
+#endif
 }
 
 typedef QPair<const char *, const char *> stringpair;
@@ -689,6 +893,26 @@ void tst_QGlobal::testqToUnderlying()
     static_assert(std::is_same_v<decltype(qToUnderlying(EE1)), unsigned long>);
     QCOMPARE(qToUnderlying(EE1), 123UL);
     QCOMPARE(qToUnderlying(EE2), 456UL);
+}
+
+void tst_QGlobal::nodiscardConstructor()
+{
+    // Syntax-only test, just to make sure that Q_NODISCARD_CTOR compiles
+    // on all platforms.
+    // Other code is just to silence all various compiler warnings about
+    // unused private members or methods.
+    class Test {
+    public:
+        Q_NODISCARD_CTOR explicit Test(int val) : m_val(val) {}
+
+        int get() const { return m_val; }
+
+    private:
+        int m_val;
+    };
+
+    Test t{42};
+    QCOMPARE(t.get(), 42);
 }
 
 QTEST_APPLESS_MAIN(tst_QGlobal)

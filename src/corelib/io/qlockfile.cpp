@@ -60,7 +60,7 @@ static QString machineName()
     When protecting for a short-term operation, it is acceptable to call lock() and wait
     until any running operation finishes.
     When protecting a resource over a long time, however, the application should always
-    call setStaleLockTime(0) and then tryLock() with a short timeout, in order to
+    call setStaleLockTime(0ms) and then tryLock() with a short timeout, in order to
     warn the user that the resource is locked.
 
     If the process holding the lock crashes, the lock file stays on disk and can prevent
@@ -138,20 +138,24 @@ QString QLockFile::fileName() const
     meanwhile, so one way to detect a stale lock file is by the fact that
     it has been around for a long time.
 
+    This is an overloaded function, equivalent to calling:
+    \code
+    setStaleLockTime(std::chrono::milliseconds{staleLockTime});
+    \endcode
+
     \sa staleLockTime()
 */
 void QLockFile::setStaleLockTime(int staleLockTime)
 {
-    Q_D(QLockFile);
-    d->staleLockTime = staleLockTime;
+    setStaleLockTime(std::chrono::milliseconds{staleLockTime});
 }
 
-/*! \fn void QLockFile::setStaleLockTime(std::chrono::milliseconds value)
-    \overload
+/*!
     \since 6.2
 
-    Sets the interval after which a lock file is considered stale to \a value.
-    The default value is 30 seconds.
+    Sets the interval after which a lock file is considered stale to \a staleLockTime.
+    The default value is 30s.
+
     If your application typically keeps the file locked for more than 30 seconds
     (for instance while saving megabytes of data for 2 minutes), you should set
     a bigger value using setStaleLockTime().
@@ -164,6 +168,11 @@ void QLockFile::setStaleLockTime(int staleLockTime)
 
     \sa staleLockTime()
 */
+void QLockFile::setStaleLockTime(std::chrono::milliseconds staleLockTime)
+{
+    Q_D(QLockFile);
+    d->staleLockTime = staleLockTime;
+}
 
 /*!
     Returns the time in milliseconds after which
@@ -173,8 +182,7 @@ void QLockFile::setStaleLockTime(int staleLockTime)
 */
 int QLockFile::staleLockTime() const
 {
-    Q_D(const QLockFile);
-    return d->staleLockTime;
+    return int(staleLockTimeAsDuration().count());
 }
 
 /*! \fn std::chrono::milliseconds QLockFile::staleLockTimeAsDuration() const
@@ -186,6 +194,11 @@ int QLockFile::staleLockTime() const
 
     \sa setStaleLockTime()
 */
+std::chrono::milliseconds QLockFile::staleLockTimeAsDuration() const
+{
+    Q_D(const QLockFile);
+    return d->staleLockTime;
+}
 
 /*!
     Returns \c true if the lock was acquired by this QLockFile instance,
@@ -216,7 +229,7 @@ bool QLockFile::isLocked() const
 */
 bool QLockFile::lock()
 {
-    return tryLock(-1);
+    return tryLock(std::chrono::milliseconds::max());
 }
 
 /*!
@@ -241,48 +254,10 @@ bool QLockFile::lock()
 */
 bool QLockFile::tryLock(int timeout)
 {
-    Q_D(QLockFile);
-    QDeadlineTimer timer(qMax(timeout, -1));    // QDT only takes -1 as "forever"
-    int sleepTime = 100;
-    forever {
-        d->lockError = d->tryLock_sys();
-        switch (d->lockError) {
-        case NoError:
-            d->isLocked = true;
-            return true;
-        case PermissionError:
-        case UnknownError:
-            return false;
-        case LockFailedError:
-            if (!d->isLocked && d->isApparentlyStale()) {
-                if (Q_UNLIKELY(QFileInfo(d->fileName).lastModified() > QDateTime::currentDateTimeUtc()))
-                    qInfo("QLockFile: Lock file '%ls' has a modification time in the future", qUtf16Printable(d->fileName));
-                // Stale lock from another thread/process
-                // Ensure two processes don't remove it at the same time
-                QLockFile rmlock(d->fileName + ".rmlock"_L1);
-                if (rmlock.tryLock()) {
-                    if (d->isApparentlyStale() && d->removeStaleLock())
-                        continue;
-                }
-            }
-            break;
-        }
-
-        int remainingTime = timer.remainingTime();
-        if (remainingTime == 0)
-            return false;
-        else if (uint(sleepTime) > uint(remainingTime))
-            sleepTime = remainingTime;
-
-        QThread::msleep(sleepTime);
-        if (sleepTime < 5 * 1000)
-            sleepTime *= 2;
-    }
-    // not reached
-    return false;
+    return tryLock(std::chrono::milliseconds{ timeout });
 }
 
-/*! \fn bool QLockFile::tryLock(std::chrono::milliseconds timeout)
+/*!
     \overload
     \since 6.2
 
@@ -300,6 +275,54 @@ bool QLockFile::tryLock(int timeout)
 
     \sa lock(), unlock()
 */
+bool QLockFile::tryLock(std::chrono::milliseconds timeout)
+{
+    using namespace std::chrono_literals;
+    using Msec = std::chrono::milliseconds;
+
+    Q_D(QLockFile);
+
+    QDeadlineTimer timer(timeout < 0ms ? Msec::max() : timeout);
+
+    Msec sleepTime = 100ms;
+    while (true) {
+        d->lockError = d->tryLock_sys();
+        switch (d->lockError) {
+        case NoError:
+            d->isLocked = true;
+            return true;
+        case PermissionError:
+        case UnknownError:
+            return false;
+        case LockFailedError:
+            if (!d->isLocked && d->isApparentlyStale()) {
+                if (Q_UNLIKELY(QFileInfo(d->fileName).lastModified(QTimeZone::UTC) > QDateTime::currentDateTimeUtc()))
+                    qInfo("QLockFile: Lock file '%ls' has a modification time in the future", qUtf16Printable(d->fileName));
+                // Stale lock from another thread/process
+                // Ensure two processes don't remove it at the same time
+                QLockFile rmlock(d->fileName + ".rmlock"_L1);
+                if (rmlock.tryLock()) {
+                    if (d->isApparentlyStale() && d->removeStaleLock())
+                        continue;
+                }
+            }
+            break;
+        }
+
+        auto remainingTime = std::chrono::duration_cast<Msec>(timer.remainingTimeAsDuration());
+        if (remainingTime == 0ms)
+            return false;
+
+        if (sleepTime > remainingTime)
+            sleepTime = remainingTime;
+
+        QThread::sleep(sleepTime);
+        if (sleepTime < 5s)
+            sleepTime *= 2;
+    }
+    // not reached
+    return false;
+}
 
 /*!
     \fn void QLockFile::unlock()
@@ -413,8 +436,10 @@ bool QLockFilePrivate::isApparentlyStale() const
         }
     }
 
-    const qint64 age = QFileInfo(fileName).lastModified().msecsTo(QDateTime::currentDateTimeUtc());
-    return staleLockTime > 0 && qAbs(age) > staleLockTime;
+    const QDateTime lastMod = QFileInfo(fileName).lastModified(QTimeZone::UTC);
+    using namespace std::chrono;
+    const milliseconds age{lastMod.msecsTo(QDateTime::currentDateTimeUtc())};
+    return staleLockTime > 0ms && abs(age) > staleLockTime;
 }
 
 /*!

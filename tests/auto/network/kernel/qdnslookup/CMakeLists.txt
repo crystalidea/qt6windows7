@@ -12,3 +12,8 @@ qt_internal_add_test(tst_qdnslookup
         Qt::Network
         Qt::TestPrivate
 )
+
+qt_internal_extend_target(tst_qdnslookup CONDITION WIN32
+    LIBRARIES
+        iphlpapi
+)

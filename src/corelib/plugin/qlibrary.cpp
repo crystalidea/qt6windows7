@@ -16,7 +16,7 @@
 #include <qoperatingsystemversion.h>
 #include <qstringlist.h>
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_DARWIN
 #  include <private/qcore_mac_p.h>
 #endif
 #include <private/qcoreapplication_p.h>
@@ -712,7 +712,7 @@ void QLibraryPrivate::updatePluginState()
 
     bool success = false;
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
     if (fileName.endsWith(".debug"_L1)) {
         // refuse to load a file that ends in .debug
         // these are the debug symbols from the libraries
@@ -836,13 +836,17 @@ bool QLibrary::unload()
 }
 
 /*!
-    Returns \c true if the library is loaded; otherwise returns \c false.
+    Returns \c true if load() succeeded; otherwise returns \c false.
+
+    \note Prior to Qt 6.6, this function would return \c true even without a
+    call to load() if another QLibrary object on the same library had caused it
+    to be loaded.
 
     \sa load()
  */
 bool QLibrary::isLoaded() const
 {
-    return d && d->pHnd.loadRelaxed();
+    return d.tag() == Loaded;
 }
 
 
@@ -979,8 +983,7 @@ void QLibrary::setFileNameAndVersion(const QString &fileName, const QString &ver
         d->release();
     }
     QLibraryPrivate *dd = QLibraryPrivate::findOrCreate(fileName, version, lh);
-    d = dd;
-    d.setTag(isLoaded() ? Loaded : NotLoaded);
+    d = QTaggedPointer(dd, NotLoaded);      // we haven't load()ed
 }
 
 /*!

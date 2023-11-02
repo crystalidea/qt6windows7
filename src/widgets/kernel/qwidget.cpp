@@ -1328,7 +1328,13 @@ void QWidgetPrivate::create()
     }
 #endif
 
+    // Android doesn't allow to re-use the backing store.
+    // => force creation of a new one.
+#ifdef Q_OS_ANDROID
+    QBackingStore *store = nullptr;
+#else
     QBackingStore *store = q->backingStore();
+#endif
     usesRhiFlush = false;
 
     if (!store) {
@@ -6950,6 +6956,30 @@ bool QWidget::isActiveWindow() const
 }
 
 /*!
+    \fn void QWidget::setTabOrder(std::initializer_list<QWidget *> widgets)
+    \overload
+    \since 6.6
+
+    Sets the tab order for the widgets in the \a widgets list by calling
+    \l{QWidget::setTabOrder(QWidget *, QWidget *)} for each consecutive
+    pair of widgets.
+
+    Instead of setting up each pair manually like this:
+
+    \snippet code/src_gui_kernel_qwidget.cpp 9
+
+    you can call:
+
+    \snippet code/src_gui_kernel_qwidget.cpp 9.list
+
+    The call does not create a closed tab focus loop. If there are more widgets
+    with \l{Qt::TabFocus} focus policy, tabbing on \c{d} will move focus to one
+    of those widgets, not back to \c{a}.
+
+    \sa setFocusPolicy(), setFocusProxy(), {Keyboard Focus in Widgets}
+*/
+
+/*!
     Puts the \a second widget after the \a first widget in the focus order.
 
     It effectively removes the \a second widget from its focus chain and
@@ -7060,6 +7090,20 @@ void QWidget::setTabOrder(QWidget* first, QWidget *second)
         setNext(lastFocusChildOfSecond, oldNext);
     }
 }
+
+void QWidget::setTabOrder(std::initializer_list<QWidget *> widgets)
+{
+    QWidget *prev = nullptr;
+    for (const auto &widget : widgets) {
+        if (!prev) {
+            prev = widget;
+        } else {
+            QWidget::setTabOrder(prev, widget);
+            prev = widget;
+        }
+    }
+}
+
 
 /*!\internal
 
@@ -9356,6 +9400,8 @@ bool QWidget::event(QEvent *event)
             const QWindow *win = te->window;
             d->setWinId((win && win->handle()) ? win->handle()->winId() : 0);
         }
+        break;
+    case QEvent::DevicePixelRatioChange:
         if (d->data.fnt.d->dpi != logicalDpiY())
             d->updateFont(d->data.fnt);
         d->renderToTextureReallyDirty = 1;
@@ -10630,7 +10676,7 @@ void QWidget::setParent(QWidget *parent)
     setParent((QWidget*)parent, windowFlags() & ~Qt::WindowType_Mask);
 }
 
-static void sendWindowChangeToTextureChildrenRecursively(QWidget *widget, QEvent::Type eventType)
+void qSendWindowChangeToTextureChildrenRecursively(QWidget *widget, QEvent::Type eventType)
 {
     QWidgetPrivate *d = QWidgetPrivate::get(widget);
     if (d->renderToTexture) {
@@ -10641,7 +10687,7 @@ static void sendWindowChangeToTextureChildrenRecursively(QWidget *widget, QEvent
     for (int i = 0; i < d->children.size(); ++i) {
         QWidget *w = qobject_cast<QWidget *>(d->children.at(i));
         if (w && !w->isWindow() && QWidgetPrivate::get(w)->textureChildSeen)
-            sendWindowChangeToTextureChildrenRecursively(w, eventType);
+            qSendWindowChangeToTextureChildrenRecursively(w, eventType);
     }
 }
 
@@ -10703,7 +10749,7 @@ void QWidget::setParent(QWidget *parent, Qt::WindowFlags f)
     // texture-based widgets need a pre-notification when their associated top-level window changes
     // This is not under the wasCreated/newParent conditions above in order to also play nice with QDockWidget.
     if (d->textureChildSeen && ((!parent && parentWidget()) || (parent && parent->window() != oldtlw)))
-        sendWindowChangeToTextureChildrenRecursively(this, QEvent::WindowAboutToChangeInternal);
+        qSendWindowChangeToTextureChildrenRecursively(this, QEvent::WindowAboutToChangeInternal);
 
     // If we get parented into another window, children will be folded
     // into the new parent's focus chain, so clear focus now.
@@ -10784,7 +10830,7 @@ void QWidget::setParent(QWidget *parent, Qt::WindowFlags f)
     // texture-based widgets need another event when their top-level window
     // changes (more precisely, has already changed at this point)
     if (d->textureChildSeen && oldtlw != window())
-        sendWindowChangeToTextureChildrenRecursively(this, QEvent::WindowChangeInternal);
+        qSendWindowChangeToTextureChildrenRecursively(this, QEvent::WindowChangeInternal);
 
     if (!wasCreated) {
         if (isWindow() || parentWidget()->isVisible())

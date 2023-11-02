@@ -2,9 +2,7 @@
 // Copyright (C) 2016 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#ifndef QGLOBAL_H
-# include <QtCore/qglobal.h>
-#endif
+#include <QtCore/qsystemdetection.h>
 
 #if 0
 #pragma qt_class(QtCompilerDetection)
@@ -179,7 +177,7 @@
 #  ifdef Q_OS_WIN
 #    define Q_DECL_EXPORT     __declspec(dllexport)
 #    define Q_DECL_IMPORT     __declspec(dllimport)
-#  elif defined(QT_VISIBILITY_AVAILABLE)
+#  else
 #    define Q_DECL_EXPORT_OVERRIDABLE __attribute__((visibility("default"), weak))
 #    ifdef QT_USE_PROTECTED_VISIBILITY
 #      define Q_DECL_EXPORT     __attribute__((visibility("protected")))
@@ -513,8 +511,7 @@
  * For library features, we assume <version> is present (this header includes it).
  *
  * For a full listing of feature test macros, see
- *  https://isocpp.org/std/standing-documents/sd-6-sg10-feature-test-recommendations (by macro)
- *  https://en.cppreference.com/w/User:D41D8CD98F/feature_testing_macros       (by C++ version)
+ *  https://en.cppreference.com/w/cpp/feature_test
  *
  * C++ extensions:
  *  Q_COMPILER_RESTRICTED_VLA       variable-length arrays, prior to __cpp_runtime_arrays
@@ -548,7 +545,8 @@
 #  endif
 
 /* C++11 features, see http://clang.llvm.org/cxx_status.html */
-#  if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__)
+#  if (defined(__cplusplus) && __cplusplus >= 201103L) \
+      || defined(__GXX_EXPERIMENTAL_CXX0X__)
     /* Detect C++ features using __has_feature(), see http://clang.llvm.org/docs/LanguageExtensions.html#cxx11 */
 #    if __has_feature(cxx_alignas)
 #      define Q_COMPILER_ALIGNAS
@@ -646,10 +644,10 @@
 #    if Q_CC_CLANG >= 209 /* since clang 2.9 */
 #      define Q_COMPILER_EXTERN_TEMPLATES
 #    endif
-#  endif
+#  endif // (defined(__cplusplus) && __cplusplus >= 201103L) || defined(__GXX_EXPERIMENTAL_CXX0X__)
 
 /* C++1y features, deprecated macros. Do not update this list. */
-#  if __cplusplus > 201103L
+#  if defined(__cplusplus) && __cplusplus > 201103L
 //#    if __has_feature(cxx_binary_literals)
 //#      define Q_COMPILER_BINARY_LITERALS  // see above
 //#    endif
@@ -671,7 +669,7 @@
 #    if __has_feature(cxx_runtime_array)
 #      define Q_COMPILER_VLA
 #    endif
-#  endif
+#  endif // if defined(__cplusplus) && __cplusplus > 201103L
 
 #  if defined(__STDC_VERSION__)
 #    if __has_feature(c_static_assert)
@@ -895,7 +893,7 @@
 #   endif // !_HAS_CONSTEXPR
 #  endif // !__GLIBCXX__ && !_LIBCPP_VERSION
 # endif // Q_OS_QNX
-# if defined(Q_CC_CLANG) && defined(Q_OS_MAC)
+# if defined(Q_CC_CLANG) && defined(Q_OS_DARWIN)
 #  if defined(__GNUC_LIBSTD__) && ((__GNUC_LIBSTD__-0) * 100 + __GNUC_LIBSTD_MINOR__-0 <= 402)
 // Apple has not updated libstdc++ since 2007, which means it does not have
 // <initializer_list> or std::move. Let's disable these features
@@ -956,6 +954,13 @@
 #  define Q_REQUIRED_RESULT [[nodiscard]]
 #endif
 
+#if __has_cpp_attribute(nodiscard) >= 201907L /* used for both P1771 and P1301... */
+// [[nodiscard]] constructor (P1771)
+#  ifndef Q_NODISCARD_CTOR
+#    define Q_NODISCARD_CTOR [[nodiscard]]
+#  endif
+#endif
+
 #if __has_cpp_attribute(maybe_unused)
 #  undef Q_DECL_UNUSED
 #  define Q_DECL_UNUSED [[maybe_unused]]
@@ -1004,6 +1009,9 @@
 #endif
 #ifndef Q_REQUIRED_RESULT
 #  define Q_REQUIRED_RESULT
+#endif
+#ifndef Q_NODISCARD_CTOR
+#  define Q_NODISCARD_CTOR
 #endif
 #ifndef Q_DECL_DEPRECATED
 #  define Q_DECL_DEPRECATED
@@ -1367,6 +1375,20 @@ QT_WARNING_DISABLE_MSVC(4530) /* C++ exception handler used, but unwind semantic
 #    define QT_NO_EXCEPTIONS
 #  endif
 #endif
+
+#if defined(__cplusplus) && __cplusplus >= 202002L // P0846 doesn't have a feature macro :/
+#  define QT_COMPILER_HAS_P0846
+#endif
+
+#ifdef QT_COMPILER_HAS_P0846
+#   define QT_ENABLE_P0846_SEMANTICS_FOR(func)
+#else
+    class QT_CLASS_JUST_FOR_P0846_SIMULATION;
+#   define QT_ENABLE_P0846_SEMANTICS_FOR(func) \
+        template <typename T> \
+        void func (QT_CLASS_JUST_FOR_P0846_SIMULATION *); \
+        /* end */
+#endif // !P0846
 
 #endif // __cplusplus
 

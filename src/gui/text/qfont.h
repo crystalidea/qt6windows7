@@ -4,10 +4,10 @@
 #ifndef QFONT_H
 #define QFONT_H
 
+#include <QtCore/qshareddata.h>
 #include <QtGui/qtguiglobal.h>
 #include <QtGui/qwindowdefs.h>
 #include <QtCore/qstring.h>
-#include <QtCore/qsharedpointer.h>
 
 
 QT_BEGIN_NAMESPACE
@@ -126,7 +126,8 @@ public:
         HintingPreferenceResolved   = 0x8000,
         StyleNameResolved           = 0x10000,
         FamiliesResolved            = 0x20000,
-        AllPropertiesResolved       = 0x3ffff
+        FeaturesResolved            = 0x40000,
+        AllPropertiesResolved       = 0x7ffff
     };
     Q_ENUM(ResolveProperties)
 
@@ -205,6 +206,20 @@ public:
 
     void setHintingPreference(HintingPreference hintingPreference);
     HintingPreference hintingPreference() const;
+
+    // Note: The following set of APIs are preliminary and may change in future releases
+    void setFeature(const char *feature, quint32 value);
+    void setFeature(quint32 tag, quint32 value);
+    void unsetFeature(quint32 tag);
+    void unsetFeature(const char *feature);
+    quint32 featureValue(quint32 tag) const;
+    bool isFeatureSet(quint32 tag) const;
+    QList<quint32> featureTags() const;
+    void clearFeatures();
+
+    static QByteArray tagToString(quint32 tag);
+    static quint32 stringToTag(const char *tagString);
+    // --
 
     // dupicated from QFontInfo
     bool exactMatch() const;

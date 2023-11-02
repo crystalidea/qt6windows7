@@ -303,6 +303,15 @@ int QMetaType::idHelper() const
     return registerHelper(d_ptr);
 }
 
+#if QT_CONFIG(sharedmemory)
+#include "qsharedmemory.h"
+
+void QSharedMemory::setNativeKey(const QString &key)
+{
+    setNativeKey(key, QNativeIpcKey::legacyDefaultTypeForOs());
+}
+#endif
+
 #include "qvariant.h"
 
 // these implementations aren't as efficient as they used to be prior to
@@ -474,3 +483,135 @@ void QXmlStreamWriter::writeStartElement(const QString &namespaceUri, const QStr
 // order sections alphabetically to reduce chances of merge conflicts
 
 #endif // QT_CORE_REMOVED_SINCE(6, 5)
+
+#if QT_CORE_REMOVED_SINCE(6, 6)
+
+#include "qmessageauthenticationcode.h"
+
+QMessageAuthenticationCode::QMessageAuthenticationCode(QCryptographicHash::Algorithm method,
+                                                       const QByteArray &key)
+    : QMessageAuthenticationCode(method, qToByteArrayViewIgnoringNull(key)) {}
+
+void QMessageAuthenticationCode::setKey(const QByteArray &key)
+{
+    setKey(qToByteArrayViewIgnoringNull(key));
+}
+
+void QMessageAuthenticationCode::addData(const QByteArray &data)
+{
+    addData(qToByteArrayViewIgnoringNull(data));
+}
+
+QByteArray QMessageAuthenticationCode::hash(const QByteArray &msg, const QByteArray &key,
+                                            QCryptographicHash::Algorithm method)
+{
+    return hash(qToByteArrayViewIgnoringNull(msg),
+                qToByteArrayViewIgnoringNull(key), method);
+}
+
+#include "qobject.h" // inlined API
+
+#include "qrunnable.h"
+
+QRunnable *QRunnable::create(std::function<void()> functionToRun)
+{
+    return QRunnable::create<std::function<void()>>(std::move(functionToRun));
+}
+
+#include "qstring.h"
+
+qsizetype QString::toUcs4_helper(const ushort *uc, qsizetype length, uint *out)
+{
+    return toUcs4_helper(reinterpret_cast<const char16_t *>(uc), length,
+                         reinterpret_cast<char32_t *>(out));
+}
+
+#if QT_CONFIG(thread)
+#include "qreadwritelock.h"
+
+bool QReadWriteLock::tryLockForRead()
+{
+    return tryLockForRead(0);
+}
+
+bool QReadWriteLock::tryLockForWrite()
+{
+    return tryLockForWrite(0);
+}
+
+#include "qthreadpool.h"
+#include "private/qthreadpool_p.h"
+
+void QThreadPool::start(std::function<void()> functionToRun, int priority)
+{
+    if (!functionToRun)
+        return;
+    start(QRunnable::create(std::move(functionToRun)), priority);
+}
+
+bool QThreadPool::tryStart(std::function<void()> functionToRun)
+{
+    if (!functionToRun)
+        return false;
+
+    Q_D(QThreadPool);
+    QMutexLocker locker(&d->mutex);
+    if (!d->allThreads.isEmpty() && d->areAllThreadsActive())
+        return false;
+
+    QRunnable *runnable = QRunnable::create(std::move(functionToRun));
+    if (d->tryStart(runnable))
+        return true;
+    delete runnable;
+    return false;
+}
+
+void QThreadPool::startOnReservedThread(std::function<void()> functionToRun)
+{
+    if (!functionToRun)
+        return releaseThread();
+
+    startOnReservedThread(QRunnable::create(std::move(functionToRun)));
+}
+
+#endif // QT_CONFIG(thread)
+
+#include "qxmlstream.h"
+
+QStringView QXmlStreamAttributes::value(const QString &namespaceUri, const QString &name) const
+{
+    return value(qToAnyStringViewIgnoringNull(namespaceUri), qToAnyStringViewIgnoringNull(name));
+}
+
+QStringView QXmlStreamAttributes::value(const QString &namespaceUri, QLatin1StringView name) const
+{
+    return value(qToAnyStringViewIgnoringNull(namespaceUri), QAnyStringView(name));
+}
+
+QStringView QXmlStreamAttributes::value(QLatin1StringView namespaceUri, QLatin1StringView name) const
+{
+    return value(QAnyStringView(namespaceUri), QAnyStringView(name));
+}
+
+QStringView QXmlStreamAttributes::value(const QString &qualifiedName) const
+{
+    return value(qToAnyStringViewIgnoringNull(qualifiedName));
+}
+
+QStringView QXmlStreamAttributes::value(QLatin1StringView qualifiedName) const
+{
+    return value(QAnyStringView(qualifiedName));
+}
+
+// inlined API
+#if QT_CONFIG(thread)
+#include "qmutex.h"
+#include "qreadwritelock.h"
+#include "qsemaphore.h"
+#endif
+
+// #include "qotherheader.h"
+// // implement removed functions from qotherheader.h
+// order sections alphabetically to reduce chances of merge conflicts
+
+#endif // QT_CORE_REMOVED_SINCE(6, 6)

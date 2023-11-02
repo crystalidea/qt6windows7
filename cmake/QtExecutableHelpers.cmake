@@ -148,7 +148,7 @@ function(qt_internal_add_executable name)
 
     if(WASM)
         # WASM unconditionally sets DISABLE_EXCEPTION_CATCHING=1
-        qt_internal_set_exceptions_flags("${name}" NO_EXCEPTIONS)
+        qt_internal_set_exceptions_flags("${name}" FALSE)
     else()
         qt_internal_set_exceptions_flags("${name}" ${arg_EXCEPTIONS})
     endif()
@@ -422,7 +422,7 @@ function(qt_internal_add_configure_time_executable target)
     )
 
     set(should_build_at_configure_time TRUE)
-    if(EXISTS "${target_binary_path}")
+    if(EXISTS "${target_binary_path}" AND EXISTS "${timestamp_file}")
         set(last_ts 0)
         foreach(source IN LISTS sources)
             file(TIMESTAMP "${source}" ts "%s")

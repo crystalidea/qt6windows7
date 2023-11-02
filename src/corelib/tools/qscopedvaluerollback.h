@@ -9,17 +9,20 @@
 QT_BEGIN_NAMESPACE
 
 template <typename T>
-class [[nodiscard]] QScopedValueRollback
+class QScopedValueRollback
 {
 public:
+    Q_NODISCARD_CTOR
     explicit constexpr QScopedValueRollback(T &var)
         : varRef(var), oldValue(var)
     {
     }
 
+    Q_NODISCARD_CTOR
     explicit constexpr QScopedValueRollback(T &var, T value)
-        : varRef(var), oldValue(qExchange(var, std::move(value)))
+        : varRef(var), oldValue(std::move(var)) // ### C++20: std::exchange(var, std::move(value))
     {
+        var = std::move(value);
     }
 
 #if __cpp_constexpr >= 201907L

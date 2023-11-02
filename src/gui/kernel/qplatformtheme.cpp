@@ -374,6 +374,7 @@ Q_GUI_EXPORT QPalette qt_fusionPalette()
     const QColor button = backGround;
     const QColor shadow = dark.darker(135);
     const QColor disabledShadow = shadow.lighter(150);
+    const QColor disabledHighlight(145, 145, 145);
     QColor placeholder = text;
     placeholder.setAlpha(128);
 
@@ -392,7 +393,11 @@ Q_GUI_EXPORT QPalette qt_fusionPalette()
 
     fusionPalette.setBrush(QPalette::Active, QPalette::Highlight, highlight);
     fusionPalette.setBrush(QPalette::Inactive, QPalette::Highlight, highlight);
-    fusionPalette.setBrush(QPalette::Disabled, QPalette::Highlight, QColor(145, 145, 145));
+    fusionPalette.setBrush(QPalette::Disabled, QPalette::Highlight, disabledHighlight);
+
+    fusionPalette.setBrush(QPalette::Active, QPalette::Accent, highlight);
+    fusionPalette.setBrush(QPalette::Inactive, QPalette::Accent, highlight);
+    fusionPalette.setBrush(QPalette::Disabled, QPalette::Accent, disabledHighlight);
 
     fusionPalette.setBrush(QPalette::PlaceholderText, placeholder);
 
@@ -525,6 +530,8 @@ QVariant QPlatformTheme::themeHint(ThemeHint hint) const
         return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::FlickMaximumVelocity);
     case QPlatformTheme::FlickDeceleration:
         return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::FlickDeceleration);
+    case QPlatformTheme::UnderlineShortcut:
+        return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::UnderlineShortcut);
     default:
         return QPlatformTheme::defaultThemeHint(hint);
     }
@@ -637,7 +644,10 @@ QVariant QPlatformTheme::defaultThemeHint(ThemeHint hint)
         return QVariant(QString());
     case MouseCursorSize:
         return QVariant(QSize(16, 16));
+    case UnderlineShortcut:
+        return true;
     }
+
     return QVariant();
 }
 
@@ -820,28 +830,23 @@ QString QPlatformTheme::removeMnemonics(const QString &original)
     };
     QString returnText(original.size(), u'\0');
     int finalDest = 0;
-    int currPos = 0;
-    int l = original.size();
-    while (l) {
-        if (original.at(currPos) == u'&') {
-            ++currPos;
-            --l;
-            if (l == 0)
+    QStringView text(original);
+    while (!text.isEmpty()) {
+        if (text.startsWith(u'&')) {
+            text = text.sliced(1);
+            if (text.isEmpty())
                 break;
-        } else if (l >= 4 && mnemonicInParentheses(QStringView{original}.sliced(currPos, 4))) {
-            // Also strip any leading space before the mnemonic:
-            int n = 0;
-            while (finalDest > n && returnText.at(finalDest - n - 1).isSpace())
-                ++n;
-            finalDest -= n;
-            currPos += 4;
-            l -= 4;
+        } else if (text.size() >= 4 && mnemonicInParentheses(text.first(4))) {
+            // Advance over the matched mnemonic:
+            text = text.sliced(4);
+            // Also strip any leading space before it:
+            while (finalDest > 0 && returnText.at(finalDest - 1).isSpace())
+                --finalDest;
             continue;
         }
-        returnText[finalDest] = original.at(currPos);
-        ++currPos;
+        returnText[finalDest] = text.front();
+        text = text.sliced(1);
         ++finalDest;
-        --l;
     }
     returnText.truncate(finalDest);
     return returnText;

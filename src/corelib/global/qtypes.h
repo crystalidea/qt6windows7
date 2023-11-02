@@ -7,10 +7,13 @@
 
 #include <QtCore/qprocessordetection.h>
 #include <QtCore/qtconfigmacros.h>
+#include <QtCore/qassert.h>
 
 #ifdef __cplusplus
 #  include <cstddef>
 #  include <cstdint>
+#else
+#  include <assert.h>
 #endif
 
 #if 0
@@ -18,8 +21,6 @@
 #pragma qt_class(QIntegerForSize)
 #pragma qt_sync_stop_processing
 #endif
-
-#ifndef __ASSEMBLER__
 
 /*
    Useful type definitions for Qt
@@ -58,9 +59,104 @@ typedef unsigned long long quint64; /* 64 bit unsigned */
 typedef qint64 qlonglong;
 typedef quint64 qulonglong;
 
+#if defined(__SIZEOF_INT128__) && !defined(QT_NO_INT128)
+#  define QT_SUPPORTS_INT128 __SIZEOF_INT128__
+#else
+#  undef QT_SUPPORTS_INT128
+#endif
+
+#if defined(QT_SUPPORTS_INT128)
+__extension__ typedef __int128_t qint128;
+__extension__ typedef __uint128_t quint128;
+
+// limits:
+#  ifdef __cplusplus /* need to avoid c-style-casts in C++ mode */
+#    define QT_C_STYLE_CAST(type, x) static_cast<type>(x)
+#  else /* but C doesn't have constructor-style casts */
+#    define QT_C_STYLE_CAST(type, x) ((type)x)
+#  endif
+#  ifndef Q_UINT128_MAX /* allow qcompilerdetection.h/user override */
+#    define Q_UINT128_MAX QT_C_STYLE_CAST(quint128, -1)
+#  endif
+#  define Q_INT128_MAX QT_C_STYLE_CAST(qint128, (Q_UINT128_MAX / 2))
+#  define Q_INT128_MIN (-Q_INT128_MAX - 1)
+
+#  ifdef __cplusplus
+    namespace QtPrivate::NumberLiterals {
+    namespace detail {
+        template <quint128 accu, int base>
+        constexpr quint128 construct() { return accu; }
+
+        template <quint128 accu, int base, char C, char...Cs>
+        constexpr quint128 construct()
+        {
+            if constexpr (C != '\'') { // ignore digit separators
+                const int digitValue = '0' <= C && C <= '9' ? C - '0'      :
+                                       'a' <= C && C <= 'z' ? C - 'a' + 10 :
+                                       'A' <= C && C <= 'Z' ? C - 'A' + 10 :
+                                       /* else */        -1 ;
+                static_assert(digitValue >= 0 && digitValue < base,
+                              "Invalid character");
+                // accu * base + digitValue <= MAX, but without overflow:
+                static_assert(accu <= (Q_UINT128_MAX - digitValue) / base,
+                              "Overflow occurred");
+                return construct<accu * base + digitValue, base, Cs...>();
+            } else {
+                return construct<accu, base, Cs...>();
+            }
+        }
+
+        template <char C, char...Cs>
+        constexpr quint128 parse0xb()
+        {
+            constexpr quint128 accu = 0;
+            if constexpr (C == 'x' || C == 'X')
+                return construct<accu, 16,   Cs...>(); // base 16, skip 'x'
+            else if constexpr (C == 'b' || C == 'B')
+                return construct<accu, 2,    Cs...>(); // base 2, skip 'b'
+            else
+                return construct<accu, 8, C, Cs...>(); // base 8, include C
+        }
+
+        template <char...Cs>
+        constexpr quint128 parse0()
+        {
+            if constexpr (sizeof...(Cs) == 0) // this was just a literal 0
+                return 0;
+            else
+                return parse0xb<Cs...>();
+        }
+
+        template <char C, char...Cs>
+        constexpr quint128 parse()
+        {
+            if constexpr (C == '0')
+                return parse0<Cs...>(); // base 2, 8, or 16 (or just a literal 0), skip '0'
+            else
+                return construct<0, 10, C, Cs...>(); // initial accu 0, base 10, include C
+        }
+    } // namespace detail
+    template <char...Cs>
+    constexpr quint128 operator""_quint128() noexcept
+    { return QtPrivate::NumberLiterals::detail::parse<Cs...>(); }
+    template <char...Cs>
+    constexpr qint128 operator""_qint128() noexcept
+    { return qint128(QtPrivate::NumberLiterals::detail::parse<Cs...>()); }
+
+    #ifndef Q_UINT128_C // allow qcompilerdetection.h/user override
+    #  define Q_UINT128_C(c) ([]{ using namespace QtPrivate::NumberLiterals; return c ## _quint128; }())
+    #endif
+    #ifndef Q_INT128_C // allow qcompilerdetection.h/user override
+    #  define Q_INT128_C(c)  ([]{ using namespace QtPrivate::NumberLiterals; return c ## _qint128;  }())
+    #endif
+
+    } // namespace QtPrivate::NumberLiterals
+#  endif // __cplusplus
+#endif // QT_SUPPORTS_INT128
+
 #ifndef __cplusplus
 // In C++ mode, we define below using QIntegerForSize template
-Q_STATIC_ASSERT_X(sizeof(ptrdiff_t) == sizeof(size_t), "Weird ptrdiff_t and size_t definitions");
+static_assert(sizeof(ptrdiff_t) == sizeof(size_t), "Weird ptrdiff_t and size_t definitions");
 typedef ptrdiff_t qptrdiff;
 typedef ptrdiff_t qsizetype;
 typedef ptrdiff_t qintptr;
@@ -102,8 +198,8 @@ template <>    struct QIntegerForSize<1> { typedef quint8  Unsigned; typedef qin
 template <>    struct QIntegerForSize<2> { typedef quint16 Unsigned; typedef qint16 Signed; };
 template <>    struct QIntegerForSize<4> { typedef quint32 Unsigned; typedef qint32 Signed; };
 template <>    struct QIntegerForSize<8> { typedef quint64 Unsigned; typedef qint64 Signed; };
-#if defined(Q_CC_GNU) && defined(__SIZEOF_INT128__)
-template <>    struct QIntegerForSize<16> { __extension__ typedef unsigned __int128 Unsigned; __extension__ typedef __int128 Signed; };
+#if defined(QT_SUPPORTS_INT128)
+template <>    struct QIntegerForSize<16> { typedef quint128 Unsigned; typedef qint128 Signed; };
 #endif
 template <class T> struct QIntegerForSizeof: QIntegerForSize<sizeof(T)> { };
 typedef QIntegerForSize<Q_PROCESSOR_WORDSIZE>::Signed qregisterint;
@@ -157,7 +253,5 @@ using qsizetype = QIntegerForSizeof<std::size_t>::Signed;
 #endif // __cplusplus
 
 QT_END_NAMESPACE
-
-#endif // __ASSEMBLER__
 
 #endif // QTYPES_H

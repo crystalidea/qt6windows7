@@ -6,11 +6,16 @@
 
 #include <QtCore/qnamespace.h>
 
+#include <QtCore/q20type_traits.h>
+#include <QtCore/q23utility.h>
+
 #if defined(Q_OS_DARWIN) || defined(Q_QDOC)
 struct CGPoint;
 #endif
 
 QT_BEGIN_NAMESPACE
+
+QT_ENABLE_P0846_SEMANTICS_FOR(get)
 
 class QPointF;
 
@@ -86,13 +91,13 @@ private:
     template <std::size_t I,
               typename P,
               std::enable_if_t<(I < 2), bool> = true,
-              std::enable_if_t<std::is_same_v<std::decay_t<P>, QPoint>, bool> = true>
+              std::enable_if_t<std::is_same_v<q20::remove_cvref_t<P>, QPoint>, bool> = true>
     friend constexpr decltype(auto) get(P &&p) noexcept
     {
         if constexpr (I == 0)
-            return (std::forward<P>(p).xp);
+            return q23::forward_like<P>(p.xp);
         else if constexpr (I == 1)
-            return (std::forward<P>(p).yp);
+            return q23::forward_like<P>(p.yp);
     }
 };
 
@@ -283,13 +288,13 @@ private:
     template <std::size_t I,
               typename P,
               std::enable_if_t<(I < 2), bool> = true,
-              std::enable_if_t<std::is_same_v<std::decay_t<P>, QPointF>, bool> = true>
+              std::enable_if_t<std::is_same_v<q20::remove_cvref_t<P>, QPointF>, bool> = true>
     friend constexpr decltype(auto) get(P &&p) noexcept
     {
         if constexpr (I == 0)
-            return (std::forward<P>(p).xp);
+            return q23::forward_like<P>(p.xp);
         else if constexpr (I == 1)
-            return (std::forward<P>(p).yp);
+            return q23::forward_like<P>(p.yp);
     }
 };
 

@@ -7,7 +7,7 @@
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qoffscreensurface.h>
 #include <QtGui/qpa/qwindowsysteminterface.h>
-#include <QtGui/private/qrhigles2_p.h>
+#include <QtGui/rhi/qrhi.h>
 
 #include <qtwasmtestlib.h>
 
@@ -66,7 +66,7 @@ void Window::keyPressEvent(QKeyEvent *)
 
 void Window::init()
 {
-    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers | QRhi::EnableProfiling;
+    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers;
 
     m_fallbackSurface.reset(QRhiGles2InitParams::newFallbackSurface());
     QRhiGles2InitParams params;
@@ -94,10 +94,8 @@ public:
     QWasmCompositorTest() : m_window(val::global("window")), m_testSupport(val::object())
     {
         m_window.set("testSupport", m_testSupport);
-        m_testSupport.set("qtAddContainerElement",
-                          emscripten::val::module_property("qtAddContainerElement"));
-        m_testSupport.set("qtRemoveContainerElement",
-                          emscripten::val::module_property("qtRemoveContainerElement"));
+        m_testSupport.set("qtSetContainerElements",
+                          emscripten::val::module_property("qtSetContainerElements"));
     }
 
     ~QWasmCompositorTest() noexcept
@@ -118,12 +116,12 @@ private:
         });
         m_cleanup.emplace_back([]() mutable {
             EM_ASM({
-                testSupport.qtRemoveContainerElement(testSupport.screenElement);
+                testSupport.qtSetContainerElements([]);
                 testSupport.screenElement.parentElement.removeChild(testSupport.screenElement);
             });
         });
 
-        EM_ASM({ testSupport.qtAddContainerElement(testSupport.screenElement); });
+        EM_ASM({ testSupport.qtSetContainerElements([testSupport.screenElement]); });
     }
 
     template<class T>

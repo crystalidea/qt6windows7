@@ -3,7 +3,7 @@
 // Copyright (C) 2015 Olivier Goffart <ogoffart@woboq.com>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qvariant.h"
+#include "qvariant_p.h"
 #include "qbitarray.h"
 #include "qbytearray.h"
 #include "qdatastream.h"
@@ -46,6 +46,8 @@
 #include "qrect.h"
 #include "qline.h"
 #endif
+
+#include <memory>
 
 #include <cmath>
 #include <float.h>
@@ -231,24 +233,22 @@ static bool isValidMetaTypeForVariant(const QtPrivate::QMetaTypeInterface *iface
     return true;
 }
 
-template <typename F> static QVariant::PrivateShared *
-customConstructShared(size_t size, size_t align, F &&construct)
-{
-    struct Deleter {
-        void operator()(QVariant::PrivateShared *p) const
-        { QVariant::PrivateShared::free(p); }
-    };
+enum CustomConstructMoveOptions {
+    UseCopy,  // custom construct uses the copy ctor unconditionally
+    // future option: TryMove: uses move ctor if available, else copy ctor
+    ForceMove, // custom construct use the move ctor (which must exist)
+};
 
-    // this is exception-safe
-    std::unique_ptr<QVariant::PrivateShared, Deleter> ptr;
-    ptr.reset(QVariant::PrivateShared::create(size, align));
-    construct(ptr->data());
-    return ptr.release();
-}
+enum CustomConstructNullabilityOption {
+    MaybeNull, // copy might be null, might be non-null
+    NonNull, // copy is guarantueed to be non-null
+    // future option: AlwaysNull?
+};
 
 // the type of d has already been set, but other field are not set
+template <CustomConstructMoveOptions moveOption = UseCopy, CustomConstructNullabilityOption nullability = MaybeNull>
 static void customConstruct(const QtPrivate::QMetaTypeInterface *iface, QVariant::Private *d,
-                            const void *copy)
+                            std::conditional_t<moveOption == ForceMove, void *, const void *> copy)
 {
     using namespace QtMetaTypePrivate;
     Q_ASSERT(iface);
@@ -257,6 +257,10 @@ static void customConstruct(const QtPrivate::QMetaTypeInterface *iface, QVariant
     Q_ASSERT(isCopyConstructible(iface));
     Q_ASSERT(isDestructible(iface));
     Q_ASSERT(copy || isDefaultConstructible(iface));
+    if constexpr (moveOption == ForceMove)
+        Q_ASSERT(isMoveConstructible(iface));
+    if constexpr (nullability == NonNull)
+        Q_ASSUME(copy != nullptr);
 
     // need to check for nullptr_t here, as this can get called by fromValue(nullptr). fromValue() uses
     // std::addressof(value) which in this case returns the address of the nullptr object.
@@ -266,11 +270,17 @@ static void customConstruct(const QtPrivate::QMetaTypeInterface *iface, QVariant
     if (QVariant::Private::canUseInternalSpace(iface)) {
         d->is_shared = false;
         if (!copy && !iface->defaultCtr)
-            return;     // default constructor and it's OK to build in 0-filled storage, which we've already done
-        construct(iface, d->data.data, copy);
+            return;     // trivial default constructor and it's OK to build in 0-filled storage, which we've already done
+        if constexpr (moveOption == ForceMove && nullability == NonNull)
+            moveConstruct(iface, d->data.data, copy);
+        else
+            construct(iface, d->data.data, copy);
     } else {
         d->data.shared = customConstructShared(iface->size, iface->alignment, [=](void *where) {
-            construct(iface, where, copy);
+            if constexpr (moveOption == ForceMove && nullability == NonNull)
+                moveConstruct(iface, where, copy);
+            else
+                construct(iface, where, copy);
         });
         d->is_shared = true;
     }
@@ -305,59 +315,6 @@ static QVariant::Private clonePrivate(const QVariant::Private &other)
 }
 
 } // anonymous used to hide QVariant handlers
-
-inline QVariant::PrivateShared *QVariant::PrivateShared::create(size_t size, size_t align)
-{
-    size += sizeof(PrivateShared);
-    if (align > sizeof(PrivateShared)) {
-        // The alignment is larger than the alignment we can guarantee for the pointer
-        // directly following PrivateShared, so we need to allocate some additional
-        // memory to be able to fit the object into the available memory with suitable
-        // alignment.
-        size += align - sizeof(PrivateShared);
-    }
-    void *data = operator new(size);
-    auto *ps = new (data) QVariant::PrivateShared();
-    ps->offset = int(((quintptr(ps) + sizeof(PrivateShared) + align - 1) & ~(align - 1)) - quintptr(ps));
-    return ps;
-}
-
-inline void QVariant::PrivateShared::free(PrivateShared *p)
-{
-    p->~PrivateShared();
-    operator delete(p);
-}
-
-inline QVariant::Private::Private(const QtPrivate::QMetaTypeInterface *iface) noexcept
-    : is_shared(false), is_null(false), packedType(quintptr(iface) >> 2)
-{
-    Q_ASSERT((quintptr(iface) & 0x3) == 0);
-}
-
-template <typename T> inline
-QVariant::Private::Private(std::piecewise_construct_t, const T &t)
-    : is_shared(!CanUseInternalSpace<T>), is_null(std::is_same_v<T, std::nullptr_t>)
-{
-    // confirm noexceptness
-    static constexpr bool isNothrowQVariantConstructible = noexcept(QVariant(t));
-    static constexpr bool isNothrowCopyConstructible = std::is_nothrow_copy_constructible_v<T>;
-    static constexpr bool isNothrowCopyAssignable = std::is_nothrow_copy_assignable_v<T>;
-
-    const QtPrivate::QMetaTypeInterface *iface = QtPrivate::qMetaTypeInterfaceForType<T>();
-    Q_ASSERT((quintptr(iface) & 0x3) == 0);
-    packedType = quintptr(iface) >> 2;
-
-    if constexpr (CanUseInternalSpace<T>) {
-        static_assert(isNothrowQVariantConstructible == isNothrowCopyConstructible);
-        static_assert(isNothrowQVariantConstructible == isNothrowCopyAssignable);
-        new (data.data) T(t);
-    } else {
-        static_assert(!isNothrowQVariantConstructible); // we allocate memory, even if T doesn't
-        data.shared = customConstructShared(sizeof(T), alignof(T), [=](void *where) {
-            new (where) T(t);
-        });
-    }
-}
 
 /*!
     \class QVariant
@@ -584,6 +541,106 @@ QVariant::~QVariant()
 QVariant::QVariant(const QVariant &p)
     : d(clonePrivate(p.d))
 {
+}
+
+/*!
+    \fn template <typename T, typename... Args, if_constructible<T, Args...> = true> QVariant::QVariant(std::in_place_type_t<T>, Args&&... args) noexcept(is_noexcept_constructible<q20::remove_cvref_t<T>, Args...>::value)
+
+    \since 6.6
+    Constructs a new variant containing a value of type \c T. The contained
+    value is is initialized with the arguments
+    \c{std::forward<Args>(args)...}.
+
+    This overload only participates in overload resolution if \c T can be
+    constructed from \a args.
+
+    This constructor is provided for STL/std::any compatibility.
+
+    \overload
+ */
+
+/*!
+
+    \fn template <typename T, typename U, typename... Args, if_constructible<T, std::initializer_list<U> &, Args...> = true> explicit QVariant::QVariant(std::in_place_type_t<T>, std::initializer_list<U> il, Args&&... args) noexcept(is_noexcept_constructible<q20::remove_cvref_t<T>, std::initializer_list<U> &, Args... >::value)
+
+    \since 6.6
+    \overload
+    This overload exists to support types with constructors taking an
+    \c initializer_list. It behaves otherwise equivalent to the
+    non-initializer list \c{in_place_type_t} overload.
+*/
+
+
+/*!
+    \fn template <typename T, typename... Args, if_constructible<T, Args...> = true> QVariant::emplace(Args&&... args)
+
+    \since 6.6
+    Replaces the object currently held in \c{*this} with an object of
+    type \c{T}, constructed from \a{args}\c{...}. If \c{*this} was non-null,
+    the previously held object is destroyed first.
+    If possible, this method will reuse memory allocated by the QVariant.
+    Returns a reference to the newly-created object.
+ */
+
+/*!
+    \fn template <typename T, typename U, typename... Args, if_constructible<T, std::initializer_list<U> &, Args...> = true> QVariant::emplace(std::initializer_list<U> list, Args&&... args)
+
+    \since 6.6
+    \overload
+    This overload exists to support types with constructors taking an
+    \c initializer_list. It behaves otherwise equivalent to the
+    non-initializer list overload.
+*/
+
+QVariant::QVariant(std::in_place_t, QMetaType type) : d(type.iface())
+{
+    // we query the metatype instead of detecting it at compile time
+    // so that we can change relocatability of internal types
+    if (!Private::canUseInternalSpace(type.iface())) {
+        d.data.shared = PrivateShared::create(type.sizeOf(), type.alignOf());
+        d.is_shared = true;
+    }
+}
+
+/*!
+    \internal
+    Returns a pointer to data suitable for placement new
+    of an object of type \a type
+    Changes the variant's metatype to \a type
+ */
+void *QVariant::prepareForEmplace(QMetaType type)
+{
+    /* There are two cases where we can reuse the existing storage
+       (1) The new type fits in QVariant's SBO storage
+       (2) We are using the externally allocated storage, the variant is
+           detached, and the new type fits into the existing storage.
+       In all other cases (3), we cannot reuse the storage.
+     */
+    auto typeFits = [&] {
+        auto newIface = type.iface();
+        auto oldIface = d.typeInterface();
+        auto newSize = PrivateShared::computeAllocationSize(newIface->size, newIface->alignment);
+        auto oldSize = PrivateShared::computeAllocationSize(oldIface->size, oldIface->alignment);
+        return newSize <= oldSize;
+    };
+    if (Private::canUseInternalSpace(type.iface())) { // (1)
+        clear();
+        d.packedType = quintptr(type.iface()) >> 2;
+        return d.data.data;
+    } else if (d.is_shared && isDetached() && typeFits()) { // (2)
+        QtMetaTypePrivate::destruct(d.typeInterface(), d.data.shared->data());
+        // compare QVariant::PrivateShared::create
+        const auto ps = d.data.shared;
+        const auto align = type.alignOf();
+        ps->offset =  PrivateShared::computeOffset(ps, align);
+        d.packedType = quintptr(type.iface()) >> 2;
+        return ps->data();
+    }
+    // (3)
+    QVariant newVariant(std::in_place, type);
+    swap(newVariant);
+    // const cast is safe, we're in a non-const method
+    return const_cast<void *>(d.storage());
 }
 
 /*!
@@ -1032,7 +1089,8 @@ void QVariant::detach()
 
     Q_ASSERT(isValidMetaTypeForVariant(d.typeInterface(), constData()));
     Private dd(d.typeInterface());
-    customConstruct(d.typeInterface(), &dd, constData());
+    // null variant is never shared; anything else is NonNull
+    customConstruct<UseCopy, NonNull>(d.typeInterface(), &dd, constData());
     if (!d.data.shared->ref.deref())
         customClear(&d);
     d.data.shared = dd.data.shared;
@@ -2398,7 +2456,7 @@ QPartialOrdering QVariant::compare(const QVariant &lhs, const QVariant &rhs)
     Returns a pointer to the contained object as a generic void* that cannot be
     written to.
 
-    \sa QMetaType
+    \sa get_if(), QMetaType
  */
 
 /*!
@@ -2408,7 +2466,7 @@ QPartialOrdering QVariant::compare(const QVariant &lhs, const QVariant &rhs)
     This function detaches the QVariant. When called on a \l{isNull}{null-QVariant},
     the QVariant will not be null after the call.
 
-    \sa QMetaType
+    \sa get_if(), QMetaType
 */
 void *QVariant::data()
 {
@@ -2417,6 +2475,42 @@ void *QVariant::data()
     d.is_null = false;
     return const_cast<void *>(constData());
 }
+
+/*!
+    \since 6.6
+    \fn template <typename T> const T* QVariant::get_if(const QVariant *v)
+    \fn template <typename T> T* QVariant::get_if(QVariant *v)
+
+    If \a v contains an object of type \c T, returns a pointer to the contained
+    object, otherwise returns \nullptr.
+
+    The overload taking a mutable \a v detaches \a v: When called on a
+    \l{isNull()}{null} \a v with matching type \c T, \a v will not be null
+    after the call.
+
+    These functions are provided for compatibility with \c{std::variant}.
+
+    \sa data()
+*/
+
+/*!
+    \since 6.6
+    \fn template <typename T> T &QVariant::get(QVariant &v)
+    \fn template <typename T> const T &QVariant::get(const QVariant &v)
+    \fn template <typename T> T &&QVariant::get(QVariant &&v)
+    \fn template <typename T> const T &&QVariant::get(const QVariant &&v)
+
+    If \a v contains an object of type \c T, returns a reference to the contained
+    object, otherwise the call has undefined behavior.
+
+    The overloads taking a mutable \a v detach \a v: When called on a
+    \l{isNull()}{null} \a v with matching type \c T, \a v will not be null
+    after the call.
+
+    These functions are provided for compatibility with \c{std::variant}.
+
+    \sa get_if(), data()
+*/
 
 /*!
     Returns \c true if this is a null variant, false otherwise.
@@ -2454,6 +2548,22 @@ QDebug QVariant::qdebugHelper(QDebug dbg) const
     }
     dbg << ')';
     return dbg;
+}
+
+QVariant QVariant::moveConstruct(QMetaType type, void *data)
+{
+    QVariant var;
+    var.d = QVariant::Private(type.d_ptr);
+    customConstruct<ForceMove, NonNull>(type.d_ptr, &var.d, data);
+    return var;
+}
+
+QVariant QVariant::copyConstruct(QMetaType type, const void *data)
+{
+    QVariant var;
+    var.d = QVariant::Private(type.d_ptr);
+    customConstruct<UseCopy, NonNull>(type.d_ptr, &var.d, data);
+    return var;
 }
 
 #if QT_DEPRECATED_SINCE(6, 0)
@@ -2576,6 +2686,12 @@ QT_WARNING_POP
     \sa setValue(), value()
 */
 
+/*! \fn template<typename T> static QVariant QVariant::fromValue(T &&value)
+
+    \since 6.6
+    \overload
+*/
+
 /*! \fn template<typename... Types> QVariant QVariant::fromStdVariant(const std::variant<Types...> &value)
     \since 5.11
 
@@ -2587,6 +2703,12 @@ QT_WARNING_POP
     should be registered however.
 
     \sa fromValue()
+*/
+
+/*!
+    \fn template<typename... Types> QVariant QVariant::fromStdVariant(std::variant<Types...> &&value)
+    \since 6.6
+    \overload
 */
 
 /*!

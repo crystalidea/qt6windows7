@@ -1,9 +1,13 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include <QtWidgets>
-
 #include "chatdialog.h"
+
+#include <QTimer>
+#include <QScrollBar>
+#include <QLineEdit>
+#include <QTextTable>
+#include <QMessageBox>
 
 ChatDialog::ChatDialog(QWidget *parent)
     : QDialog(parent)
@@ -27,7 +31,7 @@ ChatDialog::ChatDialog(QWidget *parent)
     myNickName = client.nickName();
     newParticipant(myNickName);
     tableFormat.setBorder(0);
-    QTimer::singleShot(10 * 1000, this, SLOT(showInformation()));
+    QTimer::singleShot(10 * 1000, this, &ChatDialog::showInformation);
 }
 
 void ChatDialog::appendMessage(const QString &from, const QString &message)

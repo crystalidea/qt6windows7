@@ -8,6 +8,7 @@
 
 #include <private/qcoreapplication_p.h>
 #include <private/qcore_unix_p.h>
+#include <private/qtools_p.h>
 
 #if defined(Q_OS_DARWIN)
 #  include <private/qeventdispatcher_cf_p.h>
@@ -69,6 +70,8 @@
 #endif
 
 QT_BEGIN_NAMESPACE
+
+using namespace QtMiscUtils;
 
 #if QT_CONFIG(thread)
 
@@ -141,25 +144,25 @@ static void clear_thread_data()
 }
 
 template <typename T>
-static typename std::enable_if<QTypeInfo<T>::isIntegral, Qt::HANDLE>::type to_HANDLE(T id)
+static typename std::enable_if<std::is_integral_v<T>, Qt::HANDLE>::type to_HANDLE(T id)
 {
     return reinterpret_cast<Qt::HANDLE>(static_cast<intptr_t>(id));
 }
 
 template <typename T>
-static typename std::enable_if<QTypeInfo<T>::isIntegral, T>::type from_HANDLE(Qt::HANDLE id)
+static typename std::enable_if<std::is_integral_v<T>, T>::type from_HANDLE(Qt::HANDLE id)
 {
     return static_cast<T>(reinterpret_cast<intptr_t>(id));
 }
 
 template <typename T>
-static typename std::enable_if<QTypeInfo<T>::isPointer, Qt::HANDLE>::type to_HANDLE(T id)
+static typename std::enable_if<std::is_pointer_v<T>, Qt::HANDLE>::type to_HANDLE(T id)
 {
     return id;
 }
 
 template <typename T>
-static typename std::enable_if<QTypeInfo<T>::isPointer, T>::type from_HANDLE(Qt::HANDLE id)
+static typename std::enable_if<std::is_pointer_v<T>, T>::type from_HANDLE(Qt::HANDLE id)
 {
     return static_cast<T>(id);
 }
@@ -234,12 +237,12 @@ QAbstractEventDispatcher *QThreadPrivate::createEventDispatcher(QThreadData *dat
 
 #if QT_CONFIG(thread)
 
-#if (defined(Q_OS_LINUX) || defined(Q_OS_MAC) || defined(Q_OS_QNX))
+#if (defined(Q_OS_LINUX) || defined(Q_OS_DARWIN) || defined(Q_OS_QNX))
 static void setCurrentThreadName(const char *name)
 {
 #  if defined(Q_OS_LINUX) && !defined(QT_LINUXBASE)
     prctl(PR_SET_NAME, (unsigned long)name, 0, 0, 0);
-#  elif defined(Q_OS_MAC)
+#  elif defined(Q_OS_DARWIN)
     pthread_setname_np(name);
 #  elif defined(Q_OS_QNX)
     pthread_setname_np(pthread_self(), name);
@@ -301,7 +304,7 @@ void *QThreadPrivate::start(void *arg)
         data->ensureEventDispatcher();
         data->eventDispatcher.loadRelaxed()->startingUp();
 
-#if (defined(Q_OS_LINUX) || defined(Q_OS_MAC) || defined(Q_OS_QNX))
+#if (defined(Q_OS_LINUX) || defined(Q_OS_DARWIN) || defined(Q_OS_QNX))
         {
             // Sets the name of the current thread. We can only do this
             // when the thread is starting, as we don't have a cross
@@ -488,17 +491,6 @@ void QThread::yieldCurrentThread()
 
 #endif // QT_CONFIG(thread)
 
-static timespec makeTimespec(std::chrono::nanoseconds nsecs)
-{
-    using namespace std::chrono;
-    const seconds secs = duration_cast<seconds>(nsecs);
-    const nanoseconds frac = nsecs - secs;
-    struct timespec ts;
-    ts.tv_sec = secs.count();
-    ts.tv_nsec = frac.count();
-    return ts;
-}
-
 static void qt_nanosleep(timespec amount)
 {
     // We'd like to use clock_nanosleep.
@@ -515,17 +507,22 @@ static void qt_nanosleep(timespec amount)
 
 void QThread::sleep(unsigned long secs)
 {
-    qt_nanosleep(makeTimespec(std::chrono::seconds{secs}));
+    sleep(std::chrono::seconds{secs});
 }
 
 void QThread::msleep(unsigned long msecs)
 {
-    qt_nanosleep(makeTimespec(std::chrono::milliseconds{msecs}));
+    sleep(std::chrono::milliseconds{msecs});
 }
 
 void QThread::usleep(unsigned long usecs)
 {
-    qt_nanosleep(makeTimespec(std::chrono::microseconds{usecs}));
+    sleep(std::chrono::microseconds{usecs});
+}
+
+void QThread::sleep(std::chrono::nanoseconds nsec)
+{
+    qt_nanosleep(durationToTimespec(nsec));
 }
 
 #if QT_CONFIG(thread)

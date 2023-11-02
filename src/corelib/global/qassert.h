@@ -7,6 +7,7 @@
 #include <QtCore/qcompilerdetection.h>
 #include <QtCore/qtconfigmacros.h>
 #include <QtCore/qtcoreexports.h>
+#include <QtCore/qtnoop.h>
 
 #if 0
 #pragma qt_class(QtAssert)
@@ -17,7 +18,7 @@ QT_BEGIN_NAMESPACE
 
 #if defined(__cplusplus)
 
-#ifndef Q_CC_MSVC
+#if !defined(Q_CC_MSVC_ONLY)
 Q_NORETURN
 #endif
 Q_DECL_COLD_FUNCTION
@@ -31,7 +32,7 @@ Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) 
 #  endif
 #endif
 
-#ifndef Q_CC_MSVC
+#if !defined(Q_CC_MSVC_ONLY)
 Q_NORETURN
 #endif
 Q_DECL_COLD_FUNCTION

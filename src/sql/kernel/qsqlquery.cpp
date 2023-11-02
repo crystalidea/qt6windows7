@@ -7,13 +7,15 @@
 
 #include "qatomic.h"
 #include "qdebug.h"
-#include "qelapsedtimer.h"
-#include "qmap.h"
 #include "qsqlrecord.h"
 #include "qsqlresult.h"
 #include "qsqldriver.h"
 #include "qsqldatabase.h"
 #include "private/qsqlnulldriver_p.h"
+
+#ifdef QT_DEBUG_SQL
+#include "qelapsedtimer.h"
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -334,7 +336,7 @@ bool QSqlQuery::isNull(int field) const
 
 bool QSqlQuery::isNull(const QString &name) const
 {
-    int index = d->sqlResult->record().indexOf(name);
+    qsizetype index = d->sqlResult->record().indexOf(name);
     if (index > -1)
         return isNull(index);
     qWarning("QSqlQuery::isNull: unknown field name '%s'", qPrintable(name));
@@ -445,7 +447,7 @@ QVariant QSqlQuery::value(int index) const
 
 QVariant QSqlQuery::value(const QString& name) const
 {
-    int index = d->sqlResult->record().indexOf(name);
+    qsizetype index = d->sqlResult->record().indexOf(name);
     if (index > -1)
         return value(index);
     qWarning("QSqlQuery::value: unknown field name '%s'", qPrintable(name));
@@ -918,7 +920,7 @@ QSqlRecord QSqlQuery::record() const
     QSqlRecord rec = d->sqlResult->record();
 
     if (isValid()) {
-        for (int i = 0; i < rec.count(); ++i)
+        for (qsizetype i = 0; i < rec.count(); ++i)
             rec.setValue(i, value(i));
     }
     return rec;
@@ -1136,6 +1138,7 @@ QVariant QSqlQuery::boundValue(const QString& placeholder) const
 
 /*!
   Returns the value for the placeholder at position \a pos.
+  \sa boundValues()
 */
 QVariant QSqlQuery::boundValue(int pos) const
 {
@@ -1154,13 +1157,43 @@ QVariant QSqlQuery::boundValue(int pos) const
 
   \snippet sqldatabase/sqldatabase.cpp 14
 
-  \sa boundValue(), bindValue(), addBindValue()
+  \sa boundValue(), bindValue(), addBindValue(), boundValueNames()
 */
 
 QVariantList QSqlQuery::boundValues() const
 {
     const QVariantList values(d->sqlResult->boundValues());
     return values;
+}
+
+/*!
+  \since 6.6
+
+  Returns the names of all bound values.
+
+  The order of the list is in binding order, irrespective of whether
+  named or positional binding is used.
+
+  \sa boundValues(), boundValueName()
+*/
+QStringList QSqlQuery::boundValueNames() const
+{
+    return d->sqlResult->boundValueNames();
+}
+
+/*!
+  \since 6.6
+
+  Returns the bound value name at position \a pos.
+
+  The order of the list is in binding order, irrespective of whether
+  named or positional binding is used.
+
+  \sa boundValueNames()
+*/
+QString QSqlQuery::boundValueName(int pos) const
+{
+    return d->sqlResult->boundValueName(pos);
 }
 
 /*!
@@ -1189,7 +1222,7 @@ QString QSqlQuery::executedQuery() const
 
   For MySQL databases the row's auto-increment field will be returned.
 
-  \note For this function to work in PSQL, the table table must
+  \note For this function to work in PSQL, the table must
   contain OIDs, which may not have been created by default.  Check the
   \c default_with_oids configuration variable to be sure.
 

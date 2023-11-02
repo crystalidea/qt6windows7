@@ -66,17 +66,17 @@ struct QWindowsUser32DLL
     typedef BOOL (WINAPI *RemoveClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
     typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
-    typedef BOOL (WINAPI *AdjustWindowRectEx)(LPRECT,DWORD,BOOL,DWORD);
     typedef BOOL (WINAPI *AdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
     typedef BOOL (WINAPI *EnableNonClientDpiScaling)(HWND);
-    typedef int  (WINAPI *GetWindowDpiAwarenessContext)(HWND);
-    typedef int  (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *GetWindowDpiAwarenessContext)(HWND);
+    typedef DPI_AWARENESS (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
     typedef BOOL (WINAPI *SystemParametersInfoForDpi)(UINT, UINT, PVOID, UINT, UINT);
     typedef int  (WINAPI *GetDpiForWindow)(HWND);
     typedef BOOL (WINAPI *GetSystemMetricsForDpi)(INT, UINT);
-    typedef BOOL (WINAPI *AreDpiAwarenessContextsEqual)(int, HANDLE);
-    typedef int (WINAPI *GetThreadDpiAwarenessContext)();
-
+    typedef BOOL (WINAPI *AreDpiAwarenessContextsEqual)(DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT);
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *GetThreadDpiAwarenessContext)();
+    typedef BOOL (WINAPI *IsValidDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
+    
     // Windows pointer functions (Windows 8 or later).
     EnableMouseInPointer enableMouseInPointer = nullptr;
     GetPointerType getPointerType = nullptr;
@@ -95,6 +95,7 @@ struct QWindowsUser32DLL
     // Windows 10 version 1607 onwards
     GetDpiForWindow getDpiForWindow = nullptr;
     GetThreadDpiAwarenessContext getThreadDpiAwarenessContext = nullptr;
+    IsValidDpiAwarenessContext isValidDpiAwarenessContext = nullptr;
 
     // Windows 10 version 1703 onwards
     SetProcessDpiAwarenessContext setProcessDpiAwarenessContext = nullptr;
@@ -109,7 +110,6 @@ struct QWindowsUser32DLL
     GetDisplayAutoRotationPreferences getDisplayAutoRotationPreferences = nullptr;
     SetDisplayAutoRotationPreferences setDisplayAutoRotationPreferences = nullptr;
 
-    AdjustWindowRectEx adjustWindowRectEx = nullptr;
     AdjustWindowRectExForDpi adjustWindowRectExForDpi = nullptr;
     EnableNonClientDpiScaling enableNonClientDpiScaling = nullptr;
     GetWindowDpiAwarenessContext getWindowDpiAwarenessContext = nullptr;
@@ -204,9 +204,10 @@ public:
     QSharedPointer<QWindowCreationContext> windowCreationContext() const;
 
     static void setTabletAbsoluteRange(int a);
-    void setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiAwareness);
-    static int processDpiAwareness();
-    bool setProcessDpiV2Awareness();
+
+    static bool setProcessDpiAwareness(QtWindows::DpiAwareness dpiAwareness);
+    static QtWindows::DpiAwareness processDpiAwareness();
+    static QtWindows::DpiAwareness windowDpiAwareness(HWND hwnd);
 
     static bool isDarkMode();
 

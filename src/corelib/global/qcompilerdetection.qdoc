@@ -175,7 +175,7 @@
     \since 5.8
 
     Can be used in switch statements at the end of case block to tell the compiler
-    and other developers that that the lack of a break statement is intentional.
+    and other developers that the lack of a break statement is intentional.
 
     This is useful since a missing break statement is often a bug, and some
     compilers can be configured to emit warnings when one is not found.
@@ -197,7 +197,7 @@
 
     \snippet code/src_corelib_global_qglobal.cpp qlikely
 
-    \sa Q_UNLIKELY(), Q_ASSUME()
+    \sa Q_UNLIKELY()
 */
 
 /*!
@@ -391,4 +391,22 @@
     \tt{const TInputType& myMin(const TInputType&, const TInputType&) [with TInputType = int] was called with value1: 3 value2: 4}
 
     If this macro is used outside a function, the behavior is undefined.
+*/
+
+/*!
+    \macro Q_NODISCARD_CTOR
+    \relates <QtCompilerDetection>
+    \since 6.6
+
+    \brief Expands to \c{[[nodiscard]]} on compilers that accept it on constructors.
+
+    Otherwise it expands to nothing.
+
+    Constructors marked as Q_NODISCARD_CTOR cause a compiler warning if a call
+    site doesn't use the resulting object.
+
+    This macro is exists solely to prevent warnings on compilers that don't
+    implement the feature. If your supported platforms all allow \c{[[nodiscard]]}
+    on constructors, we strongly recommend you use the C++ attribute directly instead
+    of this macro.
 */

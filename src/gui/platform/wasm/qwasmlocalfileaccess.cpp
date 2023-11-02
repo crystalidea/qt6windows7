@@ -141,7 +141,7 @@ QStringList makeFilterList(const std::string &qtAcceptList)
     auto filter = QString::fromStdString(qtAcceptList); 
     if (filter.isEmpty())
         return QStringList();
-    auto sep = QStringLiteral(";;");
+    QString sep(";;");
     if (!filter.contains(sep) && filter.contains(u'\n'))
         sep = u'\n';
 

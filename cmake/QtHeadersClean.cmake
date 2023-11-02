@@ -104,6 +104,7 @@ function(qt_internal_add_headersclean_target module_target module_headers)
 
         set(hcleanFLAGS -Wall -Wextra -Werror -Woverloaded-virtual -Wshadow -Wundef -Wfloat-equal
             -Wnon-virtual-dtor -Wpointer-arith -Wformat-security -Wno-long-long -Wno-variadic-macros
+            -fno-operator-names
             -pedantic-errors)
 
         if(QT_FEATURE_reduce_relocations AND UNIX)
@@ -181,9 +182,7 @@ function(qt_internal_add_headersclean_target module_target module_headers)
         )
         set(input_header_path_type ABSOLUTE)
     elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-        # -Za would enable strict standards behavior, but we can't add it because
-        # <windows.h> and <GL.h> violate the standards.
-        set(hcleanFLAGS -std:c++latest -Zc:__cplusplus -WX -W3)
+        set(hcleanFLAGS -std:c++latest -Zc:__cplusplus -WX -W3 -EHsc)
 
         # Because we now add `-DNOMINMAX` to `PlatformCommonInternal`.
         set(hcleanUDEFS -UNOMINMAX)

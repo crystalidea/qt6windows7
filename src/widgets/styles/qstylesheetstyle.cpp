@@ -434,16 +434,26 @@ struct QStyleSheetBoxData : public QSharedData
 
 struct QStyleSheetPaletteData : public QSharedData
 {
-    QStyleSheetPaletteData(const QBrush &fg, const QBrush &sfg, const QBrush &sbg,
-                           const QBrush &abg, const QBrush &pfg)
-        : foreground(fg), selectionForeground(sfg), selectionBackground(sbg),
-          alternateBackground(abg), placeholderForeground(pfg) { }
+     QStyleSheetPaletteData(const QBrush &foreground,
+                            const QBrush &selectedForeground,
+                            const QBrush &selectedBackground,
+                            const QBrush &alternateBackground,
+                            const QBrush &placeHolderTextForeground,
+                            const QBrush &accent)
+        : foreground(foreground)
+        , selectionForeground(selectedForeground)
+        , selectionBackground(selectedBackground)
+        , alternateBackground(alternateBackground)
+        , placeholderForeground(placeHolderTextForeground)
+        , accent(accent)
+     { }
 
     QBrush foreground;
     QBrush selectionForeground;
     QBrush selectionBackground;
     QBrush alternateBackground;
     QBrush placeholderForeground;
+    QBrush accent;
 };
 
 struct QStyleSheetGeometryData : public QSharedData
@@ -955,10 +965,17 @@ QRenderRule::QRenderRule(const QList<Declaration> &declarations, const QObject *
         bg = new QStyleSheetBackgroundData(brush, pixmap, repeat, alignment, origin, attachment, clip);
     }
 
-    QBrush sfg, fg, pfg;
-    QBrush sbg, abg;
-    if (v.extractPalette(&fg, &sfg, &sbg, &abg, &pfg))
-        pal = new QStyleSheetPaletteData(fg, sfg, sbg, abg, pfg);
+    QBrush foreground;
+    QBrush selectedForeground;
+    QBrush selectedBackground;
+    QBrush alternateBackground;
+    QBrush placeHolderTextForeground;
+    QBrush accent;
+    if (v.extractPalette(&foreground, &selectedForeground, &selectedBackground,
+                         &alternateBackground, &placeHolderTextForeground, &accent)) {
+        pal = new QStyleSheetPaletteData(foreground, selectedForeground, selectedBackground,
+                                         alternateBackground, placeHolderTextForeground, accent);
+    }
 
     QIcon imgIcon;
     alignment = Qt::AlignCenter;
@@ -1497,6 +1514,8 @@ void QRenderRule::configurePalette(QPalette *p, QPalette::ColorGroup cg, const Q
         p->setBrush(cg, QPalette::AlternateBase, pal->alternateBackground);
     if (pal->placeholderForeground.style() != Qt::NoBrush)
         p->setBrush(cg, QPalette::PlaceholderText, pal->placeholderForeground);
+    if (pal->accent.style() != Qt::NoBrush)
+        p->setBrush(cg, QPalette::Accent, pal->accent);
 }
 
 bool QRenderRule::hasModification() const

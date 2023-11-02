@@ -12,11 +12,15 @@
 #pragma qt_sync_stop_processing
 #endif
 
+#include <QtCore/qfunctionaltools_impl.h>
+
 #include <memory>
 
 QT_BEGIN_NAMESPACE
 class QObject;
 class QObjectPrivate;
+class QMetaMethod;
+class QByteArray;
 
 namespace QtPrivate {
     template <typename T> struct RemoveRef { typedef T Type; };
@@ -31,23 +35,27 @@ namespace QtPrivate {
        the list composed of the first N element of the list
      */
     // With variadic template, lists are represented using a variadic template argument instead of the lisp way
-    template <typename...> struct List {};
-    template <typename Head, typename... Tail> struct List<Head, Tail...> { typedef Head Car; typedef List<Tail...> Cdr; };
+    template <typename... Ts> struct List { static constexpr size_t size = sizeof...(Ts); };
+    template<typename T> struct SizeOfList { static constexpr size_t value = 1; };
+    template<> struct SizeOfList<List<>> { static constexpr size_t value = 0; };
+    template<typename ...Ts> struct SizeOfList<List<Ts...>>  { static constexpr size_t value = List<Ts...>::size; };
+    template <typename Head, typename... Tail> struct List<Head, Tail...> {
+        static constexpr size_t size = 1 + sizeof...(Tail);
+        typedef Head Car; typedef List<Tail...> Cdr;
+    };
     template <typename, typename> struct List_Append;
     template <typename... L1, typename...L2> struct List_Append<List<L1...>, List<L2...>> { typedef List<L1..., L2...> Value; };
     template <typename L, int N> struct List_Left {
         typedef typename List_Append<List<typename L::Car>,typename List_Left<typename L::Cdr, N - 1>::Value>::Value Value;
     };
     template <typename L> struct List_Left<L, 0> { typedef List<> Value; };
-    // List_Select<L,N> returns (via typedef Value) the Nth element of the list L
-    template <typename L, int N> struct List_Select { typedef typename List_Select<typename L::Cdr, N - 1>::Value Value; };
-    template <typename L> struct List_Select<L,0> { typedef typename L::Car Value; };
 
     /*
-       trick to set the return value of a slot that works even if the signal or the slot returns void
-       to be used like     function(), ApplyReturnValue<ReturnType>(&return_value)
+       Trick to set the return value of a slot that works even if the signal or the slot returns void
+       to be used like
+            function(), ApplyReturnValue<ReturnType>(&return_value)
        if function() returns a value, the operator,(T, ApplyReturnValue<ReturnType>) is called, but if it
-       returns void, the builtin one is used without an error.
+       returns void, the built-in one is used without an error.
     */
     template <typename T>
     struct ApplyReturnValue {
@@ -77,7 +85,7 @@ namespace QtPrivate {
             and args is the array of pointer to arguments, as used in qt_metacall
 
        The Functor<Func,N> struct is the helper to call a functor of N argument.
-       its call function is the same as the FunctionPointer::call function.
+       Its call function is the same as the FunctionPointer::call function.
      */
     template<class T> using InvokeGenSeq = typename T::Type;
 
@@ -236,14 +244,6 @@ namespace QtPrivate {
         }
     };
 
-    template<typename Function, int N> struct Functor
-    {
-        template <typename SignalArgs, typename R>
-        static void call(Function &f, void *, void **arg) {
-            FunctorCall<typename Indexes<N>::Value, SignalArgs, R, Function>::call(f, arg);
-        }
-    };
-
     // Traits to detect if there is a conversion between two types,
     // and that conversion does not include a narrowing conversion.
     template <typename T>
@@ -277,10 +277,9 @@ namespace QtPrivate {
        static_assert(CheckCompatibleArguments<FunctionPointer<Signal>::Arguments, FunctionPointer<Slot>::Arguments>::value)
     */
     template<typename A1, typename A2> struct AreArgumentsCompatible {
-        static int test(const typename RemoveRef<A2>::Type&);
+        static int test(const std::remove_reference_t<A2>&);
         static char test(...);
-        static const typename RemoveRef<A1>::Type &dummy();
-        enum { value = sizeof(test(dummy())) == sizeof(int) };
+        enum { value = sizeof(test(std::declval<std::remove_reference_t<A1>>())) == sizeof(int) };
 #ifdef QT_NO_NARROWING_CONVERSIONS_IN_CONNECT
         using AreArgumentsConvertibleWithoutNarrowing = AreArgumentsConvertibleWithoutNarrowingBase<std::decay_t<A1>, std::decay_t<A2>>;
         static_assert(AreArgumentsConvertibleWithoutNarrowing::value, "Signal and slot arguments are not compatible (narrowing)");
@@ -319,11 +318,10 @@ namespace QtPrivate {
 
     template <typename Functor, typename... ArgList> struct ComputeFunctorArgumentCount<Functor, List<ArgList...>>
     {
-        template <typename D> static D dummy();
-        template <typename F> static auto test(F f) -> decltype(((f.operator()((dummy<ArgList>())...)), int()));
+        template <typename F> static auto test(F f) -> decltype(((f.operator()((std::declval<ArgList>())...)), int()));
         static char test(...);
         enum {
-            Ok = sizeof(test(dummy<Functor>())) == sizeof(int),
+            Ok = sizeof(test(std::declval<Functor>())) == sizeof(int),
             Value = Ok ? int(sizeof...(ArgList)) : int(ComputeFunctorArgumentCountHelper<Functor, List<ArgList...>, Ok>::Value)
         };
     };
@@ -331,19 +329,79 @@ namespace QtPrivate {
     /* get the return type of a functor, given the signal argument list  */
     template <typename Functor, typename ArgList> struct FunctorReturnType;
     template <typename Functor, typename ... ArgList> struct FunctorReturnType<Functor, List<ArgList...>> {
-        template <typename D> static D dummy();
-        typedef decltype(dummy<Functor>().operator()((dummy<ArgList>())...)) Value;
+        typedef decltype(std::declval<Functor>().operator()((std::declval<ArgList>())...)) Value;
     };
 
+    template<typename Function, int N> struct Functor
+    {
+        template <typename SignalArgs, typename R>
+        static void call(Function &f, void *, void **arg) {
+            FunctorCall<typename Indexes<N>::Value, SignalArgs, R, Function>::call(f, arg);
+        }
+    };
+
+    template<typename Func>
+    struct ZeroArgFunctor : Functor<Func, 0>
+    {
+        using ReturnType = decltype(std::declval<Func>()());
+        using Function = ReturnType(*)();
+        enum {ArgumentCount = 0};
+        using Arguments = QtPrivate::List<>;
+    };
+
+    template<typename Func>
+    using Callable = std::conditional_t<FunctionPointer<std::decay_t<Func>>::ArgumentCount == -1,
+        ZeroArgFunctor<std::decay_t<Func>>,
+        FunctionPointer<std::decay_t<Func>>
+    >;
+
+    /*
+        Wrapper around ComputeFunctorArgumentCount and CheckCompatibleArgument,
+        depending on whether \a Functor is a PMF or not. Returns -1 if \a Func is
+        not compatible with the \a ExpectedArguments, otherwise returns >= 0.
+    */
+    template<typename Prototype, typename Functor>
+    inline constexpr std::enable_if_t<!std::disjunction_v<std::is_convertible<Prototype, const char *>,
+                                                          std::is_same<std::decay_t<Prototype>, QMetaMethod>,
+                                                          std::is_convertible<Functor, const char *>,
+                                                          std::is_same<std::decay_t<Functor>, QMetaMethod>
+                                                         >,
+                                      int>
+    countMatchingArguments()
+    {
+        using ExpectedArguments = typename QtPrivate::FunctionPointer<Prototype>::Arguments;
+        using Actual = std::decay_t<Functor>;
+
+        if constexpr (QtPrivate::FunctionPointer<Actual>::IsPointerToMemberFunction
+                   || QtPrivate::FunctionPointer<Actual>::ArgumentCount >= 0) {
+            // PMF or free function
+            using ActualArguments = typename QtPrivate::FunctionPointer<Actual>::Arguments;
+            if constexpr (QtPrivate::CheckCompatibleArguments<ExpectedArguments, ActualArguments>::value)
+                return QtPrivate::FunctionPointer<Actual>::ArgumentCount;
+            else
+                return -1;
+        } else {
+            // lambda or functor
+            return QtPrivate::ComputeFunctorArgumentCount<Actual, ExpectedArguments>::Value;
+        }
+    }
+
     // internal base class (interface) containing functions required to call a slot managed by a pointer to function.
-    class QSlotObjectBase {
-        QAtomicInt m_ref;
-        // don't use virtual functions here; we don't want the
+    class QSlotObjectBase
+    {
+        // Don't use virtual functions here; we don't want the
         // compiler to create tons of per-polymorphic-class stuff that
         // we'll never need. We just use one function pointer, and the
         // Operations enum below to distinguish requests
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+        QAtomicInt m_ref = 1;
         typedef void (*ImplFn)(int which, QSlotObjectBase* this_, QObject *receiver, void **args, bool *ret);
         const ImplFn m_impl;
+#else
+        using ImplFn = void (*)(QSlotObjectBase* this_, QObject *receiver, void **args, int which, bool *ret);
+        const ImplFn m_impl;
+        QAtomicInt m_ref = 1;
+#endif
     protected:
         // The operations that can be requested by calls to m_impl,
         // see the member functions that call m_impl below for details
@@ -355,7 +413,7 @@ namespace QtPrivate {
             NumOperations
         };
     public:
-        explicit QSlotObjectBase(ImplFn fn) : m_ref(1), m_impl(fn) {}
+        explicit QSlotObjectBase(ImplFn fn) : m_impl(fn) {}
 
         // A custom deleter compatible with std protocols (op()()) we well as
         // the legacy QScopedPointer protocol (cleanup()).
@@ -367,11 +425,24 @@ namespace QtPrivate {
         };
 
         bool ref() noexcept { return m_ref.ref(); }
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
         inline void destroyIfLastRef() noexcept
         { if (!m_ref.deref()) m_impl(Destroy, this, nullptr, nullptr, nullptr); }
 
         inline bool compare(void **a) { bool ret = false; m_impl(Compare, this, nullptr, a, &ret); return ret; }
-        inline void call(QObject *r, void **a)  { m_impl(Call,    this, r, a, nullptr); }
+        inline void call(QObject *r, void **a)  { m_impl(Call, this, r, a, nullptr); }
+#else
+        inline void destroyIfLastRef() noexcept
+        { if (!m_ref.deref()) m_impl(this, nullptr, nullptr, Destroy, nullptr); }
+
+        inline bool compare(void **a)
+        {
+            bool ret = false;
+            m_impl(this, nullptr, a, Compare, &ret);
+            return ret;
+        }
+        inline void call(QObject *r, void **a)  { m_impl(this, r, a, Call, nullptr); }
+#endif
         bool isImpl(ImplFn f) const { return m_impl == f; }
     protected:
         ~QSlotObjectBase() {}
@@ -391,20 +462,20 @@ namespace QtPrivate {
     class SlotObjSharedPtr {
         SlotObjUniquePtr obj;
     public:
-        Q_IMPLICIT SlotObjSharedPtr() noexcept = default;
-        Q_IMPLICIT SlotObjSharedPtr(std::nullptr_t) noexcept : SlotObjSharedPtr() {}
-        explicit SlotObjSharedPtr(SlotObjUniquePtr o)
+        Q_NODISCARD_CTOR Q_IMPLICIT SlotObjSharedPtr() noexcept = default;
+        Q_NODISCARD_CTOR Q_IMPLICIT SlotObjSharedPtr(std::nullptr_t) noexcept : SlotObjSharedPtr() {}
+        Q_NODISCARD_CTOR explicit SlotObjSharedPtr(SlotObjUniquePtr o)
             : obj(std::move(o))
         {
             // does NOT ref() (takes unique_ptr by value)
             // (that's why (QSlotObjectBase*) ctor doesn't exisit: don't know whether that one _should_)
         }
-        SlotObjSharedPtr(const SlotObjSharedPtr &other) noexcept
+        Q_NODISCARD_CTOR SlotObjSharedPtr(const SlotObjSharedPtr &other) noexcept
             : obj{copy(other.obj)} {}
         SlotObjSharedPtr &operator=(const SlotObjSharedPtr &other) noexcept
         { auto copy = other; swap(copy); return *this; }
 
-        SlotObjSharedPtr(SlotObjSharedPtr &&other) noexcept = default;
+        Q_NODISCARD_CTOR SlotObjSharedPtr(SlotObjSharedPtr &&other) noexcept = default;
         SlotObjSharedPtr &operator=(SlotObjSharedPtr &&other) noexcept = default;
         ~SlotObjSharedPtr() = default;
 
@@ -416,66 +487,125 @@ namespace QtPrivate {
         explicit operator bool() const noexcept { return bool(obj); }
     };
 
-    // implementation of QSlotObjectBase for which the slot is a pointer to member function of a QObject
+
+    // Implementation of QSlotObjectBase for which the slot is a callable (function, PMF, functor, or lambda).
     // Args and R are the List of arguments and the return type of the signal to which the slot is connected.
-    template<typename Func, typename Args, typename R> class QSlotObject : public QSlotObjectBase
+    template <typename Func, typename Args, typename R>
+    class QCallableObject : public QSlotObjectBase,
+                            private QtPrivate::CompactStorage<std::decay_t<Func>>
     {
-        typedef QtPrivate::FunctionPointer<Func> FuncType;
-        Func function;
-        static void impl(int which, QSlotObjectBase *this_, QObject *r, void **a, bool *ret)
+        using FunctorValue = std::decay_t<Func>;
+        using Storage = QtPrivate::CompactStorage<FunctorValue>;
+        using FuncType = std::conditional_t<std::is_member_function_pointer_v<FunctorValue>,
+            QtPrivate::FunctionPointer<FunctorValue>,
+            QtPrivate::Functor<FunctorValue, Args::size>
+        >;
+
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+        Q_DECL_HIDDEN static void impl(int which, QSlotObjectBase *this_, QObject *r, void **a, bool *ret)
+#else
+        // Design note: the first three arguments match those for typical Call
+        // and Destroy uses. We return void to enable tail call optimization
+        // for those too.
+        Q_DECL_HIDDEN static void impl(QSlotObjectBase *this_, QObject *r, void **a, int which, bool *ret)
+#endif
         {
+            const auto that = static_cast<QCallableObject*>(this_);
             switch (which) {
             case Destroy:
-                delete static_cast<QSlotObject*>(this_);
+                delete that;
                 break;
             case Call:
-                FuncType::template call<Args, R>(static_cast<QSlotObject*>(this_)->function, static_cast<typename FuncType::Object *>(r), a);
+                if constexpr (std::is_member_function_pointer_v<FunctorValue>)
+                    FuncType::template call<Args, R>(that->object(), static_cast<typename FuncType::Object *>(r), a);
+                else
+                    FuncType::template call<Args, R>(that->object(), r, a);
                 break;
             case Compare:
-                *ret = *reinterpret_cast<Func *>(a) == static_cast<QSlotObject*>(this_)->function;
-                break;
-            case NumOperations: ;
-            }
-        }
-    public:
-        explicit QSlotObject(Func f) : QSlotObjectBase(&impl), function(f) {}
-    };
-    // implementation of QSlotObjectBase for which the slot is a functor (or lambda)
-    // N is the number of arguments
-    // Args and R are the List of arguments and the return type of the signal to which the slot is connected.
-    template<typename Func, int N, typename Args, typename R> class QFunctorSlotObject : public QSlotObjectBase
-    {
-        typedef QtPrivate::Functor<Func, N> FuncType;
-        Func function;
-        static void impl(int which, QSlotObjectBase *this_, QObject *r, void **a, bool *ret)
-        {
-            switch (which) {
-            case Destroy:
-                delete static_cast<QFunctorSlotObject*>(this_);
-                break;
-            case Call:
-                FuncType::template call<Args, R>(static_cast<QFunctorSlotObject*>(this_)->function, r, a);
-                break;
-            case Compare: // not implemented
+                if constexpr (std::is_member_function_pointer_v<FunctorValue>) {
+                    *ret = *reinterpret_cast<FunctorValue *>(a) == that->object();
+                    break;
+                }
+                // not implemented otherwise
+                Q_FALLTHROUGH();
             case NumOperations:
                 Q_UNUSED(ret);
             }
         }
     public:
-        explicit QFunctorSlotObject(Func f) : QSlotObjectBase(&impl), function(std::move(f)) {}
+        explicit QCallableObject(Func &&f) : QSlotObjectBase(&impl), Storage{std::move(f)} {}
+        explicit QCallableObject(const Func &f) : QSlotObjectBase(&impl), Storage{f} {}
     };
 
-    // typedefs for readability for when there are no parameters
-    template <typename Func>
-    using QSlotObjectWithNoArgs = QSlotObject<Func,
-                                              QtPrivate::List<>,
-                                              typename QtPrivate::FunctionPointer<Func>::ReturnType>;
+    // Helper to detect the context object type based on the functor type:
+    // QObject for free functions and lambdas; the callee for member function
+    // pointers. The default declaration doesn't have the ContextType typedef,
+    // and so non-functor APIs (like old-style string-based slots) are removed
+    // from the overload set.
+    template <typename Func, typename = void>
+    struct ContextTypeForFunctor {};
 
-    template <typename Func, typename R>
-    using QFunctorSlotObjectWithNoArgs = QFunctorSlotObject<Func, 0, QtPrivate::List<>, R>;
-
     template <typename Func>
-    using QFunctorSlotObjectWithNoArgsImplicitReturn = QFunctorSlotObjectWithNoArgs<Func, typename QtPrivate::FunctionPointer<Func>::ReturnType>;
+    struct ContextTypeForFunctor<Func,
+        std::enable_if_t<!std::disjunction_v<std::is_convertible<Func, const char *>,
+                                             std::is_member_function_pointer<Func>
+                                            >
+                        >
+    >
+    {
+        using ContextType = QObject;
+    };
+    template <typename Func>
+    struct ContextTypeForFunctor<Func,
+        std::enable_if_t<std::conjunction_v<std::negation<std::is_convertible<Func, const char *>>,
+                                            std::is_member_function_pointer<Func>,
+                                            std::is_convertible<typename QtPrivate::FunctionPointer<Func>::Object *, QObject *>
+                                           >
+                        >
+    >
+    {
+        using ContextType = typename QtPrivate::FunctionPointer<Func>::Object;
+    };
+
+    /*
+        Returns a suitable QSlotObjectBase object that holds \a func, if possible.
+
+        Not available (and thus produces compile-time errors) if the Functor provided is
+        not compatible with the expected Prototype.
+    */
+    template <typename Prototype, typename Functor>
+    static constexpr std::enable_if_t<QtPrivate::countMatchingArguments<Prototype, Functor>() >= 0,
+        QtPrivate::QSlotObjectBase *>
+    makeCallableObject(Functor &&func)
+    {
+        using ExpectedSignature = QtPrivate::FunctionPointer<Prototype>;
+        using ExpectedReturnType = typename ExpectedSignature::ReturnType;
+        using ExpectedArguments = typename ExpectedSignature::Arguments;
+
+        using ActualSignature = QtPrivate::FunctionPointer<Functor>;
+        constexpr int MatchingArgumentCount = QtPrivate::countMatchingArguments<Prototype, Functor>();
+        using ActualArguments  = typename QtPrivate::List_Left<ExpectedArguments, MatchingArgumentCount>::Value;
+
+        static_assert(int(ActualSignature::ArgumentCount) <= int(ExpectedSignature::ArgumentCount),
+            "Functor requires more arguments than what can be provided.");
+
+        return new QtPrivate::QCallableObject<std::decay_t<Functor>, ActualArguments, ExpectedReturnType>(std::forward<Functor>(func));
+    }
+
+    template<typename Prototype, typename Functor, typename = void>
+    struct AreFunctionsCompatible : std::false_type {};
+    template<typename Prototype, typename Functor>
+    struct AreFunctionsCompatible<Prototype, Functor, std::enable_if_t<
+        std::is_same_v<decltype(QtPrivate::makeCallableObject<Prototype>(std::forward<Functor>(std::declval<Functor>()))),
+        QtPrivate::QSlotObjectBase *>>
+    > : std::true_type {};
+
+    template<typename Prototype, typename Functor>
+    inline constexpr bool AssertCompatibleFunctions() {
+        static_assert(AreFunctionsCompatible<Prototype, Functor>::value,
+                      "Functor is not compatible with expected prototype!");
+        return true;
+    }
 }
 
 QT_END_NAMESPACE

@@ -97,12 +97,17 @@ using namespace Qt::StringLiterals;
 
     \internal
 
-    \value InvokeSlot
-    \value EmitSignal
+    \value InvokeMetaMethod
     \value ReadProperty
     \value WriteProperty
     \value ResetProperty
     \value CreateInstance
+    \value IndexOfMethod
+    \value RegisterPropertyMetaType
+    \value RegisterMethodArgumentMetaType
+    \value BindableProperty
+    \value CustomCall
+    \value ConstructInPlace
 */
 
 /*!
@@ -414,10 +419,30 @@ QMetaType QMetaObject::metaType() const
         return QMetaType::fromName(className());
     } else {
         /* in the metatype array, we store
-         idx: 0                      propertyCount - 1           propertyCount
-         data:QMetaType(prop0), ..., QMetaType(propPropCount-1), QMetaType(class),...
-         */
-        auto iface = this->d.metaTypes[d->propertyCount];
+
+         | index                               | data                           |
+         |----------------------------------------------------------------------|
+         | 0                                   | QMetaType(property0)           |
+         | ...                                 | ...                            |
+         | propertyCount - 1                   | QMetaType(propertyCount - 1)   |
+         | propertyCount                       | QMetaType(enumerator0)         |
+         | ...                                 | ...                            |
+         | propertyCount + enumeratorCount - 1 | QMetaType(enumeratorCount - 1) |
+         | propertyCount + enumeratorCount     | QMetaType(class)               |
+
+        */
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+        // Before revision 12 we only stored metatypes for enums if they showed
+        // up as types of properties or method arguments or return values.
+        // From revision 12 on, we always store them in a predictable place.
+        const qsizetype offset = d->revision < 12
+                ? d->propertyCount
+                : d->propertyCount + d->enumeratorCount;
+#else
+        const qsizetype offset = d->propertyCount + d->enumeratorCount;
+#endif
+
+        auto iface = this->d.metaTypes[offset];
         if (iface && QtMetaTypePrivate::isInterfaceFor<void>(iface))
             return QMetaType(); // return invalid meta-type for namespaces
         if (iface)
@@ -1042,7 +1067,7 @@ int QMetaObject::indexOfEnumerator(const char *name) const
         for (int i = 0; i < d->enumeratorCount; ++i) {
             const QMetaEnum e(m, i);
             const char *prop = rawStringData(m, e.data.name());
-            if (name[0] == prop[0] && strcmp(name + 1, prop + 1) == 0) {
+            if (strcmp(name, prop) == 0) {
                 i += m->enumeratorOffset();
                 return i;
             }
@@ -1056,7 +1081,7 @@ int QMetaObject::indexOfEnumerator(const char *name) const
         for (int i = 0; i < d->enumeratorCount; ++i) {
             const QMetaEnum e(m, i);
             const char *prop = rawStringData(m, e.data.alias());
-            if (name[0] == prop[0] && strcmp(name + 1, prop + 1) == 0) {
+            if (strcmp(name, prop) == 0) {
                 i += m->enumeratorOffset();
                 return i;
             }
@@ -1080,7 +1105,7 @@ int QMetaObject::indexOfProperty(const char *name) const
         for (int i = 0; i < d->propertyCount; ++i) {
             const QMetaProperty::Data data = QMetaProperty::getMetaPropertyData(m, i);
             const char *prop = rawStringData(m, data.name());
-            if (name[0] == prop[0] && strcmp(name + 1, prop + 1) == 0) {
+            if (strcmp(name, prop) == 0) {
                 i += m->propertyOffset();
                 return i;
             }
@@ -1692,31 +1717,19 @@ bool QMetaObject::invokeMethodImpl(QObject *object, QtPrivate::QSlotObjectBase *
 */
 
 /*!
-    \fn  template<typename Functor, typename FunctorReturnType> bool QMetaObject::invokeMethod(QObject *context, Functor function, Qt::ConnectionType type, FunctorReturnType *ret)
+    \fn  template<typename Functor, typename FunctorReturnType> bool QMetaObject::invokeMethod(QObject *context, Functor &&function, Qt::ConnectionType type, FunctorReturnType *ret)
+    \fn  template<typename Functor, typename FunctorReturnType> bool QMetaObject::invokeMethod(QObject *context, Functor &&function, FunctorReturnType *ret)
 
     \since 5.10
-
     \threadsafe
-    \overload
 
     Invokes the \a function in the event loop of \a context. \a function can be a functor
     or a pointer to a member function. Returns \c true if the function could be invoked.
     Returns \c false if there is no such function or the parameters did not match.
     The return value of the function call is placed in \a ret.
-*/
 
-/*!
-    \fn  template<typename Functor, typename FunctorReturnType> bool QMetaObject::invokeMethod(QObject *context, Functor function, FunctorReturnType *ret)
-
-    \since 5.10
-
-    \threadsafe
-    \overload
-
-    Invokes the \a function in the event loop of \a context using the connection type Qt::AutoConnection.
-    \a function can be a functor or a pointer to a member function. Returns \c true if the function could
-    be invoked. Returns \c false if there is no such member or the parameters did not match.
-    The return value of the function call is placed in \a ret.
+    If \a type is set, then the function is invoked using that connection type. Otherwise,
+    Qt::AutoConnection will be used.
 */
 
 /*!
@@ -3013,7 +3026,7 @@ const char *QMetaEnum::name() const
     Returns the enum name of the flag (without the scope).
 
     For example, the Qt::AlignmentFlag flag has \c
-    AlignmentFlag as the enum name, but \c Alignment as as the type name.
+    AlignmentFlag as the enum name, but \c Alignment as the type name.
     Non flag enums has the same type and enum names.
 
     Enum names have the same scope as the type name.
@@ -3026,6 +3039,33 @@ const char *QMetaEnum::enumName() const
     if (!mobj)
         return nullptr;
     return rawStringData(mobj, data.alias());
+}
+
+/*!
+    Returns the meta type of the enum.
+
+    If the QMetaObject this enum is part of was generated with Qt 6.5 or
+    earlier this will be the invalid metatype.
+
+    \note This is the meta type of the enum itself, not of its underlying
+    numeric type. You can retrieve the meta type of the underlying type of the
+    enum using \l{QMetaType::underlyingType()}.
+
+    \since 6.6
+    \sa QMetaType::underlyingType()
+*/
+QMetaType QMetaEnum::metaType() const
+{
+    if (!mobj)
+        return {};
+
+    const QMetaObjectPrivate *p = priv(mobj->d.data);
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+    if (p->revision < 12)
+        QMetaType();
+#endif
+
+    return QMetaType(mobj->d.metaTypes[data.index(mobj) + p->propertyCount]);
 }
 
 /*!
@@ -3275,6 +3315,11 @@ QMetaEnum::QMetaEnum(const QMetaObject *mobj, int index)
     : mobj(mobj), data({ mobj->d.data + priv(mobj->d.data)->enumeratorData + index * Data::Size })
 {
     Q_ASSERT(index >= 0 && index < priv(mobj->d.data)->enumeratorCount);
+}
+
+int QMetaEnum::Data::index(const QMetaObject *mobj) const
+{
+    return (d - mobj->d.data - priv(mobj->d.data)->enumeratorData) / Size;
 }
 
 /*!
@@ -3616,10 +3661,13 @@ QVariant QMetaProperty::read(const QObject *object) const
     Writes \a value as the property's value to the given \a object. Returns
     true if the write succeeded; otherwise returns \c false.
 
-    If \a value is not of the same type type as the property, a conversion
+    If \a value is not of the same type as the property, a conversion
     is attempted. An empty QVariant() is equivalent to a call to reset()
     if this property is resettable, or setting a default-constructed object
     otherwise.
+
+    \note This function internally makes a copy of \a value. Prefer to use the
+    rvalue overload when possible.
 
     \sa read(), reset(), isWritable()
 */
@@ -3627,20 +3675,29 @@ bool QMetaProperty::write(QObject *object, const QVariant &value) const
 {
     if (!object || !isWritable())
         return false;
+    return write(object, QVariant(value));
+}
 
-    QVariant v = value;
+/*!
+    \overload
+    \since 6.6
+*/
+bool QMetaProperty::write(QObject *object, QVariant &&v) const
+{
+    if (!object || !isWritable())
+        return false;
     QMetaType t(mobj->d.metaTypes[data.index(mobj)]);
     if (t != QMetaType::fromType<QVariant>() && t != v.metaType()) {
         if (isEnumType() && !t.metaObject() && v.metaType().id() == QMetaType::QString) {
             // Assigning a string to a property of type Q_ENUMS (instead of Q_ENUM)
             bool ok;
             if (isFlagType())
-                v = QVariant(menum.keysToValue(value.toByteArray(), &ok));
+                v = QVariant(menum.keysToValue(v.toByteArray(), &ok));
             else
-                v = QVariant(menum.keyToValue(value.toByteArray(), &ok));
+                v = QVariant(menum.keyToValue(v.toByteArray(), &ok));
             if (!ok)
                 return false;
-        } else if (!value.isValid()) {
+        } else if (!v.isValid()) {
             if (isResettable())
                 return reset(object);
             v = QVariant(t, nullptr);
@@ -3732,6 +3789,16 @@ bool QMetaProperty::writeOnGadget(void *gadget, const QVariant &value) const
 {
     Q_ASSERT(priv(mobj->d.data)->flags & PropertyAccessInStaticMetaCall && mobj->d.static_metacall);
     return write(reinterpret_cast<QObject*>(gadget), value);
+}
+
+/*!
+    \overload
+    \since 6.6
+*/
+bool QMetaProperty::writeOnGadget(void *gadget, QVariant &&value) const
+{
+    Q_ASSERT(priv(mobj->d.data)->flags & PropertyAccessInStaticMetaCall && mobj->d.static_metacall);
+    return write(reinterpret_cast<QObject*>(gadget), std::move(value));
 }
 
 /*!

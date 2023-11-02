@@ -22,20 +22,16 @@ public:
     QString fileName() const;
 
     bool lock();
-    bool tryLock(int timeout = 0);
+    bool tryLock(int timeout);
     void unlock();
 
     void setStaleLockTime(int);
     int staleLockTime() const;
 
-    bool tryLock(std::chrono::milliseconds timeout) { return tryLock(int(timeout.count())); }
+    bool tryLock(std::chrono::milliseconds timeout = std::chrono::milliseconds::zero());
 
-    void setStaleLockTime(std::chrono::milliseconds value) { setStaleLockTime(int(value.count())); }
-
-    std::chrono::milliseconds staleLockTimeAsDuration() const
-    {
-        return std::chrono::milliseconds(staleLockTime());
-    }
+    void setStaleLockTime(std::chrono::milliseconds value);
+    std::chrono::milliseconds staleLockTimeAsDuration() const;
 
     bool isLocked() const;
     bool getLockInfo(qint64 *pid, QString *hostname, QString *appname) const;

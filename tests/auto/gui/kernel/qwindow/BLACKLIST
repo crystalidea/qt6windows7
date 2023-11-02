@@ -23,3 +23,8 @@ android
 android
 [modalWindowModallity]
 android
+[enterLeaveOnWindowShowHide]
+windows-10
+windows-11
+android
+rhel

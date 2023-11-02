@@ -354,14 +354,29 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
     \enum QAccessible::RelationFlag
 
     This enum type defines bit flags that can be combined to indicate
-    the relationship between two accessible objects.
+    the relationship between two accessible objects. It is used by
+    the relations() function, which returns a list of all the related
+    interfaces of the calling object, together with the relations
+    for each object.
 
-    \value Label            The first object is the label of the second object.
-    \value Labelled         The first object is labelled by the second object.
-    \value Controller       The first object controls the second object.
-    \value Controlled       The first object is controlled by the second object.
-    \value AllRelations     Used as a mask to specify that we are interesting in information
-                            about all relations
+    Each entry in the list is a QPair where the \c second member stores
+    the relation type(s) between the \c returned object represented by the
+    \c first member and the \c origin (the caller) interface/object.
+
+    In the table below, the \c returned object refers to the object in
+    the returned list, and the \c origin object is the one represented
+    by the calling interface.
+
+    \value Label                        The \c returned object is the label for the \c origin object.
+    \value Labelled                     The \c returned object is labelled by the \c origin object.
+    \value Controller                   The \c returned object controls the \c origin object.
+    \value Controlled                   The \c returned object is controlled by the \c origin object.
+    \value [since 6.6] DescriptionFor   The \c returned object provides a description for the \c origin object.
+    \value [since 6.6] Described        The \c returned object is described by the \c origin object.
+    \value [since 6.6] FlowsFrom        Content logically flows from the \c returned object to the \c origin object.
+    \value [since 6.6] FlowsTo          Content logically flows to the \c returned object from the \c origin object.
+    \value AllRelations                 Used as a mask to specify that we are interesting in information
+                                        about all relations
 
     Implementations of relations() return a combination of these flags.
     Some values are mutually exclusive.
@@ -851,11 +866,11 @@ void QAccessible::updateAccessibility(QAccessibleEvent *event)
             if (iface->tableInterface())
                 iface->tableInterface()->modelChange(static_cast<QAccessibleTableModelChangeEvent*>(event));
         }
+    }
 
-        if (updateHandler) {
-            updateHandler(event);
-            return;
-        }
+    if (updateHandler) {
+        updateHandler(event);
+        return;
     }
 
     if (QPlatformAccessibility *pfAccessibility = platformAccessibility())

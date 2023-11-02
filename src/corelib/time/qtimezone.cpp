@@ -29,7 +29,7 @@ static QTimeZonePrivate *newBackendTimeZone()
     return new QUtcTimeZonePrivate();
 #endif
 #else
-#if defined Q_OS_MAC
+#if defined(Q_OS_DARWIN)
     return new QMacTimeZonePrivate();
 #elif defined(Q_OS_ANDROID)
     return new QAndroidTimeZonePrivate();
@@ -37,7 +37,7 @@ static QTimeZonePrivate *newBackendTimeZone()
     return new QTzTimeZonePrivate();
 #elif QT_CONFIG(icu)
     return new QIcuTimeZonePrivate();
-#elif defined Q_OS_WIN
+#elif defined(Q_OS_WIN)
     return new QWinTimeZonePrivate();
 #else
     return new QUtcTimeZonePrivate();
@@ -56,7 +56,7 @@ static QTimeZonePrivate *newBackendTimeZone(const QByteArray &ianaId)
     return new QUtcTimeZonePrivate(ianaId);
 #endif
 #else
-#if defined Q_OS_MAC
+#if defined(Q_OS_DARWIN)
     return new QMacTimeZonePrivate(ianaId);
 #elif defined(Q_OS_ANDROID)
     return new QAndroidTimeZonePrivate(ianaId);
@@ -64,7 +64,7 @@ static QTimeZonePrivate *newBackendTimeZone(const QByteArray &ianaId)
     return new QTzTimeZonePrivate(ianaId);
 #elif QT_CONFIG(icu)
     return new QIcuTimeZonePrivate(ianaId);
-#elif defined Q_OS_WIN
+#elif defined(Q_OS_WIN)
     return new QWinTimeZonePrivate(ianaId);
 #else
     return new QUtcTimeZonePrivate(ianaId);
@@ -177,7 +177,7 @@ Q_GLOBAL_STATIC(QTimeZoneSingleton, global_tz);
 
     A default UTC time zone backend is provided which is always available when
     feature \c timezone is enabled. This provides a set of generic Offset From
-    UTC time zones in the range UTC-14:00 to UTC+14:00. These time zones can be
+    UTC time zones in the range UTC-16:00 to UTC+16:00. These time zones can be
     created using either the standard ISO format names, such as "UTC+00:00", as
     listed by availableTimeZoneIds(), or using a name of similar form in
     combination with the number of offset seconds.
@@ -254,17 +254,34 @@ Q_GLOBAL_STATIC(QTimeZoneSingleton, global_tz);
 */
 
 /*!
-  \enum QTimeZone::anonymous
+    \variable QTimeZone::MinUtcOffsetSecs
+    \brief Timezone offsets from UTC are expected to be no lower than this.
 
-  This enumeration provides constants bounding the range of plausible timezone
-  offsets from UTC, measured in seconds.
-  Sane UTC offsets range from -14 to +14 hours.
-  No known zone has offset > 12 hrs West of Greenwich (Baker Island, USA).
-  No known zone has offset > 14 hrs East of Greenwich (Kiritimati, Christmas Island, Kiribati).
-  Note that there are zones whose offsets differ by more than a day.
+    The lowest UTC offset of any early 21st century timezone is -12 hours (Baker
+    Island, USA), or 12 hours west of Greenwich.
 
-  \value MinUtcOffsetSecs -14 * 3600,
-  \value MaxUtcOffsetSecs +14 * 3600
+    Historically, until 1844, The Philippines (then controlled by Spain) used
+    the same date as Spain's American holdings, so had offsets close to 16 hours
+    west of Greenwich. As The Philippines was using local solar mean time, it is
+    possible some outlying territory of it may have been operating at more than
+    16 hours west of Greenwich, but no early 21st century timezone traces its
+    history back to such an extreme.
+
+    \sa MaxUtcOffsetSecs
+*/
+/*!
+    \variable QTimeZone::MaxUtcOffsetSecs
+    \brief Timezone offsets from UTC are expected to be no higher than this.
+
+    The highest UTC offset of any early 21st century timezone is +14 hours
+    (Christmas Island, Kiribati, Kiritimati), or 14 hours east of Greenwich.
+
+    Historically, before 1867, when Russia sold Alaska to America, Alaska used
+    the same date as Russia, so had offsets over 15 hours east of Greenwich. As
+    Alaska was using local solar mean time, its offsets varied, but all were
+    less than 16 hours east of Greenwich.
+
+    \sa MinUtcOffsetSecs
 */
 
 #if QT_CONFIG(timezone)
@@ -449,8 +466,13 @@ QTimeZone::QTimeZone(const QByteArray &ianaId)
     d = new QUtcTimeZonePrivate(ianaId);
     // If not a CLDR UTC offset ID then try creating it with the system backend.
     // Relies on backend not creating valid TZ with invalid name.
-    if (!d->isValid())
-        d = ianaId.isEmpty() ? newBackendTimeZone() : newBackendTimeZone(ianaId);
+    if (!d->isValid()) {
+        if (ianaId.isEmpty())
+            d = newBackendTimeZone();
+        else if (global_tz->backend->isTimeZoneIdAvailable(ianaId))
+            d = newBackendTimeZone(ianaId);
+        // else: No such ID, avoid creating a TZ cache entry for it.
+    }
     // Can also handle UTC with arbitrary (valid) offset, but only do so as
     // fall-back, since either of the above may handle it more informatively.
     if (!d->isValid()) {
@@ -468,13 +490,15 @@ QTimeZone::QTimeZone(const QByteArray &ianaId)
 /*!
     Creates a time zone instance with the given offset, \a offsetSeconds, from UTC.
 
-    The \a offsetSeconds from UTC must be in the range -14 hours to +14 hours
+    The \a offsetSeconds from UTC must be in the range -16 hours to +16 hours
     otherwise an invalid time zone will be returned.
 
     This constructor is only available when feature \c timezone is enabled. The
     returned instance is equivalent to the lightweight time representation
     \c{QTimeZone::fromSecondsAfterUtc(offsetSeconds)}, albeit implemented as a
     time zone.
+
+    \sa MinUtcOffsetSecs, MaxUtcOffsetSecs
 */
 
 QTimeZone::QTimeZone(int offsetSeconds)
@@ -495,14 +519,15 @@ QTimeZone::QTimeZone(int offsetSeconds)
 
     The \a ianaId must not be one of the available system IDs returned by
     availableTimeZoneIds().  The \a offsetSeconds from UTC must be in the range
-    -14 hours to +14 hours.
+    -16 hours to +16 hours.
 
     If the custom time zone does not have a specific territory then set it to the
     default value of QLocale::AnyTerritory.
 
     This constructor is only available when feature \c timezone is enabled.
 
-    \sa id(), offsetFromUtc(), displayName(), abbreviation(), territory(), comment()
+    \sa id(), offsetFromUtc(), displayName(), abbreviation(), territory(), comment(),
+        MinUtcOffsetSecs, MaxUtcOffsetSecs
 */
 
 QTimeZone::QTimeZone(const QByteArray &ianaId, int offsetSeconds, const QString &name,
@@ -605,17 +630,18 @@ QTimeZone QTimeZone::asBackendZone() const
     Returns a time representation at a fixed \a offset, in seconds, ahead of
     UTC.
 
-    The \a offset from UTC must be in the range -14 hours to +14 hours otherwise an
-    invalid time zone will be returned. The returned QTimeZone is a lightweight
-    time representation, not a time zone (backed by system-supplied or standard
-    data).
+    The \a offset from UTC must be in the range -16 hours to +16 hours otherwise
+    an invalid time zone will be returned. The returned QTimeZone is a
+    lightweight time representation, not a time zone (backed by system-supplied
+    or standard data).
 
     If the offset is 0, the \l timeSpec() of the returned instance will be
     Qt::UTC. Otherwise, if \a offset is valid, timeSpec() is
     Qt::OffsetFromUTC. An invalid time zone, when returned, has Qt::TimeZone as
     its timeSpec().
 
-    \sa QTimeZone(int), asBackendZone(), fixedSecondsAheadOfUtc()
+    \sa QTimeZone(int), asBackendZone(), fixedSecondsAheadOfUtc(),
+        MinUtcOffsetSecs, MaxUtcOffsetSecs
 */
 
 /*!
@@ -1120,9 +1146,12 @@ bool QTimeZone::isDaylightTime(const QDateTime &atDateTime) const
 }
 
 /*!
-    Returns the effective offset details at the given \a forDateTime. This is
-    the equivalent of calling offsetFromUtc(), abbreviation(), etc individually but is
-    more efficient.
+    Returns the effective offset details at the given \a forDateTime.
+
+    This is the equivalent of calling abbreviation() and all three offset
+    functions individually but is more efficient. If this data is not available
+    for the given datetime, an invalid OffsetData will be returned with an
+    invalid QDateTime as its \c atUtc.
 
     This method is only available when feature \c timezone is enabled.
 
@@ -1142,9 +1171,9 @@ QTimeZone::OffsetData QTimeZone::offsetData(const QDateTime &forDateTime) const
             Q_UNREACHABLE();
             break;
         }
-    } else if (hasTransitions()) {
-        return QTimeZonePrivate::toOffsetData(d->data(forDateTime.toMSecsSinceEpoch()));
     }
+    if (isValid())
+        return QTimeZonePrivate::toOffsetData(d->data(forDateTime.toMSecsSinceEpoch()));
 
     return QTimeZonePrivate::invalidOffsetData();
 }
@@ -1185,7 +1214,7 @@ bool QTimeZone::hasTransitions() const
     Transition after it.
 
     If there is no transition after the given \a afterDateTime then an invalid
-    OffsetData will be returned with an invalid QDateTime.
+    OffsetData will be returned with an invalid QDateTime as its \c atUtc.
 
     The given \a afterDateTime is exclusive.
 
@@ -1220,7 +1249,7 @@ QTimeZone::OffsetData QTimeZone::nextTransition(const QDateTime &afterDateTime) 
     Transition before it.
 
     If there is no transition before the given \a beforeDateTime then an invalid
-    OffsetData will be returned with an invalid QDateTime.
+    OffsetData will be returned with an invalid QDateTime as its \c atUtc.
 
     The given \a beforeDateTime is exclusive.
 
@@ -1357,12 +1386,18 @@ QTimeZone QTimeZone::utc()
 
 bool QTimeZone::isTimeZoneIdAvailable(const QByteArray &ianaId)
 {
+#if defined(Q_OS_UNIX) && !(defined(Q_OS_ANDROID) || defined(Q_OS_DARWIN))
+    // Keep #if-ery consistent with selection of QTzTimeZonePrivate in
+    // newBackendTimeZone(). Skip the pre-check, as the TZ backend accepts POSIX
+    // zone IDs, which need not be valid IANA IDs.
+#else
     // isValidId is not strictly required, but faster to weed out invalid
     // IDs as availableTimeZoneIds() may be slow
     if (!QTimeZonePrivate::isValidId(ianaId))
         return false;
-    return QUtcTimeZonePrivate().isTimeZoneIdAvailable(ianaId) ||
-           global_tz->backend->isTimeZoneIdAvailable(ianaId);
+#endif
+    return QUtcTimeZonePrivate().isTimeZoneIdAvailable(ianaId)
+        || global_tz->backend->isTimeZoneIdAvailable(ianaId);
 }
 
 static QList<QByteArray> set_union(const QList<QByteArray> &l1, const QList<QByteArray> &l2)

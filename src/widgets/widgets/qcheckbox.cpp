@@ -28,7 +28,7 @@ public:
     uint tristate : 1;
     uint noChange : 1;
     uint hovering : 1;
-    uint publishedState : 2;
+    Qt::CheckState publishedState : 2;
 
     void init();
 };
@@ -225,7 +225,7 @@ void QCheckBox::setCheckState(Qt::CheckState state)
     setChecked(state != Qt::Unchecked);
     d->blockRefresh = false;
     d->refresh();
-    if ((uint)state != d->publishedState) {
+    if (state != d->publishedState) {
         d->publishedState = state;
         emit stateChanged(state);
     }
@@ -320,7 +320,7 @@ void QCheckBox::checkStateSet()
     Q_D(QCheckBox);
     d->noChange = false;
     Qt::CheckState state = checkState();
-    if ((uint)state != d->publishedState) {
+    if (state != d->publishedState) {
         d->publishedState = state;
         emit stateChanged(state);
     }

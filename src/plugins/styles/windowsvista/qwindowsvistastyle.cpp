@@ -69,14 +69,6 @@ HTHEME QWindowsVistaStylePrivate::m_themes[NThemes];
 bool QWindowsVistaStylePrivate::useVistaTheme = false;
 Q_CONSTINIT QBasicAtomicInt QWindowsVistaStylePrivate::ref = Q_BASIC_ATOMIC_INITIALIZER(-1); // -1 based refcounting
 
-namespace QOSWorkaround {
-    // Due to a mingw bug being confused by static constexpr variables in an exported class,
-    // we cannot use QOperatingSystemVersion::Windows11 in libraries outside of QtCore.
-    // ### TODO Remove this when that problem is fixed.
-    static constexpr QOperatingSystemVersionBase Windows11 { QOperatingSystemVersionBase::Windows,
-                                                             10, 0, 22000 };
-}
-
 static void qt_add_rect(HRGN &winRegion, QRect r)
 {
     HRGN rgn = CreateRectRgn(r.left(), r.top(), r.x() + r.width(), r.y() + r.height());
@@ -273,11 +265,8 @@ int QWindowsVistaStylePrivate::pixelMetricFromSystemDp(QStyle::PixelMetric pm, c
                 : QWindowsThemeData::themeSize(widget, nullptr, QWindowsVistaStylePrivate::ProgressTheme, PP_CHUNKVERT).height();
     case QStyle::PM_SliderThickness:
         return QWindowsThemeData::themeSize(widget, nullptr, QWindowsVistaStylePrivate::TrackBarTheme, TKP_THUMB).height();
-    case QStyle::PM_TitleBarHeight: {
-        return widget && (widget->windowType() == Qt::Tool)
-                ? GetSystemMetrics(SM_CYSMCAPTION) + GetSystemMetrics(SM_CXSIZEFRAME)
-                : GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXSIZEFRAME);
-    }
+    case QStyle::PM_TitleBarHeight:
+        return QWindowsStylePrivate::pixelMetricFromSystemDp(QStyle::PM_TitleBarHeight, option, widget);
     case QStyle::PM_MdiSubWindowFrameWidth:
         return QWindowsThemeData::themeSize(widget, nullptr, QWindowsVistaStylePrivate::WindowTheme, WP_FRAMELEFT, FS_ACTIVE).width();
     case QStyle::PM_DockWidgetFrameWidth:
@@ -541,29 +530,29 @@ QRegion QWindowsVistaStylePrivate::region(QWindowsThemeData &themeData)
     QRegion region;
 
     if (success) {
-        const auto numBytes = GetRegionData(dest, 0, nullptr);
-        if (numBytes == 0)
-            return QRegion();
-
-        char *buf = new (std::nothrow) char[numBytes];
-        if (!buf)
-            return QRegion();
-
-        RGNDATA *rd = reinterpret_cast<RGNDATA*>(buf);
-        if (GetRegionData(dest, numBytes, rd) == 0) {
-            delete [] buf;
-            return QRegion();
+        QVarLengthArray<char> buf(256);
+        RGNDATA *rd = reinterpret_cast<RGNDATA *>(buf.data());
+        if (GetRegionData(dest, buf.size(), rd) == 0) {
+            const auto numBytes = GetRegionData(dest, 0, nullptr);
+            if (numBytes > 0) {
+                buf.resize(numBytes);
+                rd = reinterpret_cast<RGNDATA *>(buf.data());
+                if (GetRegionData(dest, numBytes, rd) == 0)
+                    rd = nullptr;
+            } else {
+                rd = nullptr;
+            }
         }
-
-        RECT *r = reinterpret_cast<RECT*>(rd->Buffer);
-        for (uint i = 0; i < rd->rdh.nCount; ++i) {
-            QRect rect;
-            rect.setCoords(int(r->left * factor), int(r->top * factor), int((r->right - 1) * factor), int((r->bottom - 1) * factor));
-            ++r;
-            region |= rect;
+        if (rd) {
+            RECT *r = reinterpret_cast<RECT *>(rd->Buffer);
+            for (uint i = 0; i < rd->rdh.nCount; ++i) {
+                QRect rect;
+                rect.setCoords(int(r->left * factor), int(r->top * factor),
+                               int((r->right - 1) * factor), int((r->bottom - 1) * factor));
+                ++r;
+                region |= rect;
+            }
         }
-
-        delete [] buf;
     }
 
     DeleteObject(hRgn);
@@ -2968,7 +2957,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
                     else
                         theme.stateId = bullet ? MC_BULLETNORMAL: MC_CHECKMARKNORMAL;
                     d->drawBackground(theme);
-                } else if (QOperatingSystemVersion::current() >= QOSWorkaround::Windows11
+                } else if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11
                            && !act) {
                     painter->fillRect(checkRect, menuitem->palette.highlight().color().lighter(200));
                 }
@@ -3053,7 +3042,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
                             partId, stateId, option->rect);
             d->drawBackground(theme);
         }
-        return;    
+        return;
 
     case CE_MenuBarEmptyArea: {
         stateId = MBI_NORMAL;
@@ -4824,7 +4813,7 @@ void QWindowsVistaStyle::polish(QPalette &pal)
         // Overwrite with the light system palette.
         using QWindowsApplication = QNativeInterface::Private::QWindowsApplication;
         if (auto nativeWindowsApp = dynamic_cast<QWindowsApplication *>(QGuiApplicationPrivate::platformIntegration()))
-            nativeWindowsApp->lightSystemPalette(pal);
+            nativeWindowsApp->populateLightSystemPalette(pal);
     }
 
     QPixmapCache::clear();

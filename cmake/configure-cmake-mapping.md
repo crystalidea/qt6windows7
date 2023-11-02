@@ -17,7 +17,6 @@ The following table describes the mapping of configure options to CMake argument
 | -no-feature-foo                       | -DFEATURE_foo=OFF                                 |                                                                 |
 | -list-features                        |                                                   | At the moment: configure with cmake once,                       |
 |                                       |                                                   | then use ccmake or cmake-gui to inspect the features.           |
-| -list-libraries                       |                                                   |                                                                 |
 | -opensource                           | n/a                                               |                                                                 |
 | -commercial                           | n/a                                               |                                                                 |
 | -confirm-license                      | n/a                                               |                                                                 |
@@ -60,6 +59,7 @@ The following table describes the mapping of configure options to CMake argument
 | -R <string>                           | -DQT_EXTRA_RPATHS=path1;path2                     |                                                                 |
 | -rpath                                | negative CMAKE_SKIP_BUILD_RPATH                   |                                                                 |
 |                                       | negative CMAKE_SKIP_INSTALL_RPATH                 |                                                                 |
+|                                       | negative CMAKE_MACOSX_RPATH                       |                                                                 |
 | -reduce-exports                       | -DFEATURE_reduce_exports=ON                       |                                                                 |
 | -reduce-relocations                   | -DFEATURE_reduce_relocations=ON                   |                                                                 |
 | -plugin-manifests                     |                                                   |                                                                 |
@@ -75,16 +75,9 @@ The following table describes the mapping of configure options to CMake argument
 | -ccache                               | -DQT_USE_CCACHE=ON                                |                                                                 |
 | -unity-build                          | -DQT_UNITY_BUILD=ON                               |                                                                 |
 | -unity-build-batch-size <int>         | -DQT_UNITY_BUILD_BATCH_SIZE=<int>                 |                                                                 |
-| -make-tool <tool>                     | n/a                                               |                                                                 |
-| -mp                                   | n/a                                               |                                                                 |
 | -warnings-are-errors                  | -DWARNINGS_ARE_ERRORS=ON                          |                                                                 |
-| -silent                               | n/a                                               |                                                                 |
-| -sysroot <dir>                        | -DCMAKE_SYSROOT=<dir>                             | Should be provided by a toolchain file that's                   |
-|                                       |                                                   | passed via -DCMAKE_TOOLCHAIN_FILE=<filename>                    |
-| -no-gcc-sysroot                       | n/a                                               | The corresponding CMake variables are CMAKE_SYSROOT_LINK        |
-|                                       |                                                   | and CMAKE_SYSROOT_COMPILE.                                      |
-|                                       |                                                   | They are usually set in a toolchain file.                       |
 | -no-pkg-config                        | -DFEATURE_pkg_config=OFF                          |                                                                 |
+| -no-vcpkg                             | -DQT_USE_VCPKG=OFF                                |                                                                 |
 | -D <string>                           | -DQT_EXTRA_DEFINES=<string1>;<string2>            |                                                                 |
 | -I <string>                           | -DQT_EXTRA_INCLUDEPATHS=<string1>;<string2>       |                                                                 |
 | -L <string>                           | -DQT_EXTRA_LIBDIRS=<string1>;<string2>            |                                                                 |
@@ -110,6 +103,7 @@ The following table describes the mapping of configure options to CMake argument
 |                                       |                                                   | build them separately, after configuration.                     |
 | -nomake <part>                        | -DQT_BUILD_TESTS=OFF                              | A way to turn off tools explicitly is missing.                  |
 |                                       | -DQT_BUILD_EXAMPLES=OFF                           |                                                                 |
+| -install-examples-sources             | -DQT_INSTALL_EXAMPLES_SOURCES=ON                  |                                                                 |
 | -no-gui                               | -DFEATURE_gui=OFF                                 |                                                                 |
 | -no-widgets                           | -DFEATURE_widgets=OFF                             |                                                                 |
 | -no-dbus                              | -DFEATURE_dbus=OFF                                |                                                                 |

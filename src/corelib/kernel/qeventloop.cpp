@@ -293,57 +293,10 @@ bool QEventLoop::event(QEvent *event)
 void QEventLoop::quit()
 { exit(0); }
 
-
-class QEventLoopLockerPrivate
-{
-public:
-    explicit QEventLoopLockerPrivate(QEventLoopPrivate *loop)
-      : loop(loop), type(EventLoop)
-    {
-        loop->ref();
-    }
-
-    explicit QEventLoopLockerPrivate(QThreadPrivate *thread)
-      : thread(thread), type(Thread)
-    {
-        thread->ref();
-    }
-
-    explicit QEventLoopLockerPrivate(QCoreApplicationPrivate *app)
-      : app(app), type(Application)
-    {
-        app->ref();
-    }
-
-    ~QEventLoopLockerPrivate()
-    {
-        switch (type)
-        {
-        case EventLoop:
-            loop->deref();
-            break;
-        case Thread:
-            thread->deref();
-            break;
-        default:
-            app->deref();
-            break;
-        }
-    }
-
-private:
-    union {
-        QEventLoopPrivate * loop;
-        QThreadPrivate * thread;
-        QCoreApplicationPrivate * app;
-    };
-    enum Type {
-        EventLoop,
-        Thread,
-        Application
-    };
-    const Type type;
-};
+// If any of these trigger, the Type bits will interfere with the pointer values:
+static_assert(alignof(QEventLoop) >= 4);
+static_assert(alignof(QThread) >= 4);
+static_assert(alignof(QCoreApplication) >= 4);
 
 /*!
     \class QEventLoopLocker
@@ -372,8 +325,8 @@ private:
 
     \sa QCoreApplication::quit(), QCoreApplication::isQuitLockEnabled()
  */
-QEventLoopLocker::QEventLoopLocker()
-  : d_ptr(new QEventLoopLockerPrivate(static_cast<QCoreApplicationPrivate*>(QObjectPrivate::get(QCoreApplication::instance()))))
+QEventLoopLocker::QEventLoopLocker() noexcept
+    : QEventLoopLocker{QCoreApplication::instance(), Type::Application}
 {
 
 }
@@ -385,8 +338,8 @@ QEventLoopLocker::QEventLoopLocker()
 
     \sa QEventLoop::quit()
  */
-QEventLoopLocker::QEventLoopLocker(QEventLoop *loop)
-  : d_ptr(new QEventLoopLockerPrivate(static_cast<QEventLoopPrivate*>(QObjectPrivate::get(loop))))
+QEventLoopLocker::QEventLoopLocker(QEventLoop *loop) noexcept
+    : QEventLoopLocker{loop, Type::EventLoop}
 {
 
 }
@@ -398,8 +351,8 @@ QEventLoopLocker::QEventLoopLocker(QEventLoop *loop)
 
     \sa QThread::quit()
  */
-QEventLoopLocker::QEventLoopLocker(QThread *thread)
-  : d_ptr(new QEventLoopLockerPrivate(static_cast<QThreadPrivate*>(QObjectPrivate::get(thread))))
+QEventLoopLocker::QEventLoopLocker(QThread *thread) noexcept
+    : QEventLoopLocker{thread, Type::Thread}
 {
 
 }
@@ -409,7 +362,33 @@ QEventLoopLocker::QEventLoopLocker(QThread *thread)
  */
 QEventLoopLocker::~QEventLoopLocker()
 {
-    delete d_ptr;
+    visit([](auto p) { p->d_func()->deref(); });
+}
+
+/*!
+    \internal
+*/
+QEventLoopLocker::QEventLoopLocker(void *ptr, Type t) noexcept
+    : p{quintptr(ptr) | quintptr(t)}
+{
+    visit([](auto p) { p->d_func()->ref(); });
+}
+
+/*!
+    \internal
+*/
+template <typename Func>
+void QEventLoopLocker::visit(Func f) const
+{
+    const auto ptr = pointer();
+    if (!ptr)
+        return;
+    switch (type()) {
+    case Type::EventLoop:   return f(static_cast<QEventLoop *>(ptr));
+    case Type::Thread:      return f(static_cast<QThread *>(ptr));
+    case Type::Application: return f(static_cast<QCoreApplication *>(ptr));
+    }
+    Q_UNREACHABLE();
 }
 
 QT_END_NAMESPACE

@@ -223,6 +223,22 @@ static QColor placeHolderColor(QColor textColor)
     return textColor;
 }
 
+[[maybe_unused]] [[nodiscard]] static inline QColor qt_accentColor()
+{
+    const QWinRegistryKey registry(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)");
+    if (!registry.isValid())
+        return {};
+    const QVariant value = registry.value(L"AccentColor");
+    if (!value.isValid())
+        return {};
+    // The retrieved value is in the #AABBGGRR format, we need to
+    // convert it to the #AARRGGBB format which Qt expects.
+    const QColor abgr = QColor::fromRgba(qvariant_cast<DWORD>(value));
+    if (!abgr.isValid())
+        return {};
+    return QColor::fromRgb(abgr.blue(), abgr.green(), abgr.red(), abgr.alpha());
+}
+
 /*
     This is used when the theme is light mode, and when the theme is dark but the
     application doesn't support dark mode. In the latter case, we need to check.
@@ -231,24 +247,26 @@ static void populateLightSystemBasePalette(QPalette &result)
 {
     QColor background = getSysColor(COLOR_BTNFACE);
     QColor textColor = getSysColor(COLOR_WINDOWTEXT);
-    QColor accent = getSysColor(COLOR_HIGHLIGHT);
+    QColor accent = qt_accentColor();
+    QColor accentDarkest = accent.darker(120 * 120 * 120);
 
 #if QT_CONFIG(cpp_winrt)
-
     if (IsWindows10OrGreater())
     {
         // respect the Windows 11 accent color
         using namespace winrt::Windows::UI::ViewManagement;
         const auto settings = UISettings();
+
         accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+        accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
     }
-    
 #endif
 
+    const QColor linkColor = accent;
     const QColor btnFace = background;
     const QColor btnHighlight = getSysColor(COLOR_BTNHIGHLIGHT);
 
-    result.setColor(QPalette::Highlight, accent);
+    result.setColor(QPalette::Highlight, getSysColor(COLOR_HIGHLIGHT));
     result.setColor(QPalette::WindowText, getSysColor(COLOR_WINDOWTEXT));
     result.setColor(QPalette::Button, btnFace);
     result.setColor(QPalette::Light, btnHighlight);
@@ -263,9 +281,10 @@ static void populateLightSystemBasePalette(QPalette &result)
     result.setColor(QPalette::Midlight, getSysColor(COLOR_3DLIGHT));
     result.setColor(QPalette::Shadow, getSysColor(COLOR_3DDKSHADOW));
     result.setColor(QPalette::HighlightedText, getSysColor(COLOR_HIGHLIGHTTEXT));
+    result.setColor(QPalette::Accent, accent);
 
-    result.setColor(QPalette::Link, Qt::blue);
-    result.setColor(QPalette::LinkVisited, Qt::magenta);
+    result.setColor(QPalette::Link, linkColor);
+    result.setColor(QPalette::LinkVisited, accentDarkest);
     result.setColor(QPalette::Inactive, QPalette::Button, result.button().color());
     result.setColor(QPalette::Inactive, QPalette::Window, result.window().color());
     result.setColor(QPalette::Inactive, QPalette::Light, result.light().color());
@@ -279,21 +298,20 @@ static void populateDarkSystemBasePalette(QPalette &result)
 {
     QColor foreground = Qt::white;
     QColor background = QColor(0x1E, 0x1E, 0x1E);
-    QColor accent = QColor(0x00, 0x55, 0xff);
+    QColor accent = qt_accentColor();
     QColor accentDark = accent.darker(120);
     QColor accentDarker = accentDark.darker(120);
     QColor accentDarkest = accentDarker.darker(120);
     QColor accentLight = accent.lighter(120);
     QColor accentLighter = accentLight.lighter(120);
     QColor accentLightest = accentLighter.lighter(120);
-    QColor linkColor = Qt::blue;
 
 #if QT_CONFIG(cpp_winrt)
-
     if (IsWindows10OrGreater())
     {
         using namespace winrt::Windows::UI::ViewManagement;
         const auto settings = UISettings();
+
         // We have to craft a palette from these colors. The settings.UIElementColor(UIElementType) API
         // returns the old system colors, not the dark mode colors. If the background is black (which it
         // usually), then override it with a dark gray instead so that we can go up and down the lightness.
@@ -304,6 +322,7 @@ static void populateDarkSystemBasePalette(QPalette &result)
                 systemBackground = QColor(0x1E, 0x1E, 0x1E);
             return systemBackground;
         }();
+
         accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
         accentDark = getSysColor(settings.GetColorValue(UIColorType::AccentDark1));
         accentDarker = getSysColor(settings.GetColorValue(UIColorType::AccentDark2));
@@ -311,11 +330,10 @@ static void populateDarkSystemBasePalette(QPalette &result)
         accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
         accentLighter = getSysColor(settings.GetColorValue(UIColorType::AccentLight2));
         accentLightest = getSysColor(settings.GetColorValue(UIColorType::AccentLight3));
-        linkColor = accent;
     }
-
 #endif
 
+    const QColor linkColor = accent;
     const QColor buttonColor = background.lighter(200);
 
     result.setColor(QPalette::All, QPalette::WindowText, foreground);
@@ -341,6 +359,7 @@ static void populateDarkSystemBasePalette(QPalette &result)
     result.setColor(QPalette::All, QPalette::ToolTipBase, buttonColor);
     result.setColor(QPalette::All, QPalette::ToolTipText, foreground.darker(120));
     result.setColor(QPalette::All, QPalette::PlaceholderText, placeHolderColor(foreground));
+    result.setColor(QPalette::All, QPalette::Accent, accent);
 }
 
 static inline QPalette toolTipPalette(const QPalette &systemPalette, bool light)
@@ -529,7 +548,6 @@ void QWindowsTheme::clearPalettes()
 
 void QWindowsTheme::refreshPalettes()
 {
-
     if (!QGuiApplication::desktopSettingsAware())
         return;
     const bool light =
@@ -541,39 +559,24 @@ void QWindowsTheme::refreshPalettes()
     m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette], light));
     m_palettes[MenuBarPalette] = menuBarPalette(*m_palettes[MenuPalette], light);
     if (!light) {
+        QColor accent = qt_accentColor();
+        QColor accentLight = accent.lighter(120);
+        QColor accentDarkest = accent.darker(120 * 120 * 120);
+
 #if QT_CONFIG(cpp_winrt)
         if (IsWindows10OrGreater())
         {
             using namespace winrt::Windows::UI::ViewManagement;
             const auto settings = UISettings();
-            const QColor accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-            const QColor accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
-            const QColor accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
-            m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Base, accent);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Button, accentLight);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::Inactive, QPalette::Base, accentDarkest);
-        }
-        else
-        {
-            m_palettes[ButtonPalette] = new QPalette(*m_palettes[SystemPalette]);
-            m_palettes[ButtonPalette]->setColor(QPalette::Button, QColor(0x666666u));
-            const QColor checkBoxBlue(0x0078d7u);
-            m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::Base, checkBoxBlue);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::Button, checkBoxBlue);
-            m_palettes[CheckBoxPalette]->setColor(QPalette::ButtonText, Qt::white);
-        }
-        
-#else
-        m_palettes[ButtonPalette] = new QPalette(*m_palettes[SystemPalette]);
-        m_palettes[ButtonPalette]->setColor(QPalette::Button, QColor(0x666666u));
-        const QColor checkBoxBlue(0x0078d7u);
-        m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::Base, checkBoxBlue);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::Button, checkBoxBlue);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::ButtonText, Qt::white);
+            accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+            accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
+            accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
+        }    
 #endif
+        m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Base, accent);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Button, accentLight);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Inactive, QPalette::Base, accentDarkest);
         m_palettes[RadioButtonPalette] = new QPalette(*m_palettes[CheckBoxPalette]);
     }
 }
@@ -599,6 +602,8 @@ QPalette QWindowsTheme::systemPalette(Qt::ColorScheme colorScheme)
                         result.color(QPalette::Inactive, QPalette::Window));
         result.setColor(QPalette::Inactive, QPalette::HighlightedText,
                         result.color(QPalette::Inactive, QPalette::Text));
+        result.setColor(QPalette::Inactive, QPalette::Accent,
+                        result.color(QPalette::Inactive, QPalette::Window));
     }
 
     const QColor disabled = mixColors(result.windowText().color(), result.button().color());
@@ -612,6 +617,7 @@ QPalette QWindowsTheme::systemPalette(Qt::ColorScheme colorScheme)
     result.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
     result.setColor(QPalette::Disabled, QPalette::Highlight, result.color(QPalette::Highlight));
     result.setColor(QPalette::Disabled, QPalette::HighlightedText, result.color(QPalette::HighlightedText));
+    result.setColor(QPalette::Disabled, QPalette::Accent, disabled);
     result.setColor(QPalette::Disabled, QPalette::Base, result.window().color());
     return result;
 }

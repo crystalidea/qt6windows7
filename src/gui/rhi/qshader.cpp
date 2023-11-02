@@ -1,7 +1,7 @@
-// Copyright (C) 2019 The Qt Company Ltd.
+// Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qshader_p_p.h"
+#include "qshader_p.h"
 #include <QDataStream>
 #include <QBuffer>
 
@@ -9,8 +9,9 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QShader
-    \internal
+    \ingroup painting-3D
     \inmodule QtGui
+    \since 6.6
 
     \brief Contains multiple versions of a shader translated to multiple shading languages,
     together with reflection metadata.
@@ -20,6 +21,16 @@ QT_BEGIN_NAMESPACE
     5.x, new graphics systems with backends for multiple graphics APIs, such
     as, Vulkan, Metal, Direct3D, and OpenGL, take QShader as their input
     whenever a shader needs to be specified.
+
+    \warning The QRhi family of classes in the Qt Gui module, including QShader
+    and QShaderDescription, offer limited compatibility guarantees. There are
+    no source or binary compatibility guarantees for these classes, meaning the
+    API is only guaranteed to work with the Qt version the application was
+    developed against. Source incompatible changes are however aimed to be kept
+    at a minimum and will only be made in minor releases (6.7, 6.8, and so on).
+    To use these classes in an application, link to
+    \c{Qt::GuiPrivate} (if using CMake), and include the headers with the \c
+    rhi prefix, for example \c{#include <rhi/qshader.h>}.
 
     A QShader instance is empty and thus invalid by default. To get a useful
     instance, the two typical methods are:
@@ -68,8 +79,9 @@ QT_BEGIN_NAMESPACE
     can be returned or passed by value. Detach happens implicitly when calling
     a setter.
 
-    For reference, QRhi expects that a QShader suitable for all its
-    backends contains at least the following:
+    For reference, a typical, portable QRhi expects that a QShader suitable for
+    all its backends contains at least the following. (this excludes support
+    for core profile OpenGL contexts, add GLSL 150 or newer for that)
 
     \list
 
@@ -77,11 +89,11 @@ QT_BEGIN_NAMESPACE
 
     \li GLSL/ES 100 source code suitable for OpenGL ES 2.0 or newer
 
-    \li GLSL 120 source code suitable for OpenGL 2.1
+    \li GLSL 120 source code suitable for OpenGL 2.1 or newer
 
-    \li HLSL Shader Model 5.0 source code or the corresponding DXBC bytecode suitable for Direct3D 11
+    \li HLSL Shader Model 5.0 source code or the corresponding DXBC bytecode suitable for Direct3D 11/12
 
-    \li Metal Shading Language 1.2 source code or the corresponding bytecode suitable for Metal
+    \li Metal Shading Language 1.2 source code or the corresponding bytecode suitable for Metal 1.2 or newer
 
     \endlist
 
@@ -102,8 +114,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QShaderVersion
-    \internal
     \inmodule QtGui
+    \since 6.6
 
     \brief Specifies the shading language version.
 
@@ -128,6 +140,9 @@ QT_BEGIN_NAMESPACE
 
     A default constructed QShaderVersion contains a version of 100 and no
     flags set.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QShader
+    for details.
  */
 
 /*!
@@ -140,13 +155,16 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QShaderKey
-    \internal
     \inmodule QtGui
+    \since 6.6
 
     \brief Specifies the shading language, the version with flags, and the variant.
 
     A default constructed QShaderKey has source set to SpirvShader and
     sourceVersion set to 100. sourceVariant defaults to StandardShader.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QShader
+    for details.
  */
 
 /*!
@@ -196,14 +214,39 @@ QT_BEGIN_NAMESPACE
  */
 
 /*!
+    \enum QShader::SerializedFormatVersion
+    Describes the desired output format when serializing the QShader.
+
+    The default value for the \c version argument of serialized() is \c Latest.
+    This is sufficient in the vast majority of cases. Specifying another value
+    is needed only when the intention is to generate serialized data that can
+    be loaded by earlier Qt versions. For example, the \c qsb tool uses these
+    enum values when the \c{--qsbversion} command-line argument is given.
+
+    \note Targeting earlier versions will make certain features disfunctional
+    with the generated asset. This is not an issue when using the asset with
+    the specified, older Qt version, given that that Qt version does not have
+    the newer features in newer Qt versions that rely on additional data
+    generated in the QShader and the serialized data stream, but may become a
+    problem if the generated asset is then used with a newer Qt version.
+
+    \value Latest The current Qt version
+    \value Qt_6_5 Qt 6.5
+    \value Qt_6_4 Qt 6.4
+ */
+
+/*!
     \class QShaderCode
-    \internal
     \inmodule QtGui
+    \since 6.6
 
     \brief Contains source or binary code for a shader and additional metadata.
 
     When shader() is empty after retrieving a QShaderCode instance from
     QShader, it indicates no shader code was found for the requested key.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QShader
+    for details.
  */
 
 /*!
@@ -226,7 +269,7 @@ void QShader::detach()
 }
 
 /*!
-    \internal
+    Constructs a copy of \a other.
  */
 QShader::QShader(const QShader &other)
     : d(other.d)
@@ -236,7 +279,7 @@ QShader::QShader(const QShader &other)
 }
 
 /*!
-    \internal
+    Assigns \a other to this object.
  */
 QShader &QShader::operator=(const QShader &other)
 {
@@ -366,7 +409,11 @@ static void writeShaderKey(QDataStream *ds, const QShaderKey &k)
     QShader, suitable for writing to files or other I/O devices.
 
     By default the latest serialization format is used. Use \a version
-    parameter to serialize for a compatibility Qt version.
+    parameter to serialize for a compatibility Qt version. Only when it is
+    known that the generated data stream must be made compatible with an older
+    Qt version at the expense of making it incompatible with features
+    introduced since that Qt version, should another value (for example,
+    \l{SerializedFormatVersion}{Qt_6_5} for Qt 6.5) be used.
 
     \sa fromSerialized()
  */
@@ -455,6 +502,9 @@ static void readShaderKey(QDataStream *ds, QShaderKey *k)
 /*!
     Creates a new QShader instance from the given \a data.
 
+    If \a data cannot be deserialized successfully, the result is a default
+    constructed QShader for which isValid() returns \c false.
+
     \sa serialized()
   */
 QShader QShader::fromSerialized(const QByteArray &data)
@@ -474,6 +524,7 @@ QShader QShader::fromSerialized(const QByteArray &data)
     ds >> intVal;
     d->qsbVersion = intVal;
     if (d->qsbVersion != QShaderPrivate::QSB_VERSION
+            && d->qsbVersion != QShaderPrivate::QSB_VERSION_WITHOUT_INPUT_OUTPUT_INTERFACE_BLOCKS
             && d->qsbVersion != QShaderPrivate::QSB_VERSION_WITHOUT_EXTENDED_STORAGE_BUFFER_INFO
             && d->qsbVersion != QShaderPrivate::QSB_VERSION_WITHOUT_NATIVE_SHADER_INFO
             && d->qsbVersion != QShaderPrivate::QSB_VERSION_WITHOUT_SEPARATE_IMAGES_AND_SAMPLERS
@@ -576,16 +627,79 @@ QShader QShader::fromSerialized(const QByteArray &data)
     return bs;
 }
 
+/*!
+    \fn QShaderVersion::QShaderVersion() = default
+ */
+
+/*!
+    Constructs a new QShaderVersion with version \a v and flags \a f.
+ */
 QShaderVersion::QShaderVersion(int v, Flags f)
     : m_version(v), m_flags(f)
 {
 }
 
+/*!
+    \fn int QShaderVersion::version() const
+    \return the version.
+ */
+
+/*!
+    \fn void QShaderVersion::setVersion(int v)
+    Sets the shading language version to \a v.
+ */
+
+/*!
+    \fn QShaderVersion::Flags QShaderVersion::flags() const
+    \return the flags.
+ */
+
+/*!
+    \fn void QShaderVersion::setFlags(Flags f)
+    Sets the flags \a f.
+ */
+
+/*!
+    \fn QShaderCode::QShaderCode() = default
+ */
+
+/*!
+    Constructs a new QShaderCode with the specified shader source \a code and
+    \a entry point name.
+ */
 QShaderCode::QShaderCode(const QByteArray &code, const QByteArray &entry)
     : m_shader(code), m_entryPoint(entry)
 {
 }
 
+/*!
+    \fn QByteArray QShaderCode::shader() const
+    \return the shader source or bytecode.
+ */
+
+/*!
+    \fn void QShaderCode::setShader(const QByteArray &code)
+    Sets the shader source or byte \a code.
+ */
+
+/*!
+    \fn QByteArray QShaderCode::entryPoint() const
+    \return the entry point name.
+ */
+
+/*!
+    \fn void QShaderCode::setEntryPoint(const QByteArray &entry)
+    Sets the \a entry point name.
+ */
+
+/*!
+    \fn QShaderKey::QShaderKey() = default
+ */
+
+/*!
+    Constructs a new QShaderKey with shader type \a s, version \a sver, and
+    variant \a svar.
+ */
 QShaderKey::QShaderKey(QShader::Source s,
                        const QShaderVersion &sver,
                        QShader::Variant svar)
@@ -594,6 +708,36 @@ QShaderKey::QShaderKey(QShader::Source s,
       m_sourceVariant(svar)
 {
 }
+
+/*!
+    \fn QShader::Source QShaderKey::source() const
+    \return the shader type.
+ */
+
+/*!
+    \fn void QShaderKey::setSource(QShader::Source s)
+    Sets the shader type \a s.
+ */
+
+/*!
+    \fn QShaderVersion QShaderKey::sourceVersion() const
+    \return the shading language version.
+ */
+
+/*!
+    \fn void QShaderKey::setSourceVersion(const QShaderVersion &sver)
+    Sets the shading language version \a sver.
+ */
+
+/*!
+    \fn QShader::Variant QShaderKey::sourceVariant() const
+    \return the type of the variant to use.
+ */
+
+/*!
+    \fn void QShaderKey::setSourceVariant(QShader::Variant svar)
+    Sets the type of variant to use to \a svar.
+ */
 
 /*!
     Returns \c true if the two QShader objects \a lhs and \a rhs are equal,
@@ -613,10 +757,9 @@ bool operator==(const QShader &lhs, const QShader &rhs) noexcept
 }
 
 /*!
-    \internal
     \fn bool operator!=(const QShader &lhs, const QShader &rhs)
 
-    Returns \c false if the values in the two QShader objects \a a and \a b
+    Returns \c false if the values in the two QShader objects \a lhs and \a rhs
     are equal; otherwise returns \c true.
 
     \relates QShader
@@ -659,6 +802,8 @@ size_t qHash(const QShaderVersion &s, size_t seed) noexcept
 #endif
 
 /*!
+    \return true if \a lhs is smaller than \a rhs.
+
     Establishes a sorting order between the two QShaderVersion \a lhs and \a rhs.
 
     \relates QShaderVersion
@@ -675,11 +820,10 @@ bool operator<(const QShaderVersion &lhs, const QShaderVersion &rhs) noexcept
 }
 
 /*!
-    \internal
     \fn bool operator!=(const QShaderVersion &lhs, const QShaderVersion &rhs)
 
-    Returns \c false if the values in the two QShaderVersion objects \a a
-    and \a b are equal; otherwise returns \c true.
+    Returns \c false if the values in the two QShaderVersion objects \a lhs
+    and \a rhs are equal; otherwise returns \c true.
 
     \relates QShaderVersion
  */
@@ -696,6 +840,8 @@ bool operator==(const QShaderKey &lhs, const QShaderKey &rhs) noexcept
 }
 
 /*!
+    \return true if \a lhs is smaller than \a rhs.
+
     Establishes a sorting order between the two keys \a lhs and \a rhs.
 
     \relates QShaderKey
@@ -718,11 +864,10 @@ bool operator<(const QShaderKey &lhs, const QShaderKey &rhs) noexcept
 }
 
 /*!
-    \internal
     \fn bool operator!=(const QShaderKey &lhs, const QShaderKey &rhs)
 
-    Returns \c false if the values in the two QShaderKey objects \a a
-    and \a b are equal; otherwise returns \c true.
+    Returns \c false if the values in the two QShaderKey objects \a lhs
+    and \a rhs are equal; otherwise returns \c true.
 
     \relates QShaderKey
  */
@@ -752,11 +897,10 @@ bool operator==(const QShaderCode &lhs, const QShaderCode &rhs) noexcept
 }
 
 /*!
-    \internal
     \fn bool operator!=(const QShaderCode &lhs, const QShaderCode &rhs)
 
-    Returns \c false if the values in the two QShaderCode objects \a a
-    and \a b are equal; otherwise returns \c true.
+    Returns \c false if the values in the two QShaderCode objects \a lhs
+    and \a rhs are equal; otherwise returns \c true.
 
     \relates QShaderCode
  */
@@ -894,6 +1038,8 @@ void QShader::removeResourceBindingMap(const QShaderKey &key)
 
 /*!
     \struct QShader::SeparateToCombinedImageSamplerMapping
+    \inmodule QtGui
+    \brief Mapping metadata for sampler uniforms.
 
     Describes a mapping from a traditional combined image sampler uniform to
     binding points for a separate texture and sampler.
@@ -903,7 +1049,22 @@ void QShader::removeResourceBindingMap(const QShaderKey &key)
     contains a \c sampler2D (or sampler3D, etc.) uniform with the name of
     \c{_54} which corresponds to two separate resource bindings (\c 1 and \c 2)
     in the original shader.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QShader
+    for details.
  */
+
+/*!
+    \variable QShader::SeparateToCombinedImageSamplerMapping::combinedSamplerName
+*/
+
+/*!
+    \variable QShader::SeparateToCombinedImageSamplerMapping::textureBinding
+*/
+
+/*!
+    \variable QShader::SeparateToCombinedImageSamplerMapping::samplerBinding
+*/
 
 /*!
     \return the combined image sampler mapping list for \a key, or an empty
@@ -952,6 +1113,8 @@ void QShader::removeSeparateToCombinedImageSamplerMappingList(const QShaderKey &
 
 /*!
     \struct QShader::NativeShaderInfo
+    \inmodule QtGui
+    \brief Additional metadata about the native shader code.
 
     Describes information about the native shader code, if applicable. This
     becomes relevant with certain shader languages for certain shader stages,
@@ -968,7 +1131,18 @@ void QShader::removeSeparateToCombinedImageSamplerMappingList(const QShaderKey &
     not be present at all if per-patch output variables were not used. The fact
     that the shader code relies on such a buffer present can be indicated by
     the data in this struct.
+
+    \note This is a RHI API with limited compatibility guarantees, see \l QShader
+    for details.
  */
+
+/*!
+    \variable QShader::NativeShaderInfo::flags
+*/
+
+/*!
+    \variable QShader::NativeShaderInfo::extraBufferBindings
+*/
 
 /*!
     \return the native shader info struct for \a key, or an empty object if

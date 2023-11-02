@@ -96,13 +96,14 @@ private:
         const QString ATTRIBUTE_LANG;
         const QString ATTRIBUTE_PREFIX;
         const QString ATTRIBUTE_ALIAS;
+        const QString ATTRIBUTE_EMPTY;
         const QString ATTRIBUTE_THRESHOLD;
         const QString ATTRIBUTE_COMPRESS;
         const QString ATTRIBUTE_COMPRESSALGO;
     };
     friend class RCCFileInfo;
     void reset();
-    bool addFile(const QString &alias, const RCCFileInfo &file);
+    bool addFile(const QString &alias, RCCFileInfo file);
     bool interpretResourceFile(QIODevice *inputDevice, const QString &file,
         QString currentPath = QString(), bool listMode = false);
     bool writeHeader();

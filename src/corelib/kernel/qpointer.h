@@ -18,14 +18,37 @@ class QPointer
 {
     static_assert(!std::is_pointer<T>::value, "QPointer's template type must not be a pointer type");
 
+    template <typename X>
+    using if_convertible = std::enable_if_t<std::is_convertible_v<X*, T*>, bool>;
+    template <typename X>
+    friend class QPointer;
+
     using QObjectType =
         typename std::conditional<std::is_const<T>::value, const QObject, QObject>::type;
     QWeakPointer<QObjectType> wp;
 public:
+    Q_NODISCARD_CTOR
     QPointer() = default;
+    Q_NODISCARD_CTOR
     inline QPointer(T *p) : wp(p, true) { }
     // compiler-generated copy/move ctor/assignment operators are fine!
     // compiler-generated dtor is fine!
+
+    template <typename X, if_convertible<X> = true>
+    Q_NODISCARD_CTOR
+    QPointer(QPointer<X> &&other) noexcept
+        : wp(std::exchange(other.wp, nullptr).internalData(), true) {}
+    template <typename X, if_convertible<X> = true>
+    Q_NODISCARD_CTOR
+    QPointer(const QPointer<X> &other) noexcept
+        : wp(other.wp.internalData(), true) {}
+
+    template <typename X, if_convertible<X> = true>
+    QPointer &operator=(const QPointer<X> &other)
+    {
+        wp.assign(other.data());
+        return *this;
+    }
 
 #ifdef Q_QDOC
     // Stop qdoc from complaining about missing function

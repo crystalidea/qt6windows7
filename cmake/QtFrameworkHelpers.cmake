@@ -4,6 +4,7 @@
 macro(qt_find_apple_system_frameworks)
     if(APPLE)
         qt_internal_find_apple_system_framework(FWAppKit AppKit)
+        qt_internal_find_apple_system_framework(FWCFNetwork CFNetwork)
         qt_internal_find_apple_system_framework(FWAssetsLibrary AssetsLibrary)
         qt_internal_find_apple_system_framework(FWPhotos Photos)
         qt_internal_find_apple_system_framework(FWAudioToolbox AudioToolbox)
@@ -58,7 +59,7 @@ function(qt_internal_find_apple_system_framework out_var framework_name)
     endif()
 endfunction()
 
-# Copy header files to QtXYZ.framework/Versions/A/Headers/
+# Copy header files to the framework's Headers directory
 # Use this function for header files that
 #   - are not added as source files to the target
 #   - are not marked as PUBLIC_HEADER
@@ -71,7 +72,7 @@ function(qt_copy_framework_headers target)
 
     set(options)
     set(oneValueArgs)
-    set(multiValueArgs PUBLIC PRIVATE QPA)
+    set(multiValueArgs PUBLIC PRIVATE QPA RHI)
     cmake_parse_arguments(arg "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     qt_internal_get_framework_info(fw ${target})
@@ -79,10 +80,11 @@ function(qt_copy_framework_headers target)
     set(output_dir_PUBLIC "${output_dir}/${fw_versioned_header_dir}")
     set(output_dir_PRIVATE "${output_dir}/${fw_private_module_header_dir}/private")
     set(output_dir_QPA "${output_dir}/${fw_private_module_header_dir}/qpa")
+    set(output_dir_RHI "${output_dir}/${fw_private_module_header_dir}/rhi")
 
 
     set(out_files)
-    foreach(type IN ITEMS PUBLIC PRIVATE QPA)
+    foreach(type IN ITEMS PUBLIC PRIVATE QPA RHI)
         set(fw_output_header_dir "${output_dir_${type}}")
         foreach(hdr IN LISTS arg_${type})
             get_filename_component(in_file_path ${hdr} ABSOLUTE)
@@ -164,8 +166,13 @@ function(qt_internal_get_framework_info out_var target)
     set(${out_var}_name "${module}")
     set(${out_var}_dir "${${out_var}_name}.framework")
     set(${out_var}_header_dir "${${out_var}_dir}/Headers")
-    set(${out_var}_versioned_header_dir "${${out_var}_dir}/Versions/${${out_var}_version}/Headers")
-    set(${out_var}_private_header_dir "${${out_var}_header_dir}/${${out_var}_bundle_version}")
+    if(UIKIT)
+        # iOS frameworks do not version their headers
+        set(${out_var}_versioned_header_dir "${${out_var}_header_dir}")
+    else()
+        set(${out_var}_versioned_header_dir "${${out_var}_dir}/Versions/${${out_var}_version}/Headers")
+    endif()
+    set(${out_var}_private_header_dir "${${out_var}_versioned_header_dir}/${${out_var}_bundle_version}")
     set(${out_var}_private_module_header_dir "${${out_var}_private_header_dir}/${module}")
 
     set(${out_var}_name "${${out_var}_name}" PARENT_SCOPE)

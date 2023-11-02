@@ -409,9 +409,6 @@ QT_BEGIN_NAMESPACE
 using namespace Qt::StringLiterals;
 using namespace QtMiscUtils;
 
-// in qstring.cpp:
-void qt_from_latin1(char16_t *dst, const char *str, size_t size) noexcept;
-
 inline static bool isHex(char c)
 {
     c |= 0x20;

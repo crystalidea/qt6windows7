@@ -24,7 +24,8 @@
 QT_BEGIN_NAMESPACE
 
 namespace LocalFileApi {
-class Q_CORE_EXPORT Type {
+class Q_AUTOTEST_EXPORT Type
+{
 public:
     class Accept {
     public:
@@ -50,6 +51,7 @@ public:
             void addExtension(Extension type);
 
             const std::vector<Extension> &extensions() const { return m_extensions; }
+
         private:
             std::vector<Extension> m_extensions;
         };
@@ -79,9 +81,12 @@ private:
     std::optional<Accept> m_accept;
 };
 
-Q_CORE_EXPORT emscripten::val makeOpenFileOptions(const QStringList &filterList, bool acceptMultiple);
-Q_CORE_EXPORT emscripten::val makeSaveFileOptions(const QStringList &filterList, const std::string& suggestedName);
-Q_CORE_EXPORT std::string makeFileInputAccept(const QStringList &filterList);
+Q_AUTOTEST_EXPORT emscripten::val makeOpenFileOptions(const QStringList &filterList,
+                                                      bool acceptMultiple);
+Q_AUTOTEST_EXPORT emscripten::val makeSaveFileOptions(const QStringList &filterList,
+                                                      const std::string &suggestedName);
+
+Q_AUTOTEST_EXPORT std::string makeFileInputAccept(const QStringList &filterList);
 
 }  // namespace LocalFileApi
 QT_END_NAMESPACE

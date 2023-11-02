@@ -49,6 +49,34 @@ static QStringList nativeLocationPermission(const QLocationPermission &permissio
     return nativeLocationPermissionList;
 }
 
+static QStringList nativeBluetoothPermission(const QBluetoothPermission &permission)
+{
+    // See https://developer.android.com/guide/topics/connectivity/bluetooth/permissions
+    // for the details.
+
+    // API Level < 31
+    static QString bluetoothGeneral = u"android.permission.BLUETOOTH"_s;
+    // API Level >= 31
+    static QString bluetoothScan = u"android.permission.BLUETOOTH_SCAN"_s;
+    static QString bluetoothAdvertise = u"android.permission.BLUETOOTH_ADVERTISE"_s;
+    static QString bluetoothConnect = u"android.permission.BLUETOOTH_CONNECT"_s;
+    // Fine location is currently required for ALL API levels, but that is not
+    // strictly necessary for API Level >= 31. See QTBUG-112164.
+    static QString fineLocation = u"android.permission.ACCESS_FINE_LOCATION"_s;
+
+    if (QtAndroidPrivate::androidSdkVersion() < 31) {
+        return {bluetoothGeneral, fineLocation};
+    } else {
+        const auto modes = permission.communicationModes();
+        QStringList permissionList;
+        if (modes & QBluetoothPermission::Advertise)
+            permissionList << bluetoothAdvertise;
+        if (modes & QBluetoothPermission::Access)
+            permissionList << bluetoothScan << bluetoothConnect << fineLocation;
+        return permissionList;
+    }
+}
+
 static QStringList nativeStringsFromPermission(const QPermission &permission)
 {
     const auto id = permission.type().id();
@@ -59,8 +87,7 @@ static QStringList nativeStringsFromPermission(const QPermission &permission)
     } else if (id == qMetaTypeId<QMicrophonePermission>()) {
         return { u"android.permission.RECORD_AUDIO"_s };
     } else if (id == qMetaTypeId<QBluetoothPermission>()) {
-        // TODO: handle Android 12 new bluetooth permissions
-        return { u"android.permission.BLUETOOTH"_s };
+        return nativeBluetoothPermission(*permission.value<QBluetoothPermission>());
     } else if (id == qMetaTypeId<QContactsPermission>()) {
         const auto readContactsString = u"android.permission.READ_CONTACTS"_s;
         switch (permission.value<QContactsPermission>()->accessMode()) {

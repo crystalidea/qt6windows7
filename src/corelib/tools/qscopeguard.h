@@ -13,19 +13,22 @@
 QT_BEGIN_NAMESPACE
 
 template <typename F>
-class [[nodiscard]] QScopeGuard
+class QScopeGuard
 {
 public:
+    Q_NODISCARD_CTOR
     explicit QScopeGuard(F &&f) noexcept
         : m_func(std::move(f))
     {
     }
 
+    Q_NODISCARD_CTOR
     explicit QScopeGuard(const F &f) noexcept
         : m_func(f)
     {
     }
 
+    Q_NODISCARD_CTOR
     QScopeGuard(QScopeGuard &&other) noexcept
         : m_func(std::move(other.m_func))
         , m_invoke(std::exchange(other.m_invoke, false))

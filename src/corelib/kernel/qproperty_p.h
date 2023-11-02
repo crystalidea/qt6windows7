@@ -94,11 +94,12 @@ struct QPropertyBindingDataPointer
     }
 };
 
-struct [[nodiscard]] QPropertyObserverNodeProtector
+struct QPropertyObserverNodeProtector
 {
     Q_DISABLE_COPY_MOVE(QPropertyObserverNodeProtector)
 
     QPropertyObserverBase m_placeHolder;
+    Q_NODISCARD_CTOR
     QPropertyObserverNodeProtector(QPropertyObserver *observer)
     {
         // insert m_placeholder after observer into the linked list
@@ -124,13 +125,21 @@ struct QPropertyObserverPointer
     void unlink()
     {
         unlink_common();
+#if QT_DEPRECATED_SINCE(6, 6)
+        QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
         if (ptr->next.tag() == QPropertyObserver::ObserverIsAlias)
             ptr->aliasData = nullptr;
+        QT_WARNING_POP
+#endif
     }
 
     void unlink_fast()
     {
+#if QT_DEPRECATED_SINCE(6, 6)
+        QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
         Q_ASSERT(ptr->next.tag() != QPropertyObserver::ObserverIsAlias);
+        QT_WARNING_POP
+#endif
         unlink_common();
     }
 
@@ -140,9 +149,7 @@ struct QPropertyObserverPointer
 
     enum class Notify {Everything, OnlyChangeHandlers};
 
-    template<Notify notifyPolicy = Notify::Everything>
     void notify(QUntypedPropertyData *propertyDataPtr);
-    void notifyOnlyChangeHandler(QUntypedPropertyData *propertyDataPtr);
 #ifndef QT_NO_DEBUG
     void noSelfDependencies(QPropertyBindingPrivate *binding);
 #else
@@ -368,7 +375,6 @@ public:
 
     bool Q_ALWAYS_INLINE evaluateRecursive_inline(PendingBindingObserverList &bindingObservers, QBindingStatus *status);
 
-    void notifyRecursive();
     void notifyNonRecursive(const PendingBindingObserverList &bindingObservers);
     enum NotificationState : bool { Delayed, Sent };
     NotificationState notifyNonRecursive();
@@ -629,7 +635,7 @@ public:
                                 == QtPrivate::QPropertyBindingData::Evaluated) {
                             // evaluateBindings() can trash the observers. We need to re-fetch here.
                             if (QPropertyObserverPointer observer = d.firstObserver())
-                                observer.notifyOnlyChangeHandler(this);
+                                observer.notify(this);
                             for (auto&& bindingObserver: bindingObservers)
                                 bindingObserver.binding()->notifyNonRecursive();
                         }
@@ -831,7 +837,14 @@ inline bool QPropertyBindingPrivate::evaluateRecursive_inline(PendingBindingObse
     return true;
 }
 
-template<QPropertyObserverPointer::Notify notifyPolicy>
+/*!
+    \internal
+
+    Walks through the list of property observers, and calls any ChangeHandler
+    found there.
+    It doesn't do anything with bindings, which are only handled in
+    QPropertyBindingPrivate::evaluateRecursive.
+ */
 inline void QPropertyObserverPointer::notify(QUntypedPropertyData *propertyDataPtr)
 {
     auto observer = const_cast<QPropertyObserver*>(ptr);
@@ -870,29 +883,20 @@ inline void QPropertyObserverPointer::notify(QUntypedPropertyData *propertyDataP
             break;
         }
         case QPropertyObserver::ObserverNotifiesBinding:
-        {
-            if constexpr (notifyPolicy == Notify::Everything) {
-                auto bindingToNotify =  observer->binding;
-                QPropertyObserverNodeProtector protector(observer);
-                bindingToNotify->notifyRecursive();
-                next = protector.next();
-            }
             break;
-        }
         case QPropertyObserver::ObserverIsPlaceholder:
             // recursion is already properly handled somewhere else
             break;
+#if QT_DEPRECATED_SINCE(6, 6)
+        QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
         case QPropertyObserver::ObserverIsAlias:
             break;
+        QT_WARNING_POP
+#endif
         default: Q_UNREACHABLE();
         }
         observer = next;
     }
-}
-
-inline void QPropertyObserverPointer::notifyOnlyChangeHandler(QUntypedPropertyData *propertyDataPtr)
-{
-    notify<Notify::OnlyChangeHandlers>(propertyDataPtr);
 }
 
 inline QPropertyObserverNodeProtector::~QPropertyObserverNodeProtector()
@@ -920,7 +924,11 @@ class QPropertyAdaptorSlotObject : public QUntypedPropertyData, public QSlotObje
     QObject *obj;
     QMetaProperty metaProperty_;
 
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     static void impl(int which, QSlotObjectBase *this_, QObject *r, void **a, bool *ret);
+#else
+    static void impl(QSlotObjectBase *this_, QObject *r, void **a, int which, bool *ret);
+#endif
 
     QPropertyAdaptorSlotObject(QObject *o, const QMetaProperty& p);
 

@@ -69,8 +69,14 @@ protected:
     QSql::ParamType bindValueType(const QString& placeholder) const;
     QSql::ParamType bindValueType(int pos) const;
     int boundValueCount() const;
+#if QT_SQL_REMOVED_SINCE(6, 6)
     QList<QVariant> &boundValues() const;
+#endif
+    QVariantList &boundValues(QT6_DECL_NEW_OVERLOAD);
+    QVariantList boundValues(QT6_DECL_NEW_OVERLOAD) const;
+
     QString executedQuery() const;
+    QStringList boundValueNames() const;
     QString boundValueName(int pos) const;
     void clear();
     bool hasOutValues() const;

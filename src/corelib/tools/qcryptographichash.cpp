@@ -25,7 +25,7 @@
 #include "../../3rdparty/rfc6234/sha.h"
 
 #ifndef QT_CRYPTOGRAPHICHASH_ONLY_SHA1
-#if !QT_CONFIG(opensslv30) || !QT_CONFIG(openssl_linked)
+#if !QT_CONFIG(openssl_hash)
 // qdoc and qmake only need SHA-1
 #include "../../3rdparty/md5/md5.h"
 #include "../../3rdparty/md5/md5.cpp"
@@ -114,7 +114,7 @@ static inline int SHA384_512AddLength(SHA512Context *context, unsigned int lengt
 #endif
 #endif // QT_CRYPTOGRAPHICHASH_ONLY_SHA1
 
-#if !defined(QT_BOOTSTRAPPED) && QT_CONFIG(opensslv30) && QT_CONFIG(openssl_linked)
+#if !defined(QT_BOOTSTRAPPED) && QT_CONFIG(openssl_hash)
 #define USING_OPENSSL30
 #include <openssl/evp.h>
 #include <openssl/provider.h>
@@ -1401,9 +1401,18 @@ void QMessageAuthenticationCodePrivate::initMessageHash() noexcept
 /*!
     Constructs an object that can be used to create a cryptographic hash from data
     using method \a method and key \a key.
+
+//! [qba-to-qbav-6.6]
+    \note In Qt versions prior to 6.6, this function took its arguments as
+    QByteArray, not QByteArrayView. If you experience compile errors, it's
+    because your code is passing objects that are implicitly convertible to
+    QByteArray, but not QByteArrayView. Wrap the corresponding argument in
+    \c{QByteArray{~~~}} to make the cast explicit. This is backwards-compatible
+    with old Qt versions.
+//! [qba-to-qbav-6.6]
 */
 QMessageAuthenticationCode::QMessageAuthenticationCode(QCryptographicHash::Algorithm method,
-                                                       const QByteArray &key)
+                                                       QByteArrayView key)
     : d(new QMessageAuthenticationCodePrivate(method))
 {
     d->setKey(key);
@@ -1418,9 +1427,42 @@ QMessageAuthenticationCode::~QMessageAuthenticationCode()
 }
 
 /*!
+    \fn QMessageAuthenticationCode::QMessageAuthenticationCode(QMessageAuthenticationCode &&other)
+
+    Move-constructs a new QMessageAuthenticationCode from \a other.
+
+    \note The moved-from object \a other is placed in a
+    partially-formed state, in which the only valid operations are
+    destruction and assignment of a new object.
+
+    \since 6.6
+*/
+
+/*!
+    \fn QMessageAuthenticationCode &QMessageAuthenticationCode::operator=(QMessageAuthenticationCode &&other)
+
+    Move-assigns \a other to this QMessageAuthenticationCode instance.
+
+    \note The moved-from object \a other is placed in a
+    partially-formed state, in which the only valid operations are
+    destruction and assignment of a new object.
+
+    \since 6.6
+*/
+
+/*!
+    \fn void QMessageAuthenticationCode::swap(QMessageAuthenticationCode &other)
+
+    Swaps message authentication code \a other with this message authentication
+    code. This operation is very fast and never fails.
+
+    \since 6.6
+*/
+
+/*!
     Resets message data. Calling this method doesn't affect the key.
 */
-void QMessageAuthenticationCode::reset()
+void QMessageAuthenticationCode::reset() noexcept
 {
     d->messageHash.reset();
     d->initMessageHash();
@@ -1455,14 +1497,17 @@ void QMessageAuthenticationCode::reset()
     mac.emplace(method, key);
     use(*mac);
     \endcode
+
+    \include qcryptographichash.cpp {qba-to-qbav-6.6}
 */
-void QMessageAuthenticationCode::setKey(const QByteArray &key)
+void QMessageAuthenticationCode::setKey(QByteArrayView key) noexcept
 {
     d->messageHash.reset();
     d->setKey(key);
 }
 
 /*!
+    \overload
     Adds the first \a length chars of \a data to the message.
 */
 void QMessageAuthenticationCode::addData(const char *data, qsizetype length)
@@ -1471,9 +1516,13 @@ void QMessageAuthenticationCode::addData(const char *data, qsizetype length)
 }
 
 /*!
-    \overload addData()
+    Adds \a data to the message.
+
+    \include qcryptographichash.cpp {qba-to-qbav-6.6}
+
+    \sa resultView(), result()
 */
-void QMessageAuthenticationCode::addData(const QByteArray &data)
+void QMessageAuthenticationCode::addData(QByteArrayView data) noexcept
 {
     d->messageHash.addData(data);
 }
@@ -1490,14 +1539,29 @@ bool QMessageAuthenticationCode::addData(QIODevice *device)
 }
 
 /*!
+    \since 6.6
+
+    Returns the final hash value.
+
+    Note that the returned view remains valid only as long as the
+    QMessageAuthenticationCode object is not modified by other means.
+
+    \sa result()
+*/
+QByteArrayView QMessageAuthenticationCode::resultView() const noexcept
+{
+    d->finalize();
+    return d->messageHash.resultView();
+}
+
+/*!
     Returns the final authentication code.
 
-    \sa QByteArray::toHex()
+    \sa resultView(), QByteArray::toHex()
 */
 QByteArray QMessageAuthenticationCode::result() const
 {
-    d->finalize();
-    return d->messageHash.resultView().toByteArray();
+    return resultView().toByteArray();
 }
 
 void QMessageAuthenticationCodePrivate::finalize()
@@ -1522,8 +1586,10 @@ void QMessageAuthenticationCodePrivate::finalizeUnchecked() noexcept
 /*!
     Returns the authentication code for the message \a message using
     the key \a key and the method \a method.
+
+    \include qcryptographichash.cpp {qba-to-qbav-6.6}
 */
-QByteArray QMessageAuthenticationCode::hash(const QByteArray &message, const QByteArray &key,
+QByteArray QMessageAuthenticationCode::hash(QByteArrayView message, QByteArrayView key,
                                             QCryptographicHash::Algorithm method)
 {
     QMessageAuthenticationCodePrivate mac(method);

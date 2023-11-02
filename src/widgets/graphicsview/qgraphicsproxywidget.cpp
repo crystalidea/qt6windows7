@@ -522,7 +522,7 @@ QGraphicsProxyWidget::~QGraphicsProxyWidget()
 /*!
     Embeds \a widget into this proxy widget. The embedded widget must reside
     exclusively either inside or outside of Graphics View. You cannot embed a
-    widget as long as it is is visible elsewhere in the UI, at the same time.
+    widget as long as it is visible elsewhere in the UI, at the same time.
 
     \a widget must be a top-level widget whose parent is \nullptr.
 
@@ -1401,7 +1401,7 @@ void QGraphicsProxyWidget::focusOutEvent(QFocusEvent *event)
         if (QWidget *focusWidget = d->widget->focusWidget()) {
             // QTBUG-88016 proxyWidget set QTextEdit(QLineEdit etc.) when input preview text,
             // inputMethod should be reset when proxyWidget lost focus
-            if (focusWidget && focusWidget->testAttribute(Qt::WA_InputMethodEnabled))
+            if (focusWidget->testAttribute(Qt::WA_InputMethodEnabled))
                 QApplication::inputMethod()->reset();
 
             d->removeSubFocusHelper(focusWidget, event->reason());

@@ -31,6 +31,8 @@ class QMimeMagicRuleMatcher;
 
 class QMimeProviderBase
 {
+    Q_DISABLE_COPY(QMimeProviderBase)
+
 public:
     QMimeProviderBase(QMimeDatabasePrivate *db, const QString &directory);
     virtual ~QMimeProviderBase() {}
@@ -109,7 +111,8 @@ public:
 private:
     struct CacheFile;
 
-    void matchGlobList(QMimeGlobMatchResult &result, CacheFile *cacheFile, int offset, const QString &fileName);
+    int matchGlobList(QMimeGlobMatchResult &result, CacheFile *cacheFile, int offset,
+                      const QString &fileName);
     bool matchSuffixTree(QMimeGlobMatchResult &result, CacheFile *cacheFile, int numEntries,
                          int firstOffset, const QString &fileName, qsizetype charPos,
                          bool caseSensitiveCheck);
@@ -119,7 +122,7 @@ private:
     void loadMimeTypeList();
     bool checkCacheChanged();
 
-    CacheFile *m_cacheFile = nullptr;
+    std::unique_ptr<CacheFile> m_cacheFile;
     QStringList m_cacheFileNames;
     QSet<QString> m_mimetypeNames;
     bool m_mimetypeListLoaded;

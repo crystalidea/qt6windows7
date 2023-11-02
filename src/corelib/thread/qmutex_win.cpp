@@ -19,9 +19,9 @@ QMutexPrivate::QMutexPrivate()
 QMutexPrivate::~QMutexPrivate()
 { CloseHandle(event); }
 
-bool QMutexPrivate::wait(int timeout)
+bool QMutexPrivate::wait(QDeadlineTimer timeout)
 {
-    return (WaitForSingleObjectEx(event, timeout < 0 ? INFINITE : timeout, FALSE) == WAIT_OBJECT_0);
+    return (WaitForSingleObjectEx(event, timeout.isForever() ? INFINITE : timeout.remainingTime(), FALSE) == WAIT_OBJECT_0);
 }
 
 void QMutexPrivate::wakeUp() noexcept

@@ -31,6 +31,7 @@
             ODBC-compliant databases
     \row \li \l{#QPSQL}{QPSQL} \li PostgreSQL (versions 7.3 and above)
     \row \li \l{#QSQLITE}{QSQLITE} \li SQLite version 3
+    \row \li \l{#QMIMER}{QMIMER} \li Mimer SQL (version 11 and above)
     \endtable
 
     SQLite is the in-process database system with the best test coverage
@@ -126,7 +127,7 @@
 
     \section3 QMYSQL Stored Procedure Support
 
-    MySQL 5 has stored procedure support at the SQL level, but no
+    MySQL has stored procedure support at the SQL level, but no
     API to control IN, OUT, and INOUT parameters. Therefore, parameters
     have to be set and read using SQL commands instead of QSqlQuery::bindValue().
 
@@ -155,6 +156,96 @@
     Please refer to the MySQL documentation, chapter "libmysqld, the Embedded
     MySQL Server Library" for more information about the MySQL embedded server.
 
+    \section3 Connection options
+    The Qt MySQL/MariaDB plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li CLIENT_COMPRESS
+      \li If set, switches to compressed protocol after successful authentication
+    \row
+      \li CLIENT_FOUND_ROWS
+      \li If set, send found rows instead of affected rows
+    \row
+      \li CLIENT_IGNORE_SPACE
+      \li If set, ignore spaces before '('
+    \row
+      \li CLIENT_NO_SCHEMA
+      \li If set, don't allow database.table.column
+    \row
+      \li CLIENT_INTERACTIVE
+      \li If set, client is treated as interactive
+    \row
+      \li MYSQL_OPT_PROTOCOL
+      \li explicitly specify the protocol to use:\br
+          MYSQL_PROTOCOL_TCP: use tcp connection (ip/hostname specified through setHostname())
+          MYSQL_PROTOCOL_SOCKET: connect through a socket specified in UNIX_SOCKET
+          MYSQL_PROTOCOL_PIPE: connect through a named pipe specified in UNIX_SOCKET
+          MYSQL_PROTOCOL_MEMORY: connect through shared memory specified in MYSQL_SHARED_MEMORY_BASE_NAME
+    \row
+      \li UNIX_SOCKET
+      \li Specifies the socket or named pipe to use, even it's called UNIX_SOCKET it
+          can also be used on windows
+    \row
+      \li MYSQL_SHARED_MEMORY_BASE_NAME
+      \li Specified the shared memory segment name to use
+    \row
+      \li MYSQL_OPT_RECONNECT
+      \li TRUE or 1: Automatically reconnect after connection loss\br
+          FALSE or 0: No automatic reconnect after connection loss (default)\br
+          See \l {https://dev.mysql.com/doc/c-api/8.0/en/c-api-auto-reconnect.html}
+          {Automatic Reconnection Control}
+    \row
+      \li MYSQL_OPT_CONNECT_TIMEOUT
+      \li The connect timeout in seconds
+    \row
+      \li MYSQL_OPT_READ_TIMEOUT
+      \li The timeout in seconds for each attempt to read from the server
+    \row
+      \li MYSQL_OPT_WRITE_TIMEOUT
+      \li The timeout in seconds for each attempt to write to the server
+    \row
+      \li MYSQL_OPT_LOCAL_INFILE
+      \li Set to 1 to enable the support for local
+          \l {https://dev.mysql.com/doc/refman/8.0/en/load-data.html} {LOAD_DATA},
+          disabled if not set or 0
+    \row
+      \li MYSQL_OPT_SSL_MODE
+      \li The security state to use for the connection to the server: SSL_MODE_DISABLED,
+          SSL_MODE_PREFERRED, SSL_MODE_REQUIRED, SSL_MODE_VERIFY_CA, SSL_MODE_VERIFY_IDENTITY.
+    \row
+      \li MYSQL_OPT_TLS_VERSION
+      \li A list of protocols the client permits for encrypted connections. The value can be
+          a combination of 'TLSv1' ,' TLSv1.1', 'TLSv1.2' or 'TLSv1.3' depending on the used \l
+          {https://dev.mysql.com/doc/refman/8.0/en/encrypted-connection-protocols-ciphers.html#encrypted-connection-protocol-configuration}
+          {MySQL server} version.
+    \row
+      \li MYSQL_OPT_SSL_KEY / SSL_KEY (deprecated)
+      \li The path name of the client private key file
+    \row
+      \li MYSQL_OPT_SSL_CERT / SSL_CERT (deprecated)
+      \li The path name of the client public key certificate file
+    \row
+      \li MYSQL_OPT_SSL_CA / SSL_CA (deprecated)
+      \li The path name of the Certificate Authority (CA) certificate file
+    \row
+      \li MYSQL_OPT_SSL_CAPATH / SSL_CAPATH (deprecated)
+      \li The path name of the directory that contains trusted SSL CA certificate files
+    \row
+      \li MYSQL_OPT_SSL_CIPHER / SSL_CIPHER (deprecated)
+      \li The list of permissible ciphers for SSL encryption
+    \row
+      \li MYSQL_OPT_SSL_CRL
+      \li The path name of the file containing certificate revocation lists
+    \row
+      \li MYSQL_OPT_SSL_CRLPATH
+      \li The path name of the directory that contains files containing certificate revocation lists
+    \endtable
+    For more detailed information about the connect options please refer
+    to the \l {https://dev.mysql.com/doc/c-api/8.0/en/mysql-options.html}
+    {mysql_options()} MySQL documentation.
+
+
     \section3 How to Build the QMYSQL Plugin on Unix and \macos
 
     You need the MySQL / MariaDB header files, as well as the shared library
@@ -171,8 +262,8 @@
     \section3 How to Build the QMYSQL Plugin on Windows
 
     You need to get the MySQL installation files (e.g.
-    \l {https://dev.mysql.com/downloads/installer/}{mysql-installer-web-community-8.0.22.0.msi} or
-    \l {https://downloads.mariadb.com/Connectors/c/connector-c-3.1.11/}{mariadb-connector-c-3.1.11-win64.msi}).
+    \l {https://dev.mysql.com/downloads/installer/}{MySQL web installer} or
+    \l {https://downloads.mariadb.com/Connectors/c/}{MariaDB C Connector}).
     Run the installer,
     select custom installation and install the MySQL C Connector
     which matches your Qt installation (x86 or x64).
@@ -237,6 +328,29 @@
     BLOBs are bound to placeholders or QSqlTableModel, which uses a prepared
     query to do this internally.
 
+    \section3 Connection options
+    The Qt OCI plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li OCI_ATTR_PREFETCH_ROWS
+      \li Sets the OCI attribute
+          \l {https://docs.oracle.com/database/121/LNOCI/oci04sql.htm#LNOCI16355}
+          {OCI_ATTR_PREFETCH_ROWS} to the specified value
+    \row
+      \li OCI_ATTR_PREFETCH_MEMORY
+      \li Sets the OCI attribute
+          \l {https://docs.oracle.com/database/121/LNOCI/oci04sql.htm#LNOCI16355}
+          {OCI_ATTR_PREFETCH_MEMORY} to the specified value
+    \row
+      \li OCI_AUTH_MODE
+      \li OCI_SYSDBA: authenticate for SYSDBA access\br
+          OCI_SYSOPER: authenticate for SYSOPER access\br
+          OCI_DEFAULT: authenticate with normal access\br
+          see \l {https://docs.oracle.com/cd/B10500_01/appdev.920/a96584/oci15r13.htm}
+          {OCISessionBegin} for more information about the access modes
+    \endtable
+
     \section3 How to Build the OCI Plugin on Unix and \macos
 
     All you need is the " - Basic" and "Instant Client
@@ -271,7 +385,7 @@
 
     \snippet code/doc_src_sql-driver.qdoc 8
 
-    When you run your application, you will also need to add the \c oci.lib
+    When you run your application, you will also need to add the \c oci.dll
     path to your \c PATH environment variable:
 
     \snippet code/doc_src_sql-driver.qdoc 9
@@ -322,17 +436,11 @@
     e.g., the SQLSTATEs.  Before setting this connect option, consult
     your ODBC documentation about behavior differences you can expect.
 
-    When using the SAP HANA database, the connection has to be
-    established using the option "SCROLLABLERESULT=TRUE", as the
-    HANA ODBC driver does not provide scrollable results by default, e.g.:
-
-    \snippet code/doc_src_sql-driver.cpp 39
-
     If you experience very slow access of the ODBC datasource, make sure
     that ODBC call tracing is turned off in the ODBC datasource manager.
 
     Some drivers do not support scrollable cursors. In that case, only
-    queries in forwardOnly mode can be used successfully.
+    queries in \l QSqlQuery::setForwardOnly() mode can be used successfully.
 
     \section3 ODBC Stored Procedure Support
 
@@ -349,12 +457,62 @@
     \section3 ODBC Unicode Support
 
     The QODBC Plugin will use the Unicode API if UNICODE is defined. On
-    Windows NT based systems, this is the default. Note that the ODBC
+    Windows based systems, this is the default. Note that the ODBC
     driver and the DBMS must also support Unicode.
 
     For the Oracle 9 ODBC driver (Windows), it is necessary to check
     "SQL_WCHAR support" in the ODBC driver manager otherwise Oracle
-    will convert all Unicode strings to local 8-bit.
+    will convert all Unicode strings to local 8-bit representation.
+
+    \section3 Connection options
+    The Qt ODBC plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li SQL_ATTR_ACCESS_MODE
+      \li SQL_MODE_READ_ONLY: open the database in read-only mode\br
+          SQL_MODE_READ_WRITE: open the database in read-write mode (default)
+    \row
+      \li SQL_ATTR_LOGIN_TIMEOUT
+      \li Number of seconds to wait for the database connection
+          during login (a value of 0 will wait forever)
+    \row
+      \li SQL_ATTR_CONNECTION_TIMEOUT
+      \li Number of seconds to wait for any request to the database
+          (a value of 0 will wait forever)
+    \row
+      \li SQL_ATTR_CURRENT_CATALOG
+      \li The catalog (database) to use for this connection
+    \row
+      \li SQL_ATTR_METADATA_ID
+      \li SQL_TRUE: the string argument of catalog functions are treated
+          as identifiers\br
+          SQL_FALSE: the string arguments of catalog functions are not
+          treated as identifiers
+    \row
+      \li SQL_ATTR_PACKET_SIZE
+      \li Specifies the network packet size in bytes
+    \row
+      \li SQL_ATTR_TRACEFILE
+      \li A string containing the name of the trace file
+    \row
+      \li SQL_ATTR_TRACE
+      \li SQL_OPT_TRACE_ON: Enable database query tracing\br
+          SQL_OPT_TRACE_OFF: Disable database query tracing (default)
+    \row
+      \li SQL_ATTR_CONNECTION_POOLING
+      \li Enable or disable connection pooling at the environment level.\br
+          SQL_CP_DEFAULT, SQL_CP_OFF: Connection pooling is turned off (default)\br
+          SQL_CP_ONE_PER_DRIVER: A single connection pool is supported for each driver\br
+          SQL_CP_ONE_PER_HENV: A single connection pool is supported for each environment
+    \row
+      \li SQL_ATTR_ODBC_VERSION
+      \li SQL_OV_ODBC3: The driver should act as a ODBC 3.x driver\br
+          SQL_OV_ODBC2: The driver should act as a ODBC 2.x driver (default)
+    \endtable
+    For more detailed information about the connect options please refer
+    to the \l {https://learn.microsoft.com/en-us/sql/odbc/reference/syntax/sqlsetconnectattr-function}
+    {SQLSetConnectAttr()} ODBC documentation.
 
     \section3 How to Build the ODBC Plugin on Unix and \macos
 
@@ -376,7 +534,7 @@
     \snippet code/doc_src_sql-driver.qdoc 12
 
     \target QPSQL
-    \section2 QPSQL for PostgreSQL (Version 7.3 and Above)
+    \section2 QPSQL for PostgreSQL (Version 7.3 and above)
 
     The QPSQL driver supports version 7.3 and higher of the PostgreSQL server.
 
@@ -453,6 +611,11 @@
 
     \snippet code/doc_src_sql-driver.qdoc 38
 
+    \section3 Connection options
+    The Qt PostgreSQL plugin honors all connection options specified in the
+    \l {https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS}
+    {connect()} PostgreSQL documentation.
+
     \section3 How to Build the QPSQL Plugin on Unix and \macos
 
     You need the PostgreSQL client library and headers installed.
@@ -479,7 +642,7 @@
     as the application executable.
 
     \target QDB2
-    \section2 QDB2 for IBM DB2 (Version 7.1 and Above)
+    \section2 QDB2 for IBM DB2 (Version 7.1 and above)
 
     The Qt DB2 plugin makes it possible to access IBM DB2 databases. It
     has been tested with IBM DB2 v7.1 and 7.2. You must install the IBM
@@ -491,6 +654,20 @@
 
     We suggest using a forward-only query when calling stored procedures
     in DB2 (see QSqlQuery::setForwardOnly()).
+
+    \section3 Connection options
+    The Qt IBM DB2 plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li SQL_ATTR_ACCESS_MODE
+      \li SQL_MODE_READ_ONLY: open the database in read-only mode\br
+          SQL_MODE_READ_WRITE: open the database in read-write mode (default)
+    \row
+      \li SQL_ATTR_LOGIN_TIMEOUT
+      \li Number of seconds to wait for the database connection
+          during login (max: 32767, a value of 0 will wait forever)
+    \endtable
 
     \section3 How to Build the QDB2 Plugin on Unix and \macos
 
@@ -504,7 +681,7 @@
     \snippet code/doc_src_sql-driver.qdoc 20
 
     \target QSQLITE
-    \section2 QSQLITE for SQLite (Version 3 and Above)
+    \section2 QSQLITE for SQLite (Version 3 and above)
 
     The Qt SQLite plugin makes it possible to access SQLite
     databases. SQLite is an in-process database, which means that it
@@ -536,6 +713,40 @@
     QSqlTableModel).
 
     You can find information about SQLite on \l{http://www.sqlite.org}.
+
+    \section3 Connection options
+    The Qt SQLite plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li QSQLITE_BUSY_TIMEOUT
+      \li Busy handler timeout in milliseconds (val <= 0: disabled),
+          see \l {https://www.sqlite.org/c3ref/busy_timeout.html}
+          {SQLite documentation} for more information
+    \row
+      \li QSQLITE_OPEN_READONLY
+      \li If set, the database is open in read-only mode which will fail
+          if no database exists. Otherwise the database will be opened in
+          read-write mode and created if the database file does not yet
+          exist (default)
+    \row
+      \li QSQLITE_OPEN_URI
+      \li The given filename is interpreted as an uri, see
+          \l {https://www.sqlite.org/c3ref/open.html} {SQLITE_OPEN_URI}
+    \row
+      \li QSQLITE_ENABLE_SHARED_CACHE
+      \li If set, the database is opened in
+          \l {https://www.sqlite.org/sharedcache.html} {shared cache mode},
+          otherwise in private cache mode
+    \row
+      \li QSQLITE_ENABLE_REGEXP
+      \li If set, the plugin defines a function 'regex' which can be used
+          in queries, QRegularExpression is used for evaluation of the regex query
+    \row
+      \li QSQLITE_NO_USE_EXTENDED_RESULT_CODES
+      \li Disables the usage of the \l {https://www.sqlite.org/c3ref/extended_result_codes.html}
+          {extended result code} feature in SQLite (for backwards compatibility)
+    \endtable
 
     \section3 How to Build the QSQLITE Plugin
 
@@ -592,6 +803,47 @@
     Some versions of SQLite can be forced to write a specific file format by setting
     the \c{SQLITE_DEFAULT_FILE_FORMAT} define when building SQLite.
 
+    \target QMIMER
+    \section2 QMIMER for Mimer SQL version 11 and higher
+
+    The Qt Mimer SQL plugin makes it possible to work with the Mimer SQL RDBMS.
+    Mimer SQL provides small footprint, scalable and robust relational database
+    solutions that conform to international ISO SQL standards. Mimer SQL is available
+    on Windows, Linux, \macos, and OpenVMS as well as several embedded platforms like QNX, Android,
+    and embedded Linux.
+
+    Mimer SQL fully support Unicode. To work with Unicode data the column types National Character (NCHAR),
+    National Character Varying (NVARCHAR), or National Character Large Object (NCLOB) must be used.
+    For more information about Mimer SQL and unicode, see \l{https://developer.mimer.com/features/multilingual-support}
+
+    \section3 QMIMER Stored Procedure Support
+
+    Mimer SQL have stored procedures according to the SQL standard (PSM) and
+    the plugin fully support IN, OUT, INOUT parameters as well as resultset procedures.
+
+    Example stored procedure with INOUT and OUT parameters:
+
+    \snippet code/doc_src_sql-driver.qdoc 44
+
+    Source code to access the INOUT and OUT values:
+
+    \snippet code/doc_src_sql-driver.cpp 40
+
+    \section3 How to Build the QMIMER Plugin on Unix and \macos
+
+    You need the Mimer SQL header files and shared libraries. Get them by installing
+    any of the Mimer SQL variants found at \l{https://developer.mimer.com}.
+
+
+    \snippet code/doc_src_sql-driver.qdoc 31
+
+    \section3 How to Build the QMIMER Plugin on Windows
+
+    You need the Mimer SQL header files and shared libraries. Get them by installing
+    any of the Mimer SQL variants found at \l{https://developer.mimer.com}.
+
+    \snippet code/doc_src_sql-driver.qdoc 32
+
     \target QIBASE
     \section2 QIBASE for Borland InterBase
 
@@ -605,6 +857,17 @@
     database file, no matter whether it is stored locally or on another
     server.
 
+    \section3 Connection options
+    The Qt Borland InterBase plugin honors the following connection options:
+    \table
+    \header \li Attribute \li Possible value
+    \row
+      \li ISC_DPB_SQL_ROLE_NAME
+      \li Specifies the login role name
+    \endtable
+
+
+    \section3 How to Build the QIBASE Plugin
     \snippet code/doc_src_sql-driver.cpp 24
 
     You need the InterBase/Firebird development headers and libraries
@@ -613,20 +876,6 @@
     Due to license incompatibilities with the GPL, users of the Qt Open Source
     Edition are not allowed to link this plugin to the commercial editions of
     InterBase. Please use Firebird or the free edition of InterBase.
-
-    \section3 QIBASE Unicode Support and Text Encoding
-
-    By default the driver connects to the database using UNICODE_FSS. This can
-    be overridden by setting the ISC_DPB_LC_CTYPE parameter with
-    QSqlDatabase::setConnectOptions() before opening the connection.
-
-    \snippet code/doc_src_sql-driver.cpp 25
-
-    If Qt does not support the given text encoding the driver will issue a
-    warning message and connect to the database using UNICODE_FSS.
-
-    Note that if the text encoding set when connecting to the database is
-    not the same as in the database, problems with transliteration might arise.
 
     \section3 QIBASE Stored procedures
 
@@ -690,7 +939,7 @@
         Qt Creator, you can update the \c PATH environment variable in the
         \gui Run section of the \gui Project panel to include the path to
         the folder containing the client libraries.
-    \li Compile Qt with \c{QT_DEBUG_COMPONENT} defined to get very verbose
+    \li Compile Qt with \c{QT_DEBUG_PLUGINS} defined to get very verbose
         debug output when loading plugins.
     \endlist
 

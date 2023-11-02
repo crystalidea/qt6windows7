@@ -150,14 +150,14 @@ void tst_QTimer::singleShotNormalizes_data()
 void tst_QTimer::singleShotNormalizes()
 {
     using namespace std::chrono_literals;
-    static constexpr int TestTimeout = 250 * 1000;
+    static constexpr auto TestTimeout = 250ms;
     QFETCH(QByteArray, slotName);
     QEventLoop loop;
 
     // control test: regular connection
     {
         QTimer timer;
-        QVERIFY(QObject::connect(&timer, SIGNAL(timeout()), &QTestEventLoop::instance(), slotName.constData()));
+        QVERIFY(QObject::connect(&timer, SIGNAL(timeout()), &QTestEventLoop::instance(), slotName));
         timer.setSingleShot(true);
         timer.start(1);
         QTestEventLoop::instance().enterLoop(TestTimeout);
@@ -165,20 +165,20 @@ void tst_QTimer::singleShotNormalizes()
     }
 
     // non-zero time
-    QTimer::singleShot(1, &QTestEventLoop::instance(), slotName.constData());
+    QTimer::singleShot(1, &QTestEventLoop::instance(), slotName);
     QTestEventLoop::instance().enterLoop(TestTimeout);
     QVERIFY(!QTestEventLoop::instance().timeout());
 
-    QTimer::singleShot(1ms, &QTestEventLoop::instance(), slotName.constData());
+    QTimer::singleShot(1ms, &QTestEventLoop::instance(), slotName);
     QTestEventLoop::instance().enterLoop(TestTimeout);
     QVERIFY(!QTestEventLoop::instance().timeout());
 
     // zero time
-    QTimer::singleShot(0, &QTestEventLoop::instance(), slotName.constData());
+    QTimer::singleShot(0, &QTestEventLoop::instance(), slotName);
     QTestEventLoop::instance().enterLoop(TestTimeout);
     QVERIFY(!QTestEventLoop::instance().timeout());
 
-    QTimer::singleShot(0ms, &QTestEventLoop::instance(), slotName.constData());
+    QTimer::singleShot(0ms, &QTestEventLoop::instance(), slotName);
     QTestEventLoop::instance().enterLoop(TestTimeout);
     QVERIFY(!QTestEventLoop::instance().timeout());
 }
@@ -1175,11 +1175,22 @@ void tst_QTimer::crossThreadSingleShotToFunctor()
     DummyFunctor::callThread = nullptr;
 
     QThread t;
-    t.start();
-
     std::unique_ptr<QObject> o(new QObject());
     o->moveToThread(&t);
 
+    QTimer::singleShot(timeout, o.get(), DummyFunctor());
+
+    // wait enough time for the timer to have timed out before the timer
+    // could be start in the receiver's thread.
+    QTest::qWait(10 + timeout * 10);
+    t.start();
+    t.wait();
+    QCOMPARE(DummyFunctor::callThread, &t);
+
+    // continue with a stress test - the calling thread is busy, the
+    // timer should still fire and no crashes.
+    DummyFunctor::callThread = nullptr;
+    t.start();
     for (int i = 0; i < 10000; i++)
         QTimer::singleShot(timeout, o.get(), DummyFunctor());
 

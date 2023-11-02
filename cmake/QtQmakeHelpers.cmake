@@ -37,8 +37,6 @@ function(qt_generate_qconfig_cpp in_file out_file)
     set(QT_SYS_CONF_DIR "${INSTALL_SYSCONFDIR}")
 
     # Compute and set relocation prefixes.
-    # TODO: Clean this up, there's a bunch of unrealistic assumptions here.
-    # See qtConfOutput_preparePaths in qtbase/configure.pri.
     if(WIN32)
         set(lib_location_absolute_path
             "${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX}/${INSTALL_BINDIR}")
@@ -213,6 +211,7 @@ function(qt_get_qmake_module_name result module)
     string(REGEX REPLACE "^Qt6" "" module "${module}")
     string(REGEX REPLACE "Private$" "_private" module "${module}")
     string(REGEX REPLACE "Qpa$" "_qpa_lib_private" module "${module}")
+    string(REGEX REPLACE "Rhi$" "_rhi_lib_private" module "${module}")
     string(TOLOWER "${module}" module)
     set(${result} ${module} PARENT_SCOPE)
 endfunction()

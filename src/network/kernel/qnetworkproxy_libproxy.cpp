@@ -12,6 +12,7 @@
 #include <QtCore/QUrl>
 #include <QtCore/private/qeventdispatcher_unix_p.h>
 #include <QtCore/private/qthread_p.h>
+#include <QtCore/qapplicationstatic.h>
 
 #include <proxy.h>
 #include <dlfcn.h>
@@ -72,7 +73,7 @@ private:
     Data *request;
 };
 
-Q_GLOBAL_STATIC(QLibProxyWrapper, libProxyWrapper);
+Q_APPLICATION_STATIC(QLibProxyWrapper, libProxyWrapper)
 
 QLibProxyWrapper::QLibProxyWrapper()
 {

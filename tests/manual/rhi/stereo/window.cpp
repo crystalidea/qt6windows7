@@ -5,7 +5,7 @@
 #include <QPlatformSurfaceEvent>
 #include <QTimer>
 #include <QFile>
-#include <QtGui/private/qshader_p.h>
+#include <rhi/qshader.h>
 #include "../shared/cube.h"
 
 Window::Window()
@@ -55,7 +55,7 @@ bool Window::event(QEvent *e)
 
 void Window::init()
 {
-    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers | QRhi::EnableProfiling;
+    QRhi::Flags rhiFlags = QRhi::EnableDebugMarkers;
 
     m_fallbackSurface.reset(QRhiGles2InitParams::newFallbackSurface());
     QRhiGles2InitParams params;

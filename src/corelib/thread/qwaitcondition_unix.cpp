@@ -2,18 +2,17 @@
 // Copyright (C) 2016 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qplatformdefs.h"
 #include "qwaitcondition.h"
-#include "qmutex.h"
-#include "qreadwritelock.h"
-#include "qatomic.h"
-#include "qstring.h"
-#include "qdeadlinetimer.h"
-#include "private/qdeadlinetimer_p.h"
-#include "qelapsedtimer.h"
-#include "private/qcore_unix_p.h"
 
-#include "qmutex_p.h"
+#include "qatomic.h"
+#include "qdeadlinetimer.h"
+#include "qelapsedtimer.h"
+#include "qmutex.h"
+#include "qplatformdefs.h"
+#include "qreadwritelock.h"
+#include "qstring.h"
+
+#include "private/qcore_unix_p.h"
 #include "qreadwritelock_p.h"
 
 #include <errno.h>
@@ -22,44 +21,61 @@
 
 QT_BEGIN_NAMESPACE
 
-static void report_error(int code, const char *where, const char *what)
+static constexpr clockid_t SteadyClockClockId =
+#if !defined(CLOCK_MONOTONIC)
+        // we don't know how to set the monotonic clock
+        CLOCK_REALTIME
+#elif defined(_LIBCPP_VERSION) && defined(_LIBCPP_HAS_NO_MONOTONIC_CLOCK)
+        // libc++ falling back to system_clock
+        CLOCK_REALTIME
+#elif defined(__GLIBCXX__) && !defined(_GLIBCXX_USE_CLOCK_MONOTONIC)
+        // libstdc++ falling back to system_clock
+        CLOCK_REALTIME
+#elif defined(Q_OS_DARWIN)
+        // Darwin lacks pthread_condattr_setclock()
+        CLOCK_REALTIME
+#elif defined(Q_OS_QNX)
+        // unknown why
+        CLOCK_REALTIME
+#elif defined(__GLIBCXX__) || defined(_LIBCPP_VERSION)
+        // both libstdc++ and libc++ do use CLOCK_MONOTONIC
+        CLOCK_MONOTONIC
+#else
+#  warning "Unknown C++ Standard Library implementation - code may be sub-optimal"
+        CLOCK_REALTIME
+#endif
+        ;
+
+static void qt_report_pthread_error(int code, const char *where, const char *what)
 {
     if (code != 0)
         qErrnoWarning(code, "%s: %s failure", where, what);
 }
 
-void qt_initialize_pthread_cond(pthread_cond_t *cond, const char *where)
+static void qt_initialize_pthread_cond(pthread_cond_t *cond, const char *where)
 {
+    pthread_condattr_t *attrp = nullptr;
+
+#if defined(CLOCK_MONOTONIC) && !defined(Q_OS_DARWIN)
     pthread_condattr_t condattr;
+    attrp = &condattr;
 
     pthread_condattr_init(&condattr);
-#if defined(CLOCK_MONOTONIC) && !defined(Q_OS_DARWIN)
-    if (QElapsedTimer::clockType() == QElapsedTimer::MonotonicClock)
-        pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
+    auto destroy = qScopeGuard([&] { pthread_condattr_destroy(&condattr); });
+    if (SteadyClockClockId != CLOCK_REALTIME)
+        pthread_condattr_setclock(&condattr, SteadyClockClockId);
 #endif
-    report_error(pthread_cond_init(cond, &condattr), where, "cv init");
-    pthread_condattr_destroy(&condattr);
+
+    qt_report_pthread_error(pthread_cond_init(cond, attrp), where, "cv init");
 }
 
-void qt_abstime_for_timeout(timespec *ts, QDeadlineTimer deadline)
+static void qt_abstime_for_timeout(timespec *ts, QDeadlineTimer deadline)
 {
-#ifdef Q_OS_MAC
-    // on Mac, qt_gettime() (on qelapsedtimer_mac.cpp) returns ticks related to the Mach absolute time
-    // that doesn't work with pthread
-    // Mac also doesn't have clock_gettime
-    struct timeval tv;
-    qint64 nsec = deadline.remainingTimeNSecs();
-    gettimeofday(&tv, 0);
-    ts->tv_sec = tv.tv_sec + nsec / (1000 * 1000 * 1000);
-    ts->tv_nsec = tv.tv_usec * 1000 + nsec % (1000 * 1000 * 1000);
-
-    normalizedTimespec(*ts);
-#else
-    // depends on QDeadlineTimer's internals!!
-    static_assert(QDeadlineTimerNanosecondsInT2);
-    ts->tv_sec = deadline._q_data().first;
-    ts->tv_nsec = deadline._q_data().second;
-#endif
+    using namespace std::chrono;
+    using Clock =
+        std::conditional_t<SteadyClockClockId == CLOCK_REALTIME, system_clock, steady_clock>;
+    auto timePoint = deadline.deadline<Clock>();
+    *ts = durationToTimespec(timePoint.time_since_epoch());
 }
 
 class QWaitConditionPrivate
@@ -87,9 +103,7 @@ public:
                 code = pthread_cond_wait(&cond, &mutex);
             }
             if (code == 0 && wakeups == 0) {
-                // many vendors warn of spurious wakeups from
-                // pthread_cond_wait(), especially after signal delivery,
-                // even though POSIX doesn't allow for it... sigh
+                // spurious wakeup
                 continue;
             }
             break;
@@ -101,10 +115,11 @@ public:
             Q_ASSERT_X(wakeups > 0, "QWaitCondition::wait", "internal error (wakeups)");
             --wakeups;
         }
-        report_error(pthread_mutex_unlock(&mutex), "QWaitCondition::wait()", "mutex unlock");
+        qt_report_pthread_error(pthread_mutex_unlock(&mutex), "QWaitCondition::wait()",
+                                "mutex unlock");
 
         if (code && code != ETIMEDOUT)
-            report_error(code, "QWaitCondition::wait()", "cv wait");
+            qt_report_pthread_error(code, "QWaitCondition::wait()", "cv wait");
 
         return (code == 0);
     }
@@ -113,32 +128,38 @@ public:
 QWaitCondition::QWaitCondition()
 {
     d = new QWaitConditionPrivate;
-    report_error(pthread_mutex_init(&d->mutex, nullptr), "QWaitCondition", "mutex init");
+    qt_report_pthread_error(pthread_mutex_init(&d->mutex, nullptr), "QWaitCondition", "mutex init");
     qt_initialize_pthread_cond(&d->cond, "QWaitCondition");
     d->waiters = d->wakeups = 0;
 }
 
 QWaitCondition::~QWaitCondition()
 {
-    report_error(pthread_cond_destroy(&d->cond), "QWaitCondition", "cv destroy");
-    report_error(pthread_mutex_destroy(&d->mutex), "QWaitCondition", "mutex destroy");
+    qt_report_pthread_error(pthread_cond_destroy(&d->cond), "QWaitCondition", "cv destroy");
+    qt_report_pthread_error(pthread_mutex_destroy(&d->mutex), "QWaitCondition", "mutex destroy");
     delete d;
 }
 
 void QWaitCondition::wakeOne()
 {
-    report_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wakeOne()", "mutex lock");
+    qt_report_pthread_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wakeOne()",
+                            "mutex lock");
     d->wakeups = qMin(d->wakeups + 1, d->waiters);
-    report_error(pthread_cond_signal(&d->cond), "QWaitCondition::wakeOne()", "cv signal");
-    report_error(pthread_mutex_unlock(&d->mutex), "QWaitCondition::wakeOne()", "mutex unlock");
+    qt_report_pthread_error(pthread_cond_signal(&d->cond), "QWaitCondition::wakeOne()",
+                            "cv signal");
+    qt_report_pthread_error(pthread_mutex_unlock(&d->mutex), "QWaitCondition::wakeOne()",
+                            "mutex unlock");
 }
 
 void QWaitCondition::wakeAll()
 {
-    report_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wakeAll()", "mutex lock");
+    qt_report_pthread_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wakeAll()",
+                            "mutex lock");
     d->wakeups = d->waiters;
-    report_error(pthread_cond_broadcast(&d->cond), "QWaitCondition::wakeAll()", "cv broadcast");
-    report_error(pthread_mutex_unlock(&d->mutex), "QWaitCondition::wakeAll()", "mutex unlock");
+    qt_report_pthread_error(pthread_cond_broadcast(&d->cond), "QWaitCondition::wakeAll()",
+                            "cv broadcast");
+    qt_report_pthread_error(pthread_mutex_unlock(&d->mutex), "QWaitCondition::wakeAll()",
+                            "mutex unlock");
 }
 
 bool QWaitCondition::wait(QMutex *mutex, unsigned long time)
@@ -153,7 +174,7 @@ bool QWaitCondition::wait(QMutex *mutex, QDeadlineTimer deadline)
     if (!mutex)
         return false;
 
-    report_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wait()", "mutex lock");
+    qt_report_pthread_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wait()", "mutex lock");
     ++d->waiters;
     mutex->unlock();
 
@@ -185,7 +206,7 @@ bool QWaitCondition::wait(QReadWriteLock *readWriteLock, QDeadlineTimer deadline
         return false;
     }
 
-    report_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wait()", "mutex lock");
+    qt_report_pthread_error(pthread_mutex_lock(&d->mutex), "QWaitCondition::wait()", "mutex lock");
     ++d->waiters;
 
     readWriteLock->unlock();

@@ -16,7 +16,8 @@
 #include <QtGui/qcursor.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/qscopedpointer.h>
+
+#include <memory>
 
 #include <windowsx.h>
 
@@ -285,19 +286,16 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     if (m_lastEventType == QEvent::NonClientAreaMouseButtonPress
             && (mouseEvent.type == QEvent::NonClientAreaMouseMove || mouseEvent.type == QEvent::MouseMove)
             && (m_lastEventButton & buttons) == 0) {
-            if (mouseEvent.type == QEvent::NonClientAreaMouseMove) {
-                QWindowSystemInterface::handleFrameStrutMouseEvent(window, device, clientPosition, globalPosition, buttons, m_lastEventButton,
-                                                                   QEvent::NonClientAreaMouseButtonRelease, keyModifiers, source);
-            } else {
-                QWindowSystemInterface::handleMouseEvent(window, device, clientPosition, globalPosition, buttons, m_lastEventButton,
-                                                         QEvent::MouseButtonRelease, keyModifiers, source);
-            }
+            auto releaseType = mouseEvent.type == QEvent::NonClientAreaMouseMove ?
+                QEvent::NonClientAreaMouseButtonRelease : QEvent::MouseButtonRelease;
+            QWindowSystemInterface::handleMouseEvent(window, device, clientPosition, globalPosition, buttons, m_lastEventButton,
+                                                     releaseType, keyModifiers, source);
     }
     m_lastEventType = mouseEvent.type;
     m_lastEventButton = mouseEvent.button;
 
     if (mouseEvent.type >= QEvent::NonClientAreaMouseMove && mouseEvent.type <= QEvent::NonClientAreaMouseButtonDblClick) {
-        QWindowSystemInterface::handleFrameStrutMouseEvent(window, device, clientPosition,
+        QWindowSystemInterface::handleMouseEvent(window, device, clientPosition,
                                                            globalPosition, buttons,
                                                            mouseEvent.button, mouseEvent.type,
                                                            keyModifiers, source);
@@ -577,15 +575,14 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
     const QRect screenGeometry = screen->geometry();
 
     const int winTouchPointCount = int(msg.wParam);
-    QScopedArrayPointer<TOUCHINPUT> winTouchInputs(new TOUCHINPUT[winTouchPointCount]);
-    memset(winTouchInputs.data(), 0, sizeof(TOUCHINPUT) * size_t(winTouchPointCount));
+    const auto winTouchInputs = std::make_unique<TOUCHINPUT[]>(winTouchPointCount);
 
     QTouchPointList touchPoints;
     touchPoints.reserve(winTouchPointCount);
     QEventPoint::States allStates;
 
     GetTouchInputInfo(reinterpret_cast<HTOUCHINPUT>(msg.lParam),
-                      UINT(msg.wParam), winTouchInputs.data(), sizeof(TOUCHINPUT));
+                      UINT(msg.wParam), winTouchInputs.get(), sizeof(TOUCHINPUT));
     for (int i = 0; i < winTouchPointCount; ++i) {
         const TOUCHINPUT &winTouchInput = winTouchInputs[i];
         int id = m_touchInputIDToTouchPointID.value(winTouchInput.dwID, -1);

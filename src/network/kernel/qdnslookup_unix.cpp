@@ -1,410 +1,384 @@
 // Copyright (C) 2012 Jeremy Lainé <jeremy.laine@m4x.org>
+// Copyright (C) 2023 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qdnslookup_p.h"
 
-#if QT_CONFIG(library)
-#include <qlibrary.h>
-#endif
-#include <qvarlengtharray.h>
+#include <qendian.h>
 #include <qscopedpointer.h>
 #include <qurl.h>
-#include <private/qnativesocketengine_p.h>
+#include <qvarlengtharray.h>
+#include <private/qnativesocketengine_p.h>      // for setSockAddr
+#include <private/qtnetwork-config_p.h>
+
+QT_REQUIRE_CONFIG(libresolv);
 
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
-#if !defined(Q_OS_OPENBSD)
+#if __has_include(<arpa/nameser_compat.h>)
 #  include <arpa/nameser_compat.h>
 #endif
+#include <errno.h>
 #include <resolv.h>
 
-#if defined(__GNU_LIBRARY__) && !defined(__UCLIBC__)
-#  include <gnu/lib-names.h>
-#endif
+#include <array>
 
-#if defined(Q_OS_FREEBSD) || QT_CONFIG(dlopen)
-#  include <dlfcn.h>
+#ifndef T_OPT
+// the older arpa/nameser_compat.h wasn't updated between 1999 and 2016 in glibc
+#  define T_OPT     ns_t_opt
 #endif
-
-#include <cstring>
 
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
 
-#if QT_CONFIG(library)
+// minimum IPv6 MTU (1280) minus the IPv6 (40) and UDP headers (8)
+static constexpr qsizetype ReplyBufferSize = 1280 - 40 - 8;
 
-#if defined(Q_OS_OPENBSD)
-typedef struct __res_state* res_state;
-#endif
-typedef int (*dn_expand_proto)(const unsigned char *, const unsigned char *, const unsigned char *, char *, int);
-static dn_expand_proto local_dn_expand = nullptr;
-typedef void (*res_nclose_proto)(res_state);
-static res_nclose_proto local_res_nclose = nullptr;
-typedef int (*res_ninit_proto)(res_state);
-static res_ninit_proto local_res_ninit = nullptr;
-typedef int (*res_nquery_proto)(res_state, const char *, int, int, unsigned char *, int);
-static res_nquery_proto local_res_nquery = nullptr;
-
-// Custom deleter to close resolver state.
-
-struct QDnsLookupStateDeleter
-{
-    static inline void cleanup(struct __res_state *pointer)
-    {
-        local_res_nclose(pointer);
-    }
+// https://www.rfc-editor.org/rfc/rfc6891
+static constexpr unsigned char Edns0Record[] = {
+    0x00,                                           // root label
+    T_OPT >> 8, T_OPT & 0xff,                       // type OPT
+    ReplyBufferSize >> 8, ReplyBufferSize & 0xff,   // payload size
+    NOERROR,                                        // extended rcode
+    0,                                              // version
+    0x00, 0x00,                                     // flags
+    0x00, 0x00,                                     // option length
 };
 
-static QFunctionPointer resolveSymbol(QLibrary &lib, const char *sym)
-{
-    if (lib.isLoaded())
-        return lib.resolve(sym);
+// maximum length of a EDNS0 query with a 255-character domain (rounded up to 16)
+static constexpr qsizetype QueryBufferSize =
+        HFIXEDSZ + QFIXEDSZ + MAXCDNAME + 1 + sizeof(Edns0Record);
+using QueryBuffer = std::array<unsigned char, (QueryBufferSize + 15) / 16 * 16>;
 
-#if defined(RTLD_DEFAULT) && (defined(Q_OS_FREEBSD) || QT_CONFIG(dlopen))
-    return reinterpret_cast<QFunctionPointer>(dlsym(RTLD_DEFAULT, sym));
-#else
-    return nullptr;
-#endif
+namespace {
+struct QDnsCachedName
+{
+    QString name;
+    int code = 0;
+    QDnsCachedName(const QString &name, int code) : name(name), code(code) {}
+};
 }
+Q_DECLARE_TYPEINFO(QDnsCachedName, Q_RELOCATABLE_TYPE);
+using Cache = QList<QDnsCachedName>;    // QHash or QMap are overkill
 
-static bool resolveLibraryInternal()
+#if QT_CONFIG(res_setservers)
+// https://www.ibm.com/docs/en/i/7.3?topic=ssw_ibm_i_73/apis/ressetservers.html
+// https://docs.oracle.com/cd/E86824_01/html/E54774/res-setservers-3resolv.html
+static bool applyNameServer(res_state state, const QHostAddress &nameserver, quint16 port)
 {
-    QLibrary lib;
-#ifdef LIBRESOLV_SO
-    lib.setFileName(QStringLiteral(LIBRESOLV_SO));
-    if (!lib.load())
-#endif
-    {
-        lib.setFileName("resolv"_L1);
-        lib.load();
+    if (!nameserver.isNull()) {
+        union res_sockaddr_union u;
+        setSockaddr(reinterpret_cast<sockaddr *>(&u.sin), nameserver, port);
+        res_setservers(state, &u, 1);
     }
-
-    local_dn_expand = dn_expand_proto(resolveSymbol(lib, "__dn_expand"));
-    if (!local_dn_expand)
-        local_dn_expand = dn_expand_proto(resolveSymbol(lib, "dn_expand"));
-
-    local_res_nclose = res_nclose_proto(resolveSymbol(lib, "__res_nclose"));
-    if (!local_res_nclose)
-        local_res_nclose = res_nclose_proto(resolveSymbol(lib, "res_9_nclose"));
-    if (!local_res_nclose)
-        local_res_nclose = res_nclose_proto(resolveSymbol(lib, "res_nclose"));
-
-    local_res_ninit = res_ninit_proto(resolveSymbol(lib, "__res_ninit"));
-    if (!local_res_ninit)
-        local_res_ninit = res_ninit_proto(resolveSymbol(lib, "res_9_ninit"));
-    if (!local_res_ninit)
-        local_res_ninit = res_ninit_proto(resolveSymbol(lib, "res_ninit"));
-
-    local_res_nquery = res_nquery_proto(resolveSymbol(lib, "__res_nquery"));
-    if (!local_res_nquery)
-        local_res_nquery = res_nquery_proto(resolveSymbol(lib, "res_9_nquery"));
-    if (!local_res_nquery)
-        local_res_nquery = res_nquery_proto(resolveSymbol(lib, "res_nquery"));
-
     return true;
 }
-Q_GLOBAL_STATIC_WITH_ARGS(bool, resolveLibrary, (resolveLibraryInternal()))
-
-void QDnsLookupRunnable::query(const int requestType, const QByteArray &requestName, const QHostAddress &nameserver, QDnsLookupReply *reply)
+#else
+template <typename T> void setNsMap(T &ext, std::enable_if_t<sizeof(T::nsmap) != 0, uint16_t> v)
 {
-    // Load dn_expand, res_ninit and res_nquery on demand.
-    resolveLibrary();
+    // Set nsmap[] to indicate that nsaddrs[0] is an IPv6 address
+    // See: https://sourceware.org/ml/libc-hacker/2002-05/msg00035.html
+    // Unneeded since glibc 2.22 (2015), but doesn't hurt to set it
+    // See: https://sourceware.org/git/?p=glibc.git;a=commit;h=2212c1420c92a33b0e0bd9a34938c9814a56c0f7
+    ext.nsmap[0] = v;
+}
+template <typename T> void setNsMap(T &, ...)
+{
+    // fallback
+}
 
-    // If dn_expand, res_ninit or res_nquery is missing, fail.
-    if (!local_dn_expand || !local_res_nclose || !local_res_ninit || !local_res_nquery) {
-        reply->error = QDnsLookup::ResolverError;
-        reply->errorString = tr("Resolver functions not found");
-        return;
+template <bool Condition>
+using EnableIfIPv6 = std::enable_if_t<Condition, const QHostAddress *>;
+
+template <typename State>
+bool setIpv6NameServer(State *state,
+                       EnableIfIPv6<sizeof(std::declval<State>()._u._ext.nsaddrs) != 0> addr,
+                       quint16 port)
+{
+    // glibc-like API to set IPv6 name servers
+    struct sockaddr_in6 *ns = state->_u._ext.nsaddrs[0];
+
+    // nsaddrs will be NULL if no nameserver is set in /etc/resolv.conf
+    if (!ns) {
+        // Memory allocated here will be free()'d in res_close() as we
+        // have done res_init() above.
+        ns = static_cast<struct sockaddr_in6*>(calloc(1, sizeof(struct sockaddr_in6)));
+        Q_CHECK_PTR(ns);
+        state->_u._ext.nsaddrs[0] = ns;
     }
 
+    setNsMap(state->_u._ext, MAXNS + 1);
+    state->_u._ext.nscount6 = 1;
+    setSockaddr(ns, *addr, port);
+    return true;
+}
+
+template <typename State> bool setIpv6NameServer(State *, const void *, quint16)
+{
+    // fallback
+    return false;
+}
+
+static bool applyNameServer(res_state state, const QHostAddress &nameserver, quint16 port)
+{
+    if (nameserver.isNull())
+        return true;
+
+    state->nscount = 1;
+    state->nsaddr_list[0].sin_family = AF_UNSPEC;
+    if (nameserver.protocol() == QAbstractSocket::IPv6Protocol)
+        return setIpv6NameServer(state, &nameserver, port);
+    setSockaddr(&state->nsaddr_list[0], nameserver, port);
+    return true;
+}
+#endif // !QT_CONFIG(res_setservers)
+
+static int
+prepareQueryBuffer(res_state state, QueryBuffer &buffer, const char *label, ns_rcode type)
+{
+    // Create header and our query
+    int queryLength = res_nmkquery(state, QUERY, label, C_IN, type, nullptr, 0, nullptr,
+                                   buffer.data(), buffer.size());
+    Q_ASSERT(queryLength < int(buffer.size()));
+    if (Q_UNLIKELY(queryLength < 0))
+        return queryLength;
+
+    // Append EDNS0 record and set the number of additional RRs to 1
+    Q_ASSERT(queryLength + sizeof(Edns0Record) < buffer.size());
+    std::copy_n(std::begin(Edns0Record), sizeof(Edns0Record), buffer.begin() + queryLength);
+    reinterpret_cast<HEADER *>(buffer.data())->arcount = qToBigEndian<quint16>(1);
+
+    return queryLength + sizeof(Edns0Record);
+}
+
+void QDnsLookupRunnable::query(QDnsLookupReply *reply)
+{
     // Initialize state.
-    struct __res_state state;
-    std::memset(&state, 0, sizeof(state));
-    if (local_res_ninit(&state) < 0) {
-        reply->error = QDnsLookup::ResolverError;
-        reply->errorString = tr("Resolver initialization failed");
-        return;
+    std::remove_pointer_t<res_state> state = {};
+    if (res_ninit(&state) < 0) {
+        int error = errno;
+        qErrnoWarning(error, "QDnsLookup: Resolver initialization failed");
+        return reply->makeResolverSystemError(error);
     }
+    auto guard = qScopeGuard([&] { res_nclose(&state); });
 
     //Check if a nameserver was set. If so, use it
-    if (!nameserver.isNull()) {
-        if (nameserver.protocol() == QAbstractSocket::IPv4Protocol) {
-            state.nsaddr_list[0].sin_addr.s_addr = htonl(nameserver.toIPv4Address());
-            state.nscount = 1;
-        } else if (nameserver.protocol() == QAbstractSocket::IPv6Protocol) {
-#if defined(Q_OS_LINUX)
-            struct sockaddr_in6 *ns;
-            ns = state._u._ext.nsaddrs[0];
-            // nsaddrs will be NULL if no nameserver is set in /etc/resolv.conf
-            if (!ns) {
-                // Memory allocated here will be free'd in res_close() as we
-                // have done res_init() above.
-                ns = (struct sockaddr_in6*) calloc(1, sizeof(struct sockaddr_in6));
-                Q_CHECK_PTR(ns);
-                state._u._ext.nsaddrs[0] = ns;
-            }
-#ifndef __UCLIBC__
-            // Set nsmap[] to indicate that nsaddrs[0] is an IPv6 address
-            // See: https://sourceware.org/ml/libc-hacker/2002-05/msg00035.html
-            state._u._ext.nsmap[0] = MAXNS + 1;
-#endif
-            state._u._ext.nscount6 = 1;
-            ns->sin6_family = AF_INET6;
-            ns->sin6_port = htons(53);
-            SetSALen::set(ns, sizeof(*ns));
-
-            Q_IPV6ADDR ipv6Address = nameserver.toIPv6Address();
-            for (int i=0; i<16; i++) {
-                ns->sin6_addr.s6_addr[i] = ipv6Address[i];
-            }
-#else
-            qWarning("%s", QDnsLookupPrivate::msgNoIpV6NameServerAdresses);
-            reply->error = QDnsLookup::ResolverError;
-            reply->errorString = tr(QDnsLookupPrivate::msgNoIpV6NameServerAdresses);
-            return;
-#endif
-        }
-    }
+    if (!applyNameServer(&state, nameserver, port))
+        return reply->setError(QDnsLookup::ResolverError,
+                               QDnsLookup::tr("IPv6 nameservers are currently not supported on this OS"));
 #ifdef QDNSLOOKUP_DEBUG
     state.options |= RES_DEBUG;
 #endif
-    QScopedPointer<struct __res_state, QDnsLookupStateDeleter> state_ptr(&state);
+
+    // Prepare the DNS query.
+    QueryBuffer qbuffer;
+    int queryLength = prepareQueryBuffer(&state, qbuffer, requestName, ns_rcode(requestType));
+    if (Q_UNLIKELY(queryLength < 0))
+        return reply->makeResolverSystemError();
 
     // Perform DNS query.
-    QVarLengthArray<unsigned char, PACKETSZ> buffer(PACKETSZ);
-    std::memset(buffer.data(), 0, buffer.size());
-    int responseLength = local_res_nquery(&state, requestName, C_IN, requestType, buffer.data(), buffer.size());
-    if (Q_UNLIKELY(responseLength > PACKETSZ)) {
-        buffer.resize(responseLength);
-        std::memset(buffer.data(), 0, buffer.size());
-        responseLength = local_res_nquery(&state, requestName, C_IN, requestType, buffer.data(), buffer.size());
+    QVarLengthArray<unsigned char, ReplyBufferSize> buffer(ReplyBufferSize);
+    auto attemptToSend = [&]() {
+        std::memset(buffer.data(), 0, HFIXEDSZ);        // the header is enough
+        int responseLength = res_nsend(&state, qbuffer.data(), queryLength, buffer.data(), buffer.size());
+        if (responseLength < 0) {
+            // network error of some sort
+            if (errno == ETIMEDOUT)
+                reply->makeTimeoutError();
+            else
+                reply->makeResolverSystemError();
+        }
+        return responseLength;
+    };
+
+    // strictly use UDP, we'll deal with truncated replies ourselves
+    state.options |= RES_IGNTC;
+    int responseLength = attemptToSend();
+    if (responseLength < 0)
+        return;
+
+    // check if we need to use the virtual circuit (TCP)
+    auto header = reinterpret_cast<HEADER *>(buffer.data());
+    if (header->rcode == NOERROR && header->tc) {
+        // yes, increase our buffer size
+        buffer.resize(std::numeric_limits<quint16>::max());
+        header = reinterpret_cast<HEADER *>(buffer.data());
+
+        // remove the EDNS record in the query
+        reinterpret_cast<HEADER *>(qbuffer.data())->arcount = 0;
+        queryLength -= sizeof(Edns0Record);
+
+        // send using the virtual circuit
+        state.options |= RES_USEVC;
+        responseLength = attemptToSend();
         if (Q_UNLIKELY(responseLength > buffer.size())) {
             // Ok, we give up.
-            reply->error = QDnsLookup::ResolverError;
-            reply->errorString.clear(); // We cannot be more specific, alas.
-            return;
+            return reply->setError(QDnsLookup::ResolverError,
+                                   QDnsLookup::tr("Reply was too large"));
         }
     }
-
-    unsigned char *response = buffer.data();
-    // Check the response header. Though res_nquery returns -1 as a
-    // responseLength in case of error, we still can extract the
-    // exact error code from the response.
-    HEADER *header = (HEADER*)response;
-    switch (header->rcode) {
-    case NOERROR:
-        break;
-    case FORMERR:
-        reply->error = QDnsLookup::InvalidRequestError;
-        reply->errorString = tr("Server could not process query");
+    if (responseLength < 0)
         return;
-    case SERVFAIL:
-    case NOTIMP:
-        reply->error = QDnsLookup::ServerFailureError;
-        reply->errorString = tr("Server failure");
-        return;
-    case NXDOMAIN:
-        reply->error = QDnsLookup::NotFoundError;
-        reply->errorString = tr("Non existent domain");
-        return;
-    case REFUSED:
-        reply->error = QDnsLookup::ServerRefusedError;
-        reply->errorString = tr("Server refused to answer");
-        return;
-    default:
-        reply->error = QDnsLookup::InvalidReplyError;
-        reply->errorString = tr("Invalid reply received");
-        return;
-    }
 
     // Check the reply is valid.
-    if (responseLength < int(sizeof(HEADER))) {
-        reply->error = QDnsLookup::InvalidReplyError;
-        reply->errorString = tr("Invalid reply received");
-        return;
-    }
+    if (responseLength < int(sizeof(HEADER)))
+        return reply->makeInvalidReplyError();
 
-    char host[PACKETSZ], answer[PACKETSZ];
-    unsigned char *p = response + sizeof(HEADER);
+    // Parse the reply.
+    if (header->rcode)
+        return reply->makeDnsRcodeError(header->rcode);
+
+    qptrdiff offset = sizeof(HEADER);
+    unsigned char *response = buffer.data();
     int status;
+
+    auto expandHost = [&, cache = Cache{}](qptrdiff offset) mutable {
+        if (uchar n = response[offset]; n & NS_CMPRSFLGS) {
+            // compressed name, see if we already have it cached
+            if (offset + 1 < responseLength) {
+                int id = ((n & ~NS_CMPRSFLGS) << 8) | response[offset + 1];
+                auto it = std::find_if(cache.constBegin(), cache.constEnd(),
+                                  [id](const QDnsCachedName &n) { return n.code == id; });
+                if (it != cache.constEnd()) {
+                    status = 2;
+                    return it->name;
+                }
+            }
+        }
+
+        // uncached, expand it
+        char host[MAXCDNAME + 1];
+        status = dn_expand(response, response + responseLength, response + offset,
+                           host, sizeof(host));
+        if (status >= 0)
+            return cache.emplaceBack(decodeLabel(QLatin1StringView(host)), offset).name;
+
+        // failed
+        reply->makeInvalidReplyError(QDnsLookup::tr("Could not expand domain name"));
+        return QString();
+    };
 
     if (ntohs(header->qdcount) == 1) {
         // Skip the query host, type (2 bytes) and class (2 bytes).
-        status = local_dn_expand(response, response + responseLength, p, host, sizeof(host));
-        if (status < 0) {
-            reply->error = QDnsLookup::InvalidReplyError;
-            reply->errorString = tr("Could not expand domain name");
+        expandHost(offset);
+        if (status < 0)
             return;
-        }
-        if ((p - response) + status + 4 >= responseLength)
+        if (offset + status + 4 >= responseLength)
             header->qdcount = 0xffff;   // invalid reply below
         else
-            p += status + 4;
+            offset += status + 4;
     }
-    if (ntohs(header->qdcount) > 1) {
-        reply->error = QDnsLookup::InvalidReplyError;
-        reply->errorString = tr("Invalid reply received");
-        return;
-    }
+    if (ntohs(header->qdcount) > 1)
+        return reply->makeInvalidReplyError();
 
     // Extract results.
     const int answerCount = ntohs(header->ancount);
     int answerIndex = 0;
-    while ((p < response + responseLength) && (answerIndex < answerCount)) {
-        status = local_dn_expand(response, response + responseLength, p, host, sizeof(host));
-        if (status < 0) {
-            reply->error = QDnsLookup::InvalidReplyError;
-            reply->errorString = tr("Could not expand domain name");
+    while ((offset < responseLength) && (answerIndex < answerCount)) {
+        const QString name = expandHost(offset);
+        if (status < 0)
             return;
-        }
-        const QString name = QUrl::fromAce(host);
 
-        p += status;
-
-        if ((p - response) + 10 > responseLength) {
+        offset += status;
+        if (offset + RRFIXEDSZ > responseLength) {
             // probably just a truncated reply, return what we have
             return;
         }
-        const quint16 type = (p[0] << 8) | p[1];
-        p += 2; // RR type
-        const qint16 rrclass = (p[0] << 8) | p[1];
-        p += 2; // RR class
-        const quint32 ttl = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
-        p += 4;
-        const quint16 size = (p[0] << 8) | p[1];
-        p += 2;
-        if ((p - response) + size > responseLength)
+        const quint16 type = qFromBigEndian<quint16>(response + offset);
+        const qint16 rrclass = qFromBigEndian<quint16>(response + offset + 2);
+        const quint32 ttl = qFromBigEndian<quint32>(response + offset + 4);
+        const quint16 size = qFromBigEndian<quint16>(response + offset + 8);
+        offset += RRFIXEDSZ;
+        if (offset + size > responseLength)
             return;             // truncated
         if (rrclass != C_IN)
             continue;
 
         if (type == QDnsLookup::A) {
-            if (size != 4) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid IPv4 address record");
-                return;
-            }
-            const quint32 addr = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+            if (size != 4)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid IPv4 address record"));
+            const quint32 addr = qFromBigEndian<quint32>(response + offset);
             QDnsHostAddressRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
             record.d->value = QHostAddress(addr);
             reply->hostAddressRecords.append(record);
         } else if (type == QDnsLookup::AAAA) {
-            if (size != 16) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid IPv6 address record");
-                return;
-            }
+            if (size != 16)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid IPv6 address record"));
             QDnsHostAddressRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
-            record.d->value = QHostAddress(p);
+            record.d->value = QHostAddress(response + offset);
             reply->hostAddressRecords.append(record);
         } else if (type == QDnsLookup::CNAME) {
-            status = local_dn_expand(response, response + responseLength, p, answer, sizeof(answer));
-            if (status < 0) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid canonical name record");
-                return;
-            }
             QDnsDomainNameRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
-            record.d->value = QUrl::fromAce(answer);
+            record.d->value = expandHost(offset);
+            if (status < 0)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid canonical name record"));
             reply->canonicalNameRecords.append(record);
         } else if (type == QDnsLookup::NS) {
-            status = local_dn_expand(response, response + responseLength, p, answer, sizeof(answer));
-            if (status < 0) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid name server record");
-                return;
-            }
             QDnsDomainNameRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
-            record.d->value = QUrl::fromAce(answer);
+            record.d->value = expandHost(offset);
+            if (status < 0)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid name server record"));
             reply->nameServerRecords.append(record);
         } else if (type == QDnsLookup::PTR) {
-            status = local_dn_expand(response, response + responseLength, p, answer, sizeof(answer));
-            if (status < 0) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid pointer record");
-                return;
-            }
             QDnsDomainNameRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
-            record.d->value = QUrl::fromAce(answer);
+            record.d->value = expandHost(offset);
+            if (status < 0)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid pointer record"));
             reply->pointerRecords.append(record);
         } else if (type == QDnsLookup::MX) {
-            const quint16 preference = (p[0] << 8) | p[1];
-            status = local_dn_expand(response, response + responseLength, p + 2, answer, sizeof(answer));
-            if (status < 0) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid mail exchange record");
-                return;
-            }
+            const quint16 preference = qFromBigEndian<quint16>(response + offset);
             QDnsMailExchangeRecord record;
-            record.d->exchange = QUrl::fromAce(answer);
+            record.d->exchange = expandHost(offset + 2);
             record.d->name = name;
             record.d->preference = preference;
             record.d->timeToLive = ttl;
+            if (status < 0)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid mail exchange record"));
             reply->mailExchangeRecords.append(record);
         } else if (type == QDnsLookup::SRV) {
-            const quint16 priority = (p[0] << 8) | p[1];
-            const quint16 weight = (p[2] << 8) | p[3];
-            const quint16 port = (p[4] << 8) | p[5];
-            status = local_dn_expand(response, response + responseLength, p + 6, answer, sizeof(answer));
-            if (status < 0) {
-                reply->error = QDnsLookup::InvalidReplyError;
-                reply->errorString = tr("Invalid service record");
-                return;
-            }
+            const quint16 priority = qFromBigEndian<quint16>(response + offset);
+            const quint16 weight = qFromBigEndian<quint16>(response + offset + 2);
+            const quint16 port = qFromBigEndian<quint16>(response + offset + 4);
             QDnsServiceRecord record;
             record.d->name = name;
-            record.d->target = QUrl::fromAce(answer);
+            record.d->target = expandHost(offset + 6);
             record.d->port = port;
             record.d->priority = priority;
             record.d->timeToLive = ttl;
             record.d->weight = weight;
+            if (status < 0)
+                return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid service record"));
             reply->serviceRecords.append(record);
         } else if (type == QDnsLookup::TXT) {
-            unsigned char *txt = p;
             QDnsTextRecord record;
             record.d->name = name;
             record.d->timeToLive = ttl;
-            while (txt < p + size) {
-                const unsigned char length = *txt;
+            qptrdiff txt = offset;
+            while (txt < offset + size) {
+                const unsigned char length = response[txt];
                 txt++;
-                if (txt + length > p + size) {
-                    reply->error = QDnsLookup::InvalidReplyError;
-                    reply->errorString = tr("Invalid text record");
-                    return;
-                }
-                record.d->values << QByteArray((char*)txt, length);
+                if (txt + length > offset + size)
+                    return reply->makeInvalidReplyError(QDnsLookup::tr("Invalid text record"));
+                record.d->values << QByteArrayView(response + txt, length).toByteArray();
                 txt += length;
             }
             reply->textRecords.append(record);
         }
-        p += size;
+        offset += size;
         answerIndex++;
     }
 }
-
-#else
-void QDnsLookupRunnable::query(const int requestType, const QByteArray &requestName, const QHostAddress &nameserver, QDnsLookupReply *reply)
-{
-    Q_UNUSED(requestType);
-    Q_UNUSED(requestName);
-    Q_UNUSED(nameserver);
-    reply->error = QDnsLookup::ResolverError;
-    reply->errorString = tr("Resolver library can't be loaded: No runtime library loading support");
-    return;
-}
-
-#endif /* QT_CONFIG(library) */
 
 QT_END_NAMESPACE

@@ -280,9 +280,9 @@ public:
     QWinEventNotifier *processFinishedNotifier = nullptr;
     Q_PROCESS_INFORMATION *pid = nullptr;
 #else
-
     struct UnixExtras {
         std::function<void(void)> childProcessModifier;
+        QProcess::UnixProcessParameters processParameters;
     };
     std::unique_ptr<UnixExtras> unixExtras;
     QSocketNotifier *stateNotifier = nullptr;
@@ -304,7 +304,7 @@ public:
     void startProcess();
 #if defined(Q_OS_UNIX)
     void commitChannels() const;
-    void execChild(int workingDirectory, char **argv, char **envp) const;
+    void execChild(int workingDirectory, char **argv, char **envp) const noexcept;
 #endif
     bool processStarted(QString *errorMessage = nullptr);
     void processFinished();
