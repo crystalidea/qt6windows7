@@ -10,6 +10,8 @@
 #include <QtCore/private/qsystemerror_p.h>
 #include "qrhid3dhelpers_p.h"
 
+#include <VersionHelpers.h>
+
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
@@ -155,13 +157,22 @@ inline Int aligned(Int v, Int byteAlign)
 
 static IDXGIFactory1 *createDXGIFactory2()
 {
+    typedef HRESULT(WINAPI* CreateDXGIFactory2Func) (UINT flags, REFIID riid, void** factory);
+    static CreateDXGIFactory2Func myCreateDXGIFactory2 =
+        (CreateDXGIFactory2Func)::GetProcAddress(::GetModuleHandle(L"dxgi"), "CreateDXGIFactory2");
+
     IDXGIFactory1 *result = nullptr;
-    const HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&result));
-    if (FAILED(hr)) {
-        qWarning("CreateDXGIFactory2() failed to create DXGI factory: %s",
-            qPrintable(QSystemError::windowsComString(hr)));
-        result = nullptr;
+
+    if (myCreateDXGIFactory2)
+    {
+        const HRESULT hr = myCreateDXGIFactory2(0, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&result));
+        if (FAILED(hr)) {
+            qWarning("CreateDXGIFactory2() failed to create DXGI factory: %s",
+                qPrintable(QSystemError::windowsComString(hr)));
+            result = nullptr;
+        }
     }
+    
     return result;
 }
 
@@ -4994,6 +5005,15 @@ static const DXGI_FORMAT DEFAULT_SRGB_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 bool QD3D11SwapChain::createOrResize()
 {
+    if (IsWindows10OrGreater())
+    {
+        // continue
+    }
+    else
+    {
+        return createOrResizeWin7();
+    }
+
     // Can be called multiple times due to window resizes - that is not the
     // same as a simple destroy+create (as with other resources). Just need to
     // resize the buffers then.
@@ -5260,6 +5280,11 @@ bool QD3D11SwapChain::createOrResize()
         rhiD->registerResource(this);
 
     return true;
+}
+
+bool QD3D11SwapChain::createOrResizeWin7()
+{
+    return false; // not implemented yet ;(
 }
 
 QT_END_NAMESPACE
