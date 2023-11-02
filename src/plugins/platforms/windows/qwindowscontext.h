@@ -68,13 +68,13 @@ struct QWindowsUser32DLL
     typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
     typedef BOOL (WINAPI *AdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
     typedef BOOL (WINAPI *EnableNonClientDpiScaling)(HWND);
-    typedef int  (WINAPI *GetWindowDpiAwarenessContext)(HWND);
-    typedef int  (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *GetWindowDpiAwarenessContext)(HWND);
+    typedef DPI_AWARENESS (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
     typedef BOOL (WINAPI *SystemParametersInfoForDpi)(UINT, UINT, PVOID, UINT, UINT);
     typedef int  (WINAPI *GetDpiForWindow)(HWND);
     typedef BOOL (WINAPI *GetSystemMetricsForDpi)(INT, UINT);
     typedef BOOL (WINAPI *AreDpiAwarenessContextsEqual)(DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT);
-    typedef int (WINAPI *GetThreadDpiAwarenessContext)();
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *GetThreadDpiAwarenessContext)();
     typedef BOOL (WINAPI *IsValidDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
     
     // Windows pointer functions (Windows 8 or later).

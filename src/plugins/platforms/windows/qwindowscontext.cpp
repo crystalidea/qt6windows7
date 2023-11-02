@@ -459,7 +459,7 @@ QtWindows::DpiAwareness QWindowsContext::windowDpiAwareness(HWND hwnd)
 
     if (QWindowsContext::user32dll.getWindowDpiAwarenessContext)
     {
-        const auto context = GetWindowDpiAwarenessContext(hwnd);
+        const auto context = QWindowsContext::user32dll.getWindowDpiAwarenessContext(hwnd);
         return dpiAwarenessContextToQtDpiAwareness(context);
     }
 
@@ -477,7 +477,7 @@ QtWindows::DpiAwareness QWindowsContext::processDpiAwareness()
         // return the default DPI_AWARENESS_CONTEXT for the process if
         // SetThreadDpiAwarenessContext() was never called. So we can use
         // it as an equivalent.
-        const auto context = GetThreadDpiAwarenessContext();
+        const auto context = QWindowsContext::user32dll.getThreadDpiAwarenessContext();
         return dpiAwarenessContextToQtDpiAwareness(context);
     }
 
@@ -990,8 +990,8 @@ void QWindowsContext::forceNcCalcSize(HWND hwnd)
 bool QWindowsContext::systemParametersInfo(unsigned action, unsigned param, void *out,
                                            unsigned dpi)
 {
-    const BOOL result = dpi != 0
-        ? SystemParametersInfoForDpi(action, param, out, 0, dpi)
+    const BOOL result = (QWindowsContext::user32dll.systemParametersInfoForDpi != nullptr && dpi != 0)
+        ? QWindowsContext::user32dll.systemParametersInfoForDpi(action, param, out, 0, dpi)
         : SystemParametersInfo(action, param, out, 0);
     return result == TRUE;
 }
