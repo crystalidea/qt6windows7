@@ -1,7 +1,0 @@
-QAbstractItemView::item
-{
-    background: grey;
-}
-QTreeWidget::indicator:checked {
-    background: green
-}
