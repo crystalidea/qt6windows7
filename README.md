@@ -4,3 +4,5 @@ Approach is based on this [forum thread](https://forum.qt.io/topic/133002/qt-cre
 You basically need to compile Qt yourself (we use the [compile_win](https://github.com/crystalidea/qt-build-tools/tree/master/6.6.0) script).
 
 The only issue noticed is that scalled UI is somewhat too big for 125% scalling option set in Windows 7. Something should be tweaked with dpi settings probably.
+
+![image](https://github.com/crystalidea/qt6windows7/assets/2600624/1183f462-a661-4170-b777-d9d2a96c3a59)
