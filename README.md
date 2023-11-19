@@ -5,5 +5,7 @@ You basically need to compile Qt yourself (we use the [compile_win](https://gith
 
 The only issue noticed is that scalled UI is somewhat too big for 125% scalling option set in Windows 7. Something should be tweaked with dpi settings probably.
 
+Qt 6.6 designer running on Windows 7:
+
 ![image](https://github.com/crystalidea/qt6windows7/assets/2600624/4c5ad13f-db6e-4684-8184-9615e4e55461)
 
