@@ -44,6 +44,7 @@
 #include <QtCore/qsysinfo.h>
 #include <QtCore/qscopedpointer.h>
 #include <QtCore/quuid.h>
+#include <QtCore/private/qsystemlibrary_p.h>
 #include <QtCore/private/qwinregistry_p.h>
 #include <QtCore/private/qfactorycacheregistration_p.h>
 #include <QtCore/private/qsystemerror_p.h>
@@ -118,6 +119,77 @@ static inline bool sessionManagerInteractionBlocked()
 static inline bool sessionManagerInteractionBlocked() { return false; }
 #endif
 
+/*!
+    \class QWindowsUser32DLL
+    \brief Struct that contains dynamically resolved symbols of User32.dll.
+    The stub libraries shipped with the MinGW compiler miss some of the
+    functions. They need to be retrieved dynamically.
+    In addition, touch-related functions are available only from Windows onwards.
+    These need to resolved dynamically for Q_CC_MSVC as well.
+    \sa QWindowsShell32DLL
+    \internal
+*/
+
+void QWindowsUser32DLL::init()
+{
+    QSystemLibrary library(QStringLiteral("user32"));
+    setProcessDPIAware = (SetProcessDPIAware)library.resolve("SetProcessDPIAware");
+    setProcessDpiAwarenessContext = (SetProcessDpiAwarenessContext)library.resolve("SetProcessDpiAwarenessContext");
+    getThreadDpiAwarenessContext = (GetThreadDpiAwarenessContext)library.resolve("GetThreadDpiAwarenessContext");
+    isValidDpiAwarenessContext = (IsValidDpiAwarenessContext)library.resolve("IsValidDpiAwarenessContext");
+    areDpiAwarenessContextsEqual = (AreDpiAwarenessContextsEqual)library.resolve("AreDpiAwarenessContextsEqual");
+
+    addClipboardFormatListener = (AddClipboardFormatListener)library.resolve("AddClipboardFormatListener");
+    removeClipboardFormatListener = (RemoveClipboardFormatListener)library.resolve("RemoveClipboardFormatListener");
+
+    getDisplayAutoRotationPreferences = (GetDisplayAutoRotationPreferences)library.resolve("GetDisplayAutoRotationPreferences");
+    setDisplayAutoRotationPreferences = (SetDisplayAutoRotationPreferences)library.resolve("SetDisplayAutoRotationPreferences");
+
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows8) {
+        enableMouseInPointer = (EnableMouseInPointer)library.resolve("EnableMouseInPointer");
+        getPointerType = (GetPointerType)library.resolve("GetPointerType");
+        getPointerInfo = (GetPointerInfo)library.resolve("GetPointerInfo");
+        getPointerDeviceRects = (GetPointerDeviceRects)library.resolve("GetPointerDeviceRects");
+        getPointerTouchInfo = (GetPointerTouchInfo)library.resolve("GetPointerTouchInfo");
+        getPointerFrameTouchInfo = (GetPointerFrameTouchInfo)library.resolve("GetPointerFrameTouchInfo");
+        getPointerFrameTouchInfoHistory = (GetPointerFrameTouchInfoHistory)library.resolve("GetPointerFrameTouchInfoHistory");
+        getPointerPenInfo = (GetPointerPenInfo)library.resolve("GetPointerPenInfo");
+        getPointerPenInfoHistory = (GetPointerPenInfoHistory)library.resolve("GetPointerPenInfoHistory");
+        skipPointerFrameMessages = (SkipPointerFrameMessages)library.resolve("SkipPointerFrameMessages");
+    }
+    
+    if (QOperatingSystemVersion::current()
+        >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 14393)) {
+        adjustWindowRectExForDpi = (AdjustWindowRectExForDpi)library.resolve("AdjustWindowRectExForDpi");
+        enableNonClientDpiScaling = (EnableNonClientDpiScaling)library.resolve("EnableNonClientDpiScaling");
+        getWindowDpiAwarenessContext = (GetWindowDpiAwarenessContext)library.resolve("GetWindowDpiAwarenessContext");
+        getAwarenessFromDpiAwarenessContext = (GetAwarenessFromDpiAwarenessContext)library.resolve("GetAwarenessFromDpiAwarenessContext");
+        systemParametersInfoForDpi = (SystemParametersInfoForDpi)library.resolve("SystemParametersInfoForDpi");
+        getDpiForWindow = (GetDpiForWindow)library.resolve("GetDpiForWindow");
+        getSystemMetricsForDpi = (GetSystemMetricsForDpi)library.resolve("GetSystemMetricsForDpi");
+    }
+}
+
+bool QWindowsUser32DLL::supportsPointerApi()
+{
+    return enableMouseInPointer && getPointerType && getPointerInfo && getPointerDeviceRects
+            && getPointerTouchInfo && getPointerFrameTouchInfo && getPointerFrameTouchInfoHistory
+            && getPointerPenInfo && getPointerPenInfoHistory && skipPointerFrameMessages;
+}
+
+void QWindowsShcoreDLL::init()
+{
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8_1)
+        return;
+    QSystemLibrary library(QStringLiteral("SHCore"));
+    getProcessDpiAwareness = (GetProcessDpiAwareness)library.resolve("GetProcessDpiAwareness");
+    setProcessDpiAwareness = (SetProcessDpiAwareness)library.resolve("SetProcessDpiAwareness");
+    getDpiForMonitor = (GetDpiForMonitor)library.resolve("GetDpiForMonitor");
+}
+
+QWindowsUser32DLL QWindowsContext::user32dll;
+QWindowsShcoreDLL QWindowsContext::shcoredll;
+
 QWindowsContext *QWindowsContext::m_instance = nullptr;
 
 /*!
@@ -161,6 +233,9 @@ bool QWindowsContextPrivate::m_v2DpiAware = false;
 QWindowsContextPrivate::QWindowsContextPrivate()
     : m_oleInitializeResult(OleInitialize(nullptr))
 {
+    QWindowsContext::user32dll.init();
+    QWindowsContext::shcoredll.init();
+    
     if (m_pointerHandler.touchDevice() || m_mouseHandler.touchDevice())
         m_systemInfo |= QWindowsContext::SI_SupportsTouch;
     m_displayContext = GetDC(nullptr);
@@ -279,6 +354,12 @@ bool QWindowsContext::initPointer(unsigned integrationOptions)
     if (integrationOptions & QWindowsIntegration::DontUseWMPointer)
         return false;
 
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8)
+        return false;
+
+    if (!QWindowsContext::user32dll.supportsPointerApi())
+        return false;
+
     d->m_systemInfo |= QWindowsContext::SI_SupportsPointer;
     return true;
 }
@@ -349,41 +430,58 @@ void QWindowsContext::setDetectAltGrModifier(bool a)
 [[nodiscard]] static inline QtWindows::DpiAwareness
     dpiAwarenessContextToQtDpiAwareness(DPI_AWARENESS_CONTEXT context)
 {
-    // IsValidDpiAwarenessContext() will handle the NULL pointer case.
-    if (!IsValidDpiAwarenessContext(context))
+    if (QWindowsContext::user32dll.isValidDpiAwarenessContext && QWindowsContext::user32dll.areDpiAwarenessContextsEqual)
+    {
+        // IsValidDpiAwarenessContext() will handle the NULL pointer case.
+        if (!QWindowsContext::user32dll.isValidDpiAwarenessContext(context))
+            return QtWindows::DpiAwareness::Invalid;
+        if (QWindowsContext::user32dll.areDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED))
+            return QtWindows::DpiAwareness::Unaware_GdiScaled;
+        if (QWindowsContext::user32dll.areDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+            return QtWindows::DpiAwareness::PerMonitorVersion2;
+        if (QWindowsContext::user32dll.areDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE))
+            return QtWindows::DpiAwareness::PerMonitor;
+        if (QWindowsContext::user32dll.areDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE))
+            return QtWindows::DpiAwareness::System;
+        if (QWindowsContext::user32dll.areDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_UNAWARE))
+            return QtWindows::DpiAwareness::Unaware;
+
         return QtWindows::DpiAwareness::Invalid;
-    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED))
-        return QtWindows::DpiAwareness::Unaware_GdiScaled;
-    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
-        return QtWindows::DpiAwareness::PerMonitorVersion2;
-    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE))
-        return QtWindows::DpiAwareness::PerMonitor;
-    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE))
-        return QtWindows::DpiAwareness::System;
-    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_UNAWARE))
-        return QtWindows::DpiAwareness::Unaware;
-    return QtWindows::DpiAwareness::Invalid;
+    }
+    
+    return QtWindows::DpiAwareness::Unaware; // Windows 7
 }
 
 QtWindows::DpiAwareness QWindowsContext::windowDpiAwareness(HWND hwnd)
 {
     if (!hwnd)
         return QtWindows::DpiAwareness::Invalid;
-    const auto context = GetWindowDpiAwarenessContext(hwnd);
-    return dpiAwarenessContextToQtDpiAwareness(context);
+
+    if (QWindowsContext::user32dll.getWindowDpiAwarenessContext)
+    {
+        const auto context = QWindowsContext::user32dll.getWindowDpiAwarenessContext(hwnd);
+        return dpiAwarenessContextToQtDpiAwareness(context);
+    }
+
+    return dpiAwarenessContextToQtDpiAwareness(DPI_AWARENESS_CONTEXT_UNAWARE);
 }
 
 QtWindows::DpiAwareness QWindowsContext::processDpiAwareness()
 {
-    // Although we have GetDpiAwarenessContextForProcess(), however,
-    // it's only available on Win10 1903+, which is a little higher
-    // than Qt's minimum supported version (1809), so we can't use it.
-    // Luckily, MS docs said GetThreadDpiAwarenessContext() will also
-    // return the default DPI_AWARENESS_CONTEXT for the process if
-    // SetThreadDpiAwarenessContext() was never called. So we can use
-    // it as an equivalent.
-    const auto context = GetThreadDpiAwarenessContext();
-    return dpiAwarenessContextToQtDpiAwareness(context);
+    if (QWindowsContext::user32dll.getThreadDpiAwarenessContext)
+    {
+        // Although we have GetDpiAwarenessContextForProcess(), however,
+        // it's only available on Win10 1903+, which is a little higher
+        // than Qt's minimum supported version (1809), so we can't use it.
+        // Luckily, MS docs said GetThreadDpiAwarenessContext() will also
+        // return the default DPI_AWARENESS_CONTEXT for the process if
+        // SetThreadDpiAwarenessContext() was never called. So we can use
+        // it as an equivalent.
+        const auto context = QWindowsContext::user32dll.getThreadDpiAwarenessContext();
+        return dpiAwarenessContextToQtDpiAwareness(context);
+    }
+
+    return dpiAwarenessContextToQtDpiAwareness(DPI_AWARENESS_CONTEXT_UNAWARE);
 }
 
 [[nodiscard]] static inline DPI_AWARENESS_CONTEXT
@@ -442,23 +540,29 @@ bool QWindowsContext::setProcessDpiAwareness(QtWindows::DpiAwareness dpiAwarenes
     if (processDpiAwareness() == dpiAwareness)
         return true;
     const auto context = qtDpiAwarenessToDpiAwarenessContext(dpiAwareness);
-    if (!IsValidDpiAwarenessContext(context)) {
-        qCWarning(lcQpaWindow) << dpiAwareness << "is not supported by current system.";
-        return false;
+
+    if (QWindowsContext::user32dll.isValidDpiAwarenessContext && QWindowsContext::user32dll.setProcessDpiAwarenessContext)
+    {
+        if (!QWindowsContext::user32dll.isValidDpiAwarenessContext(context)) {
+            qCWarning(lcQpaWindow) << dpiAwareness << "is not supported by current system.";
+            return false;
+        }
+        if (!QWindowsContext::user32dll.setProcessDpiAwarenessContext(context)) {
+            qCWarning(lcQpaWindow).noquote().nospace()
+                << "SetProcessDpiAwarenessContext() failed: "
+                << QSystemError::windowsString()
+                << "\nQt's default DPI awareness context is "
+                << "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2. If you know what you "
+                << "are doing, you can overwrite this default using qt.conf "
+                << "(https://doc.qt.io/qt-6/highdpi.html#configuring-windows).";
+            return false;
+        }
+        QWindowsContextPrivate::m_v2DpiAware
+            = processDpiAwareness() == QtWindows::DpiAwareness::PerMonitorVersion2;
+        return true;
     }
-    if (!SetProcessDpiAwarenessContext(context)) {
-        qCWarning(lcQpaWindow).noquote().nospace()
-            << "SetProcessDpiAwarenessContext() failed: "
-            << QSystemError::windowsString()
-            << "\nQt's default DPI awareness context is "
-            << "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2. If you know what you "
-            << "are doing, you can overwrite this default using qt.conf "
-            << "(https://doc.qt.io/qt-6/highdpi.html#configuring-windows).";
-        return false;
-    }
-    QWindowsContextPrivate::m_v2DpiAware
-        = processDpiAwareness() == QtWindows::DpiAwareness::PerMonitorVersion2;
-    return true;
+
+    return false; // Windows 7
 }
 
 bool QWindowsContext::isDarkMode()
@@ -886,8 +990,8 @@ void QWindowsContext::forceNcCalcSize(HWND hwnd)
 bool QWindowsContext::systemParametersInfo(unsigned action, unsigned param, void *out,
                                            unsigned dpi)
 {
-    const BOOL result = dpi != 0
-        ? SystemParametersInfoForDpi(action, param, out, 0, dpi)
+    const BOOL result = (QWindowsContext::user32dll.systemParametersInfoForDpi != nullptr && dpi != 0)
+        ? QWindowsContext::user32dll.systemParametersInfoForDpi(action, param, out, 0, dpi)
         : SystemParametersInfo(action, param, out, 0);
     return result == TRUE;
 }
@@ -974,8 +1078,8 @@ static inline bool isInputMessage(UINT m)
 static bool enableNonClientDpiScaling(HWND hwnd)
 {
     bool result = false;
-    if (QWindowsContext::windowDpiAwareness(hwnd) == QtWindows::DpiAwareness::PerMonitor) {
-        result = EnableNonClientDpiScaling(hwnd) != FALSE;
+    if (QWindowsContext::user32dll.enableNonClientDpiScaling && QWindowsContext::windowDpiAwareness(hwnd) == QtWindows::DpiAwareness::PerMonitor) {
+        result = QWindowsContext::user32dll.enableNonClientDpiScaling(hwnd) != FALSE;
         if (!result) {
             const DWORD errorCode = GetLastError();
             qErrnoWarning(int(errorCode), "EnableNonClientDpiScaling() failed for HWND %p (%lu)",

@@ -43,23 +43,33 @@ QComHelper::~QComHelper()
 */
 bool qt_win_hasPackageIdentity()
 {
+    typedef BOOL (WINAPI *GetCurrentPackageFullNameFunc) (UINT32 *, PWSTR);
+    static GetCurrentPackageFullNameFunc myGetCurrentPackageFullName = 
+        (GetCurrentPackageFullNameFunc)::GetProcAddress(::GetModuleHandle(L"kernel32"), "GetCurrentPackageFullName");
+
+    if (myGetCurrentPackageFullName)
+    {
 #if defined(HAS_APPMODEL)
-    static const bool hasPackageIdentity = []() {
-        UINT32 length = 0;
-        switch (const auto result = GetCurrentPackageFullName(&length, nullptr)) {
-        case ERROR_INSUFFICIENT_BUFFER:
-            return true;
-        case APPMODEL_ERROR_NO_PACKAGE:
-            return false;
-        default:
-            qWarning("Failed to resolve package identity (error code %ld)", result);
-            return false;
-        }
-    }();
-    return hasPackageIdentity;
+
+        static const bool hasPackageIdentity = []() {
+            UINT32 length = 0;
+            switch (const auto result = myGetCurrentPackageFullName(&length, nullptr)) {
+            case ERROR_INSUFFICIENT_BUFFER:
+                return true;
+            case APPMODEL_ERROR_NO_PACKAGE:
+                return false;
+            default:
+                qWarning("Failed to resolve package identity (error code %ld)", result);
+                return false;
+            }
+        }();
+        return hasPackageIdentity;
 #else
-    return false;
+        return false;
 #endif
+    }
+
+    return false;
 }
 
 QT_END_NAMESPACE
