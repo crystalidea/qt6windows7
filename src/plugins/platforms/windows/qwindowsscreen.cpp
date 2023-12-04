@@ -42,12 +42,10 @@ static inline QDpi deviceDPI(HDC hdc)
 
 static inline QDpi monitorDPI(HMONITOR hMonitor)
 {
-    if (QWindowsContext::shcoredll.isValid()) {
-        UINT dpiX;
-        UINT dpiY;
-        if (SUCCEEDED(QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
-            return QDpi(dpiX, dpiY);
-    }
+    UINT dpiX;
+    UINT dpiY;
+    if (SUCCEEDED(GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
+        return QDpi(dpiX, dpiY);
     return {0, 0};
 }
 
@@ -531,10 +529,14 @@ void QWindowsScreen::handleChanges(const QWindowsScreenData &newData)
     const bool dpiChanged = !qFuzzyCompare(m_data.dpi.first, newData.dpi.first)
         || !qFuzzyCompare(m_data.dpi.second, newData.dpi.second);
     const bool orientationChanged = m_data.orientation != newData.orientation;
+    const bool primaryChanged = (newData.flags & QWindowsScreenData::PrimaryScreen)
+            && !(m_data.flags & QWindowsScreenData::PrimaryScreen);
     m_data.dpi = newData.dpi;
     m_data.orientation = newData.orientation;
     m_data.geometry = newData.geometry;
     m_data.availableGeometry = newData.availableGeometry;
+    m_data.flags = (m_data.flags & ~QWindowsScreenData::PrimaryScreen)
+            | (newData.flags & QWindowsScreenData::PrimaryScreen);
 
     if (dpiChanged) {
         QWindowSystemInterface::handleScreenLogicalDotsPerInchChange(screen(),
@@ -547,6 +549,8 @@ void QWindowsScreen::handleChanges(const QWindowsScreenData &newData)
         QWindowSystemInterface::handleScreenGeometryChange(screen(),
                                                            newData.geometry, newData.availableGeometry);
     }
+    if (primaryChanged)
+        QWindowSystemInterface::handlePrimaryScreenChanged(this);
 }
 
 HMONITOR QWindowsScreen::handle() const
@@ -566,51 +570,47 @@ QRect QWindowsScreen::virtualGeometry(const QPlatformScreen *screen) // cf QScre
 bool QWindowsScreen::setOrientationPreference(Qt::ScreenOrientation o)
 {
     bool result = false;
-    if (QWindowsContext::user32dll.setDisplayAutoRotationPreferences) {
-        ORIENTATION_PREFERENCE orientationPreference = ORIENTATION_PREFERENCE_NONE;
-        switch (o) {
-        case Qt::PrimaryOrientation:
-            break;
-        case Qt::PortraitOrientation:
-            orientationPreference = ORIENTATION_PREFERENCE_PORTRAIT;
-            break;
-        case Qt::LandscapeOrientation:
-            orientationPreference = ORIENTATION_PREFERENCE_LANDSCAPE;
-            break;
-        case Qt::InvertedPortraitOrientation:
-            orientationPreference = ORIENTATION_PREFERENCE_PORTRAIT_FLIPPED;
-            break;
-        case Qt::InvertedLandscapeOrientation:
-            orientationPreference = ORIENTATION_PREFERENCE_LANDSCAPE_FLIPPED;
-            break;
-        }
-        result = QWindowsContext::user32dll.setDisplayAutoRotationPreferences(orientationPreference);
+    ORIENTATION_PREFERENCE orientationPreference = ORIENTATION_PREFERENCE_NONE;
+    switch (o) {
+    case Qt::PrimaryOrientation:
+        break;
+    case Qt::PortraitOrientation:
+        orientationPreference = ORIENTATION_PREFERENCE_PORTRAIT;
+        break;
+    case Qt::LandscapeOrientation:
+        orientationPreference = ORIENTATION_PREFERENCE_LANDSCAPE;
+        break;
+    case Qt::InvertedPortraitOrientation:
+        orientationPreference = ORIENTATION_PREFERENCE_PORTRAIT_FLIPPED;
+        break;
+    case Qt::InvertedLandscapeOrientation:
+        orientationPreference = ORIENTATION_PREFERENCE_LANDSCAPE_FLIPPED;
+        break;
     }
+    result = SetDisplayAutoRotationPreferences(orientationPreference);
     return result;
 }
 
 Qt::ScreenOrientation QWindowsScreen::orientationPreference()
 {
     Qt::ScreenOrientation result = Qt::PrimaryOrientation;
-    if (QWindowsContext::user32dll.getDisplayAutoRotationPreferences) {
-        DWORD orientationPreference = ORIENTATION_PREFERENCE_NONE;
-        if (QWindowsContext::user32dll.getDisplayAutoRotationPreferences(&orientationPreference)) {
-            switch (orientationPreference) {
-            case ORIENTATION_PREFERENCE_NONE:
-                break;
-            case ORIENTATION_PREFERENCE_LANDSCAPE:
-                result = Qt::LandscapeOrientation;
-                break;
-            case ORIENTATION_PREFERENCE_PORTRAIT:
-                result = Qt::PortraitOrientation;
-                break;
-            case ORIENTATION_PREFERENCE_LANDSCAPE_FLIPPED:
-                result = Qt::InvertedLandscapeOrientation;
-                break;
-            case ORIENTATION_PREFERENCE_PORTRAIT_FLIPPED:
-                result = Qt::InvertedPortraitOrientation;
-                break;
-            }
+    ORIENTATION_PREFERENCE orientationPreference = ORIENTATION_PREFERENCE_NONE;
+    if (GetDisplayAutoRotationPreferences(&orientationPreference)) {
+        switch (orientationPreference) {
+        case ORIENTATION_PREFERENCE_NONE:
+            break;
+        case ORIENTATION_PREFERENCE_LANDSCAPE:
+            result = Qt::LandscapeOrientation;
+            break;
+        case ORIENTATION_PREFERENCE_PORTRAIT:
+            result = Qt::PortraitOrientation;
+            break;
+        case ORIENTATION_PREFERENCE_LANDSCAPE_FLIPPED:
+            result = Qt::InvertedLandscapeOrientation;
+            break;
+        case ORIENTATION_PREFERENCE_PORTRAIT_FLIPPED:
+            result = Qt::InvertedPortraitOrientation;
+            break;
         }
     }
     return result;
@@ -662,7 +662,8 @@ extern "C" LRESULT QT_WIN_CALLBACK qDisplayChangeObserverWndProc(HWND hwnd, UINT
         if (QWindowsTheme *t = QWindowsTheme::instance())
             t->displayChanged();
         QWindowsWindow::displayChanged();
-        QWindowsContext::instance()->screenManager().handleScreenChanges();
+        if (auto *context = QWindowsContext::instance())
+            context->screenManager().handleScreenChanges();
     }
 
     return DefWindowProc(hwnd, message, wParam, lParam);

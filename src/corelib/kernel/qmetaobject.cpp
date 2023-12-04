@@ -1426,8 +1426,8 @@ printMethodNotFoundWarning(const QMetaObject *meta, QLatin1StringView name, qsiz
 }
 
 /*!
-    \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, Qt::ConnectionType type, QMetaMethodReturnArgument r, Args &&... args)
-    \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, QMetaMethodReturnArgument r, Args &&... args)
+    \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, Qt::ConnectionType type, QMetaMethodReturnArgument ret, Args &&... args)
+    \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, QMetaMethodReturnArgument ret, Args &&... args)
     \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, Qt::ConnectionType type, Args &&... args)
     \fn template <typename... Args> bool QMetaObject::invokeMethod(QObject *obj, const char *member, Args &&... args)
     \since 6.5
@@ -3044,15 +3044,14 @@ const char *QMetaEnum::enumName() const
 /*!
     Returns the meta type of the enum.
 
-    If the QMetaObject this enum is part of was generated with Qt 6.5 or
-    earlier this will be the invalid metatype.
+    If the QMetaObject that this enum is part of was generated with Qt 6.5 or
+    earlier, this will be an invalid meta type.
 
     \note This is the meta type of the enum itself, not of its underlying
-    numeric type. You can retrieve the meta type of the underlying type of the
+    integral type. You can retrieve the meta type of the underlying type of the
     enum using \l{QMetaType::underlyingType()}.
 
     \since 6.6
-    \sa QMetaType::underlyingType()
 */
 QMetaType QMetaEnum::metaType() const
 {
@@ -4059,8 +4058,11 @@ bool QMetaProperty::isBindable() const
 
     \snippet code/src_corelib_kernel_qmetaobject.cpp 5
 
-    This mechanism is free for you to use in your Qt applications. Qt
-    doesn't use it for any of its classes.
+    This mechanism is free for you to use in your Qt applications.
+
+    \note It's also used by the \l[ActiveQt]{Active Qt},
+    \l[QtDBus]{Qt D-Bus}, \l[QtQml]{Qt QML}, and \l{Qt Remote Objects}
+    modules. Some keys might be set when using these modules.
 
     \sa QMetaObject
 */

@@ -65,101 +65,35 @@ QT_BEGIN_NAMESPACE
 
 void QDnsLookupRunnable::query(QDnsLookupReply *reply)
 {
-    typedef BOOL (WINAPI *DnsQueryExFunc) (PDNS_QUERY_REQUEST, PDNS_QUERY_RESULT, PDNS_QUERY_CANCEL);
-    static DnsQueryExFunc myDnsQueryEx = 
-        (DnsQueryExFunc)::GetProcAddress(::GetModuleHandle(L"Dnsapi"), "DnsQueryEx");
+    // Perform DNS query.
+    alignas(DNS_ADDR_ARRAY) uchar dnsAddresses[sizeof(DNS_ADDR_ARRAY) + sizeof(DNS_ADDR)];
+    DNS_QUERY_REQUEST request = {};
+    request.Version = 1;
+    request.QueryName = reinterpret_cast<const wchar_t *>(requestName.constData());
+    request.QueryType = requestType;
+    request.QueryOptions = DNS_QUERY_STANDARD | DNS_QUERY_TREAT_AS_FQDN;
 
-    PDNS_RECORD ptrStart = nullptr;
-
-    if (myDnsQueryEx)
-    {
-        // Perform DNS query.
-        alignas(DNS_ADDR_ARRAY) uchar dnsAddresses[sizeof(DNS_ADDR_ARRAY) + sizeof(DNS_ADDR)];
-        DNS_QUERY_REQUEST request = {};
-        request.Version = 1;
-        request.QueryName = reinterpret_cast<const wchar_t *>(requestName.constData());
-        request.QueryType = requestType;
-        request.QueryOptions = DNS_QUERY_STANDARD | DNS_QUERY_TREAT_AS_FQDN;
-
-        if (!nameserver.isNull()) {
-            memset(dnsAddresses, 0, sizeof(dnsAddresses));
-            request.pDnsServerList = new (dnsAddresses) DNS_ADDR_ARRAY;
-            auto addr = new (request.pDnsServerList->AddrArray) DNS_ADDR[1];
-            auto sa = new (addr[0].MaxSa) sockaddr;
-            request.pDnsServerList->MaxCount = sizeof(dnsAddresses);
-            request.pDnsServerList->AddrCount = 1;
-            // ### setting port 53 seems to cause some systems to fail
-            setSockaddr(sa, nameserver, port == DnsPort ? 0 : port);
-            request.pDnsServerList->Family = sa->sa_family;
-        }
-
-        DNS_QUERY_RESULT results = {};
-        results.Version = 1;
-        const DNS_STATUS status = myDnsQueryEx(&request, &results, nullptr);
-        if (status >= DNS_ERROR_RCODE_FORMAT_ERROR && status <= DNS_ERROR_RCODE_LAST)
-            return reply->makeDnsRcodeError(status - DNS_ERROR_RCODE_FORMAT_ERROR + 1);
-        else if (status == ERROR_TIMEOUT)
-            return reply->makeTimeoutError();
-        else if (status != ERROR_SUCCESS)
-            return reply->makeResolverSystemError(status);
-
-        ptrStart = results.pQueryRecords;
-    }
-    else
-    {
-        // Perform DNS query.
-        PDNS_RECORD dns_records = 0;
-        QByteArray requestNameUTF8 = requestName.toUtf8();
-        const QString requestNameUtf16 = QString::fromUtf8(requestNameUTF8.data(), requestNameUTF8.size());
-        IP4_ARRAY srvList;
-        memset(&srvList, 0, sizeof(IP4_ARRAY));
-        if (!nameserver.isNull()) {
-            if (nameserver.protocol() == QAbstractSocket::IPv4Protocol) {
-                // The below code is referenced from: http://support.microsoft.com/kb/831226
-                srvList.AddrCount = 1;
-                srvList.AddrArray[0] = htonl(nameserver.toIPv4Address());
-            } else if (nameserver.protocol() == QAbstractSocket::IPv6Protocol) {
-                // For supporting IPv6 nameserver addresses, we'll need to switch
-                // from DnsQuey() to DnsQueryEx() as it supports passing an IPv6
-                // address in the nameserver list
-                qWarning("%s", "IPv6 addresses for nameservers are currently not supported");
-                reply->error = QDnsLookup::ResolverError;
-                reply->errorString = tr("IPv6 addresses for nameservers are currently not supported");
-                return;
-            }
-        }
-        const DNS_STATUS status = DnsQuery_W(reinterpret_cast<const wchar_t*>(requestNameUtf16.utf16()), requestType, DNS_QUERY_STANDARD, &srvList, &dns_records, NULL);
-        switch (status) {
-        case ERROR_SUCCESS:
-            break;
-        case DNS_ERROR_RCODE_FORMAT_ERROR:
-            reply->error = QDnsLookup::InvalidRequestError;
-            reply->errorString = tr("Server could not process query");
-            return;
-        case DNS_ERROR_RCODE_SERVER_FAILURE:
-        case DNS_ERROR_RCODE_NOT_IMPLEMENTED:
-            reply->error = QDnsLookup::ServerFailureError;
-            reply->errorString = tr("Server failure");
-            return;
-        case DNS_ERROR_RCODE_NAME_ERROR:
-            reply->error = QDnsLookup::NotFoundError;
-            reply->errorString = tr("Non existent domain");
-            return;
-        case DNS_ERROR_RCODE_REFUSED:
-            reply->error = QDnsLookup::ServerRefusedError;
-            reply->errorString = tr("Server refused to answer");
-            return;
-        default:
-            reply->error = QDnsLookup::InvalidReplyError;
-            reply->errorString = QSystemError(status, QSystemError::NativeError).toString();
-            return;
-        }
-
-        ptrStart = dns_records;
+    if (!nameserver.isNull()) {
+        memset(dnsAddresses, 0, sizeof(dnsAddresses));
+        request.pDnsServerList = new (dnsAddresses) DNS_ADDR_ARRAY;
+        auto addr = new (request.pDnsServerList->AddrArray) DNS_ADDR[1];
+        auto sa = new (addr[0].MaxSa) sockaddr;
+        request.pDnsServerList->MaxCount = sizeof(dnsAddresses);
+        request.pDnsServerList->AddrCount = 1;
+        // ### setting port 53 seems to cause some systems to fail
+        setSockaddr(sa, nameserver, port == DnsPort ? 0 : port);
+        request.pDnsServerList->Family = sa->sa_family;
     }
 
-    if (!ptrStart)
-        return;
+    DNS_QUERY_RESULT results = {};
+    results.Version = 1;
+    const DNS_STATUS status = DnsQueryEx(&request, &results, nullptr);
+    if (status >= DNS_ERROR_RCODE_FORMAT_ERROR && status <= DNS_ERROR_RCODE_LAST)
+        return reply->makeDnsRcodeError(status - DNS_ERROR_RCODE_FORMAT_ERROR + 1);
+    else if (status == ERROR_TIMEOUT)
+        return reply->makeTimeoutError();
+    else if (status != ERROR_SUCCESS)
+        return reply->makeResolverSystemError(status);
 
     QStringView lastEncodedName;
     QString cachedDecodedName;
@@ -171,9 +105,9 @@ void QDnsLookupRunnable::query(QDnsLookupReply *reply)
     auto extractMaybeCachedHost = [&](QStringView name) -> const QString & {
         return lastEncodedName == name ? cachedDecodedName : extractAndCacheHost(name);
     };
-    
+
     // Extract results.
-    for (PDNS_RECORD ptr = ptrStart; ptr != NULL; ptr = ptr->pNext) {
+    for (PDNS_RECORD ptr = results.pQueryRecords; ptr != NULL; ptr = ptr->pNext) {
         // warning: always assign name to the record before calling extractXxxHost() again
         const QString &name = extractMaybeCachedHost(ptr->pName);
         if (ptr->wType == QDnsLookup::A) {
@@ -236,7 +170,7 @@ void QDnsLookupRunnable::query(QDnsLookupReply *reply)
         }
     }
 
-    DnsRecordListFree(ptrStart, DnsFreeRecordList);
+    DnsRecordListFree(results.pQueryRecords, DnsFreeRecordList);
 }
 
 QT_END_NAMESPACE

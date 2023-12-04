@@ -39,6 +39,9 @@ function(qt_internal_read_repo_dependencies out_var repo_dir)
                 if(NOT dependency IN_LIST seen)
                     qt_internal_read_repo_dependencies(subdeps "${dependency_repo_dir}"
                         ${seen} ${dependency})
+                    if(dependency MATCHES "^tqtc-(.+)")
+                        set(dependency "${CMAKE_MATCH_1}")
+                    endif()
                     list(APPEND dependencies ${subdeps} ${dependency})
                 endif()
             endif()
@@ -106,6 +109,8 @@ endif()
 include(QtPlatformSupport)
 
 # Set FEATURE_${feature} if INPUT_${feature} is set in certain circumstances.
+# Set FEATURE_${feature}_computed_from_input to TRUE or FALSE depending on whether the
+# INPUT_${feature} value has overridden the FEATURE_${feature} variable.
 #
 # Needs to be in QtBuildInternalsConfig.cmake instead of QtFeature.cmake because it's used in
 # qt_build_internals_disable_pkg_config_if_needed.
@@ -126,6 +131,9 @@ function(qt_internal_compute_feature_value_from_possible_input feature)
         endif()
 
         set(FEATURE_${feature} "${FEATURE_${feature}}" PARENT_SCOPE)
+        set(FEATURE_${feature}_computed_from_input TRUE PARENT_SCOPE)
+    else()
+        set(FEATURE_${feature}_computed_from_input FALSE PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -622,9 +630,6 @@ function(qt_internal_qt_configure_end)
     # reconfigurations that are done by calling cmake directly don't trigger configure specific
     # logic.
     unset(QT_INTERNAL_CALLED_FROM_CONFIGURE CACHE)
-
-    # Clean up stale feature input values.
-    qt_internal_clean_feature_inputs()
 endfunction()
 
 macro(qt_build_repo)

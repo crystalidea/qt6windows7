@@ -169,28 +169,12 @@ static inline QD3D12RenderTargetData *rtData(QRhiRenderTarget *rt)
 
 bool QRhiD3D12::create(QRhi::Flags flags)
 {
-    typedef HRESULT(WINAPI* CreateDXGIFactory2Func) (UINT flags, REFIID riid, void** factory);
-    typedef HRESULT(WINAPI* D3D12CreateDeviceFunc) (IUnknown *, D3D_FEATURE_LEVEL, REFIID, void **);
-    typedef HRESULT(WINAPI* D3D12GetDebugInterfaceFunc) (REFIID, void **);
-
-    static CreateDXGIFactory2Func myCreateDXGIFactory2 =
-        (CreateDXGIFactory2Func)::GetProcAddress(::GetModuleHandle(L"dxgi"), "CreateDXGIFactory2");
-
-    static D3D12CreateDeviceFunc myD3D12CreateDevice =
-        (D3D12CreateDeviceFunc)::GetProcAddress(::GetModuleHandle(L"D3d12"), "D3D12CreateDevice");
-
-    static D3D12GetDebugInterfaceFunc myD3D12GetDebugInterface =
-        (D3D12GetDebugInterfaceFunc)::GetProcAddress(::GetModuleHandle(L"D3d12"), "D3D12GetDebugInterface");
-
-    if (!myCreateDXGIFactory2 || !myD3D12CreateDevice || !myD3D12GetDebugInterface)
-        return false;
-
     rhiFlags = flags;
 
     UINT factoryFlags = 0;
     if (debugLayer)
         factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-    HRESULT hr = myCreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&dxgiFactory));
+    HRESULT hr = CreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory2), reinterpret_cast<void **>(&dxgiFactory));
     if (FAILED(hr)) {
         qWarning("CreateDXGIFactory2() failed to create DXGI factory: %s",
                  qPrintable(QSystemError::windowsComString(hr)));
@@ -208,7 +192,7 @@ bool QRhiD3D12::create(QRhi::Flags flags)
 
     if (debugLayer) {
         ID3D12Debug1 *debug = nullptr;
-        if (SUCCEEDED(myD3D12GetDebugInterface(__uuidof(ID3D12Debug1), reinterpret_cast<void **>(&debug)))) {
+        if (SUCCEEDED(D3D12GetDebugInterface(__uuidof(ID3D12Debug1), reinterpret_cast<void **>(&debug)))) {
             qCDebug(QRHI_LOG_INFO, "Enabling D3D12 debug layer");
             debug->EnableDebugLayer();
             debug->Release();
@@ -278,7 +262,7 @@ bool QRhiD3D12::create(QRhi::Flags flags)
         if (minimumFeatureLevel == 0)
             minimumFeatureLevel = MIN_FEATURE_LEVEL;
 
-        hr = myD3D12CreateDevice(activeAdapter,
+        hr = D3D12CreateDevice(activeAdapter,
                                minimumFeatureLevel,
                                __uuidof(ID3D12Device),
                                reinterpret_cast<void **>(&dev));
@@ -2536,9 +2520,6 @@ QD3D12Descriptor QD3D12SamplerManager::getShaderVisibleDescriptor(const D3D12_SA
     return descriptor;
 }
 
-typedef HRESULT(WINAPI* D3D12SerializeVersionedRootSignatureFunc) (const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *, ID3DBlob **, ID3DBlob **);
-D3D12SerializeVersionedRootSignatureFunc myD3D12SerializeVersionedRootSignature = nullptr;
-
 bool QD3D12MipmapGenerator::create(QRhiD3D12 *rhiD)
 {
     this->rhiD = rhiD;
@@ -2583,15 +2564,8 @@ bool QD3D12MipmapGenerator::create(QRhiD3D12 *rhiD)
     rsDesc.Desc_1_1.NumStaticSamplers = 1;
     rsDesc.Desc_1_1.pStaticSamplers = &samplerDesc;
 
-    if (!myD3D12SerializeVersionedRootSignature)
-        myD3D12SerializeVersionedRootSignature =
-        (D3D12SerializeVersionedRootSignatureFunc)::GetProcAddress(::GetModuleHandle(L"D3d12"), "D3D12SerializeVersionedRootSignature");
-
-    if (!myD3D12SerializeVersionedRootSignature)
-        return false;
-
     ID3DBlob *signature = nullptr;
-    HRESULT hr = myD3D12SerializeVersionedRootSignature(&rsDesc, &signature, nullptr);
+    HRESULT hr = D3D12SerializeVersionedRootSignature(&rsDesc, &signature, nullptr);
     if (FAILED(hr)) {
         qWarning("Failed to serialize root signature: %s", qPrintable(QSystemError::windowsComString(hr)));
         return false;
@@ -4860,15 +4834,8 @@ QD3D12ObjectHandle QD3D12ShaderResourceBindings::createRootSignature(const QD3D1
     }
     rsDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAGS(rsFlags);
 
-    if (!myD3D12SerializeVersionedRootSignature)
-        myD3D12SerializeVersionedRootSignature =
-        (D3D12SerializeVersionedRootSignatureFunc)::GetProcAddress(::GetModuleHandle(L"D3d12"), "D3D12SerializeVersionedRootSignature");
-
-    if (!myD3D12SerializeVersionedRootSignature)
-        return {};
-
     ID3DBlob *signature = nullptr;
-    HRESULT hr = myD3D12SerializeVersionedRootSignature(&rsDesc, &signature, nullptr);
+    HRESULT hr = D3D12SerializeVersionedRootSignature(&rsDesc, &signature, nullptr);
     if (FAILED(hr)) {
         qWarning("Failed to serialize root signature: %s", qPrintable(QSystemError::windowsComString(hr)));
         return {};

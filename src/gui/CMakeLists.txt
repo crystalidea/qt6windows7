@@ -101,7 +101,7 @@ qt_internal_add_module(Gui
         kernel/qoffscreensurface_platform.h
         kernel/qopenglcontext.h
         kernel/qpaintdevicewindow.cpp kernel/qpaintdevicewindow.h kernel/qpaintdevicewindow_p.h
-        kernel/qpalette.cpp kernel/qpalette.h
+        kernel/qpalette.cpp kernel/qpalette.h kernel/qpalette_p.h
         kernel/qpixelformat.cpp kernel/qpixelformat.h
         kernel/qplatformclipboard.cpp kernel/qplatformclipboard.h
         kernel/qplatformcursor.cpp kernel/qplatformcursor.h
@@ -336,9 +336,10 @@ if(QT_FEATURE_opengl)
         target_link_libraries(Gui PUBLIC GLESv2::GLESv2)
 
         if(INTEGRITY AND _qt_igy_gui_libs)
-            find_package(IntegrityPlatformGraphics)
-            target_link_libraries(Gui
-                INTERFACE $<LINK_ONLY:IntegrityPlatformGraphics::IntegrityPlatformGraphics>)
+            qt_internal_extend_target(Gui
+                LIBRARIES
+                    IntegrityPlatformGraphics::IntegrityPlatformGraphics
+            )
         endif()
 
     elseif(NOT QT_FEATURE_opengl_dynamic)

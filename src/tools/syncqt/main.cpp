@@ -7,8 +7,7 @@
  *     - Header file that contains the module version information, and named as <module>Vesion
  *     - LD version script if applicable
  *     - Aliases or copies of the header files sorted by the generic Qt-types: public/private/qpa
- * and stored in the corresponding directories. Also copies the aliases to the framework-specific
- *       directories.
+ * and stored in the corresponding directories.
  * Also the tool executes conformity checks on each header file if applicable, to make sure they
  * follow rules that are relevant for their header type.
  * The tool can be run in two modes: with either '-all' or '-headers' options specified. Depending
@@ -141,6 +140,12 @@ std::filesystem::path normilizedPath(const std::string &path)
     return std::filesystem::path(std::filesystem::weakly_canonical(path).generic_string());
 }
 
+void printFilesystemError(const std::filesystem::filesystem_error &fserr, std::string_view errorMsg)
+{
+    std::cerr << errorMsg << ": " << fserr.path1() << ".\n"
+              << fserr.what() << "(" << fserr.code().value() << ")" << std::endl;
+}
+
 bool createDirectories(const std::string &path, std::string_view errorMsg, bool *exists = nullptr)
 {
     bool result = true;
@@ -195,8 +200,6 @@ public:
 
     const std::string &privateIncludeDir() const { return m_privateIncludeDir; }
 
-    const std::string &frameworkIncludeDir() const { return m_frameworkIncludeDir; }
-
     const std::string &qpaIncludeDir() const { return m_qpaIncludeDir; }
 
     const std::string &rhiIncludeDir() const { return m_rhiIncludeDir; }
@@ -221,8 +224,6 @@ public:
 
     bool scanAllMode() const { return m_scanAllMode; }
 
-    bool isFramework() const { return m_isFramework; }
-
     bool isInternal() const { return m_isInternal; }
 
     bool isNonQtModule() const { return m_isNonQtModule; }
@@ -245,7 +246,6 @@ public:
                      " -includeDir <dir> -privateIncludeDir <dir> -qpaIncludeDir <dir> -rhiIncludeDir <dir>"
                      " -stagingDir <dir> <-headers <header list>|-all> [-debug]"
                      " [-versionScript <path>] [-qpaHeadersFilter <regex>] [-rhiHeadersFilter <regex>]"
-                     " [-framework [-frameworkIncludeDir <dir>]]"
                      " [-knownModules <module1> <module2>... <moduleN>]"
                      " [-nonQt] [-internal] [-copy]\n"
                      ""
@@ -289,10 +289,6 @@ public:
                      "  -versionScript                  Generate linker version script by\n"
                      "                                  provided path.\n"
                      "  -debug                          Enable debug output.\n"
-                     "  -framework                      Indicates that module is framework.\n"
-                     "  -frameworkIncludeDir            The directory to store the framework\n"
-                     "                                  header files.\n"
-                     "                                  E.g. QtCore.framework/Versions/A/Headers\n"
                      "  -copy                           Copy header files instead of creating\n"
                      "                                  aliases.\n"
                      "  -minimal                        Do not create CaMeL case headers for the\n"
@@ -336,7 +332,6 @@ private:
             { "-rhiIncludeDir", { &m_rhiIncludeDir } },
             { "-stagingDir", { &m_stagingDir, true } },
             { "-versionScript", { &m_versionScriptFile, true } },
-            { "-frameworkIncludeDir", { &m_frameworkIncludeDir, true } },
             { "-publicNamespaceFilter", { &publicNamespaceFilter, true } },
         };
 
@@ -349,7 +344,7 @@ private:
 
         static const std::unordered_map<std::string, CommandLineOption<bool>> boolArgumentMap = {
             { "-nonQt", { &m_isNonQtModule, true } }, { "-debug", { &m_debug, true } },
-            { "-help", { &m_printHelpOnly, true } },  { "-framework", { &m_isFramework, true } },
+            { "-help", { &m_printHelpOnly, true } },
             { "-internal", { &m_isInternal, true } }, { "-all", { &m_scanAllMode, true } },
             { "-copy", { &m_copy, true } },           { "-minimal", { &m_minimal, true } },
             { "-showonly", { &m_showOnly, true } },   { "-showOnly", { &m_showOnly, true } },
@@ -483,10 +478,10 @@ private:
     // Convert all paths from command line to a generic one.
     void normilizePaths()
     {
-        static std::array<std::string *, 9> paths = {
+        static std::array<std::string *, 8> paths = {
             &m_sourceDir,     &m_binaryDir,  &m_includeDir,        &m_privateIncludeDir,
             &m_qpaIncludeDir, &m_rhiIncludeDir, &m_stagingDir,
-            &m_versionScriptFile, &m_frameworkIncludeDir
+            &m_versionScriptFile,
         };
         for (auto path : paths) {
             if (!path->empty())
@@ -503,13 +498,11 @@ private:
     std::string m_rhiIncludeDir;
     std::string m_stagingDir;
     std::string m_versionScriptFile;
-    std::string m_frameworkIncludeDir;
     std::set<std::string> m_knownModules;
     std::set<std::string> m_headers;
     std::set<std::string> m_generatedHeaders;
     bool m_scanAllMode = false;
     bool m_copy = false;
-    bool m_isFramework = false;
     bool m_isNonQtModule = false;
     bool m_isInternal = false;
     bool m_printHelpOnly = false;
@@ -737,13 +730,6 @@ public:
             // process eaiser.
             if (!copyGeneratedHeadersToStagingDirectory(m_commandLineArgs->stagingDir()))
                 error = SyncFailed;
-            // We also need to have a copy of the generated header files in framework include
-            // directories when building with '-framework'.
-            if (m_commandLineArgs->isFramework()) {
-                if (!copyGeneratedHeadersToStagingDirectory(
-                            m_commandLineArgs->frameworkIncludeDir(), true))
-                    error = SyncFailed;
-            }
         }
         return error;
     }
@@ -760,26 +746,31 @@ public:
             return false;
 
         if (outDirExists && !skipCleanup) {
-            for (const auto &entry :
-                 std::filesystem::recursive_directory_iterator(outputDirectory)) {
-                if (m_producedHeaders.find(entry.path().filename().generic_string())
-                    == m_producedHeaders.end()) {
-                    // Check if header file came from another module as result of the cross-module
-                    // deprecation before removing it.
-                    std::string firstLine;
-                    {
-                        std::ifstream input(entry.path(), std::ifstream::in);
-                        if (input.is_open()) {
-                            std::getline(input, firstLine);
-                            input.close();
+            try {
+                for (const auto &entry :
+                     std::filesystem::recursive_directory_iterator(outputDirectory)) {
+                    if (m_producedHeaders.find(entry.path().filename().generic_string())
+                        == m_producedHeaders.end()) {
+                        // Check if header file came from another module as result of the
+                        // cross-module deprecation before removing it.
+                        std::string firstLine;
+                        {
+                            std::ifstream input(entry.path(), std::ifstream::in);
+                            if (input.is_open()) {
+                                std::getline(input, firstLine);
+                                input.close();
+                            }
                         }
+                        if (firstLine.find("#ifndef DEPRECATED_HEADER_"
+                                           + m_commandLineArgs->moduleName())
+                                    == 0
+                            || firstLine.find("#ifndef DEPRECATED_HEADER_") != 0)
+                            std::filesystem::remove(entry.path());
                     }
-                    if (firstLine.find("#ifndef DEPRECATED_HEADER_"
-                                       + m_commandLineArgs->moduleName())
-                                == 0
-                        || firstLine.find("#ifndef DEPRECATED_HEADER_") != 0)
-                        std::filesystem::remove(entry.path());
                 }
+            } catch (const std::filesystem::filesystem_error &fserr) {
+                utils::printFilesystemError(fserr, "Unable to clean the staging directory");
+                return false;
             }
         }
 
@@ -1597,12 +1588,6 @@ public:
             if (isCrossModuleDeprecation) {
                 const std::string stagingDir = outputDir + "/.syncqt_staging/";
                 writeIfDifferent(stagingDir + headerName, buffer.str());
-                if (m_commandLineArgs->isFramework()) {
-                    const std::string frameworkStagingDir = stagingDir + moduleName
-                            + ".framework/Versions/A/Headers/" QT_VERSION_STR "/"
-                            + moduleName.substr(2) + '/';
-                    writeIfDifferent(frameworkStagingDir + headerName, buffer.str());
-                }
             }
             m_producedHeaders.insert(headerName);
         }

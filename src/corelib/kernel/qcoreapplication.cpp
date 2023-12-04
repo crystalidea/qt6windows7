@@ -294,15 +294,15 @@ static void qt_call_pre_routines()
     if (!preRList.exists())
         return;
 
-    QVFuncList list;
-    {
+    const QStartUpFuncList list = [] {
         const auto locker = qt_scoped_lock(globalRoutinesMutex);
         // Unlike qt_call_post_routines, we don't empty the list, because
         // Q_COREAPP_STARTUP_FUNCTION is a macro, so the user expects
         // the function to be executed every time QCoreApplication is created.
-        list = *preRList;
-    }
-    for (QtCleanUpFunction f : std::as_const(list))
+        return *preRList;
+    }();
+
+    for (QtStartUpFunction f : list)
         f();
 }
 
@@ -577,7 +577,9 @@ void QCoreApplicationPrivate::initConsole()
             return;
         consoleAllocated = true;
     } else if (env.compare(u"attach"_s, Qt::CaseInsensitive) == 0) {
-        if (AttachConsole(ATTACH_PARENT_PROCESS) == FALSE)
+        // If the calling process is already attached to a console,
+        // the error code returned is ERROR_ACCESS_DENIED.
+        if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::GetLastError() != ERROR_ACCESS_DENIED)
             return;
     } else {
         // Unknown input, don't make any decision for the user.
@@ -748,7 +750,8 @@ void QCoreApplicationPrivate::initLocale()
     to reset the locale that is used for number formatting to "C"-locale.
 
     \sa QGuiApplication, QAbstractEventDispatcher, QEventLoop,
-    {Semaphores Example}, {Wait Conditions Example}
+    {Producer and Consumer using Semaphores},
+    {Producer and Consumer using Wait Conditions}
 */
 
 /*!

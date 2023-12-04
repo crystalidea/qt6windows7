@@ -1186,24 +1186,19 @@ bool QFileSystemEngine::createLink(const QFileSystemEntry &source, const QFileSy
 #ifndef QT_BOOTSTRAPPED
 static QString freeDesktopTrashLocation(const QString &sourcePath)
 {
-    auto makeTrashDir = [](const QDir &topDir, const QString &trashDir) -> QString {
+    auto makeTrashDir = [](const QDir &topDir, const QString &trashDir = QString()) {
         auto ownerPerms = QFileDevice::ReadOwner
                         | QFileDevice::WriteOwner
                         | QFileDevice::ExeOwner;
         QString targetDir = topDir.filePath(trashDir);
         // deliberately not using mkpath, since we want to fail if topDir doesn't exist
-        if (topDir.mkdir(trashDir))
-            QFile::setPermissions(targetDir, ownerPerms);
+        bool created = QFileSystemEngine::createDirectory(QFileSystemEntry(targetDir), false, ownerPerms);
+        if (created)
+            return targetDir;
+        // maybe it already exists and is a directory
         if (QFileInfo(targetDir).isDir())
             return targetDir;
         return QString();
-    };
-    auto isSticky = [](const QFileInfo &fileInfo) -> bool {
-        struct stat st;
-        if (stat(QFile::encodeName(fileInfo.absoluteFilePath()).constData(), &st) == 0)
-            return st.st_mode & S_ISVTX;
-
-        return false;
     };
 
     QString trash;
@@ -1211,8 +1206,9 @@ static QString freeDesktopTrashLocation(const QString &sourcePath)
     const QStorageInfo homeStorage(QDir::home());
     // We support trashing of files outside the users home partition
     if (sourceStorage != homeStorage) {
-        const auto dotTrash = ".Trash"_L1;
-        QDir topDir(sourceStorage.rootPath());
+        const auto dotTrash = "/.Trash"_L1;
+        QFileSystemEntry dotTrashDir(sourceStorage.rootPath() + dotTrash);
+
         /*
             Method 1:
             "An administrator can create an $topdir/.Trash directory. The permissions on this
@@ -1223,21 +1219,20 @@ static QString freeDesktopTrashLocation(const QString &sourcePath)
             (if it supports trashing in top directories) MUST check for the presence
             of $topdir/.Trash."
         */
-        const QString userID = QString::number(::getuid());
-        if (topDir.cd(dotTrash)) {
-            const QFileInfo trashInfo(topDir.path());
 
+        const QString userID = QString::number(::getuid());
+        if (QT_STATBUF st; QT_LSTAT(dotTrashDir.nativeFilePath(), &st) == 0) {
             // we MUST check that the sticky bit is set, and that it is not a symlink
-            if (trashInfo.isSymLink()) {
+            if (S_ISLNK(st.st_mode)) {
                 // we SHOULD report the failed check to the administrator
                 qCritical("Warning: '%s' is a symlink to '%s'",
-                          trashInfo.absoluteFilePath().toLocal8Bit().constData(),
-                          trashInfo.symLinkTarget().toLatin1().constData());
-            } else if (!isSticky(trashInfo)) {
+                          dotTrashDir.nativeFilePath().constData(),
+                          qt_readlink(dotTrashDir.nativeFilePath()).constData());
+            } else if ((st.st_mode & S_ISVTX) == 0) {
                 // we SHOULD report the failed check to the administrator
                 qCritical("Warning: '%s' doesn't have sticky bit set!",
-                          trashInfo.absoluteFilePath().toLocal8Bit().constData());
-            } else if (trashInfo.isDir()) {
+                          dotTrashDir.nativeFilePath().constData());
+            } else if (S_ISDIR(st.st_mode)) {
                 /*
                     "If the directory exists and passes the checks, a subdirectory of the
                      $topdir/.Trash directory is to be used as the user's trash directory
@@ -1247,7 +1242,7 @@ static QString freeDesktopTrashLocation(const QString &sourcePath)
                      the implementation MUST immediately create it, without any warnings or
                      delays for the user."
                 */
-                trash = makeTrashDir(topDir, userID);
+                trash = makeTrashDir(dotTrashDir.filePath(), userID);
             }
         }
         /*
@@ -1258,9 +1253,8 @@ static QString freeDesktopTrashLocation(const QString &sourcePath)
              immediately create it, without any warnings or delays for the user."
         */
         if (trash.isEmpty()) {
-            topDir = QDir(sourceStorage.rootPath());
             const QString userTrashDir = dotTrash + u'-' + userID;
-            trash = makeTrashDir(topDir, userTrashDir);
+            trash = makeTrashDir(QDir(sourceStorage.rootPath() + userTrashDir));
         }
     }
     /*
@@ -1301,9 +1295,15 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
         error = QSystemError(ENOENT, QSystemError::StandardLibraryError);
         return false;
     }
-    const QString sourcePath = sourceInfo.absoluteFilePath();
+    const QFileSystemEntry sourcePath = [&] {
+        if (QString path = source.filePath(); path.size() > 1 && path.endsWith(u'/')) {
+            path.chop(1);
+            return absoluteName(QFileSystemEntry(path));
+        }
+        return absoluteName(source);
+    }();
 
-    QDir trashDir(freeDesktopTrashLocation(sourcePath));
+    QDir trashDir(freeDesktopTrashLocation(sourcePath.filePath()));
     if (!trashDir.exists())
         return false;
     /*
@@ -1327,19 +1327,11 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
          file with the same name and location gets trashed many times, each subsequent
          trashing must not overwrite a previous copy."
     */
-    const QString trashedName = sourceInfo.isDir()
-                              ? QDir(sourcePath).dirName()
-                              : sourceInfo.fileName();
-    QString uniqueTrashedName = u'/' + trashedName;
+    QString uniqueTrashedName = u'/' + sourcePath.fileName();
     QString infoFileName;
-    int counter = 0;
     QFile infoFile;
-    auto makeUniqueTrashedName = [trashedName, &counter]() -> QString {
-        return QString::asprintf("/%ls-%04d", qUtf16Printable(trashedName), ++counter);
-    };
-    do {
-        while (QFile::exists(trashDir.filePath(filesDir) + uniqueTrashedName))
-            uniqueTrashedName = makeUniqueTrashedName();
+    auto openMode = QIODevice::NewOnly | QIODevice::WriteOnly | QIODevice::Text;
+    for (int counter = 0; !infoFile.open(openMode); ++counter) {
         /*
             "The $trash/info directory contains an "information file" for every file and directory
              in $trash/files. This file MUST have exactly the same name as the file or directory in
@@ -1352,24 +1344,19 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
              filename, and then opening with O_EXCL. If that succeeds the creation was atomic
              (at least on the same machine), if it fails you need to pick another filename."
         */
-        infoFileName = trashDir.filePath(infoDir)
+        uniqueTrashedName = QString::asprintf("/%ls-%04d", qUtf16Printable(sourcePath.fileName()),
+                                              counter);
+        QString infoFileName = trashDir.filePath(infoDir)
                      + uniqueTrashedName + ".trashinfo"_L1;
         infoFile.setFileName(infoFileName);
-        if (!infoFile.open(QIODevice::NewOnly | QIODevice::WriteOnly | QIODevice::Text))
-            uniqueTrashedName = makeUniqueTrashedName();
-    } while (!infoFile.isOpen());
+    }
 
-    const QString targetPath = trashDir.filePath(filesDir) + uniqueTrashedName;
-    const QFileSystemEntry target(targetPath);
-
-    QString infoPath;
-    const QStorageInfo storageInfo(sourcePath);
+    QString pathForInfo = sourcePath.filePath();
+    const QStorageInfo storageInfo(pathForInfo);
     if (storageInfo.isValid() && storageInfo.rootPath() != rootPath() && storageInfo != QStorageInfo(QDir::home())) {
-        infoPath = sourcePath.mid(storageInfo.rootPath().length());
-        if (infoPath.front() == u'/')
-            infoPath = infoPath.mid(1);
-    } else {
-        infoPath = sourcePath;
+        pathForInfo = std::move(pathForInfo).mid(storageInfo.rootPath().length());
+        if (pathForInfo.front() == u'/')
+            pathForInfo = pathForInfo.mid(1);
     }
 
     /*
@@ -1377,6 +1364,7 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
         In that case, we don't try further, i.e. copying and removing the original
         is usually not what the user would expect to happen.
     */
+    QFileSystemEntry target(trashDir.filePath(filesDir) + uniqueTrashedName);
     if (!renameFile(source, target, error)) {
         infoFile.close();
         infoFile.remove();
@@ -1385,13 +1373,13 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
 
     QByteArray info =
             "[Trash Info]\n"
-            "Path=" + QUrl::toPercentEncoding(infoPath, "/") + "\n"
-            "DeletionDate=" + QDateTime::currentDateTime().toString("yyyy-MM-ddThh:mm:ss"_L1).toUtf8()
+            "Path=" + QUrl::toPercentEncoding(pathForInfo, "/") + "\n"
+            "DeletionDate=" + QDateTime::currentDateTime().toString(Qt::ISODate).toUtf8()
             + "\n";
     infoFile.write(info);
     infoFile.close();
 
-    newLocation = QFileSystemEntry(targetPath);
+    newLocation = std::move(target);
     return true;
 #endif // QT_BOOTSTRAPPED
 }

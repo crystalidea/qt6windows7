@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
 #include "dialog.h"
-#include <QFileDialog>
+
 #include <QBuffer>
+#include <QFileDialog>
+#include <QNativeIpcKey>
+
+using namespace Qt::StringLiterals;
 
 /*!
   \class Dialog
@@ -29,8 +33,9 @@
   each button.
 */
 //! [0]
+
 Dialog::Dialog(QWidget *parent)
-  : QDialog(parent), sharedMemory("QSharedMemoryExample")
+    : QDialog(parent), sharedMemory(QNativeIpcKey(u"QSharedMemoryExample"_s))
 {
     ui.setupUi(this);
     connect(ui.loadFromFileButton, &QPushButton::clicked,

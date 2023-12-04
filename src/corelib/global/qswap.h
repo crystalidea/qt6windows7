@@ -1,11 +1,13 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#ifndef QSWAP_H
-#define QSWAP_H
+#ifndef QTCORE_QSWAP_H
+#define QTCORE_QSWAP_H
 
 #include <QtCore/qtconfigmacros.h>
 #include <QtCore/qcompilerdetection.h>
+
+#include <utility>
 
 #if 0
 #pragma qt_class(QtSwap)
@@ -29,7 +31,6 @@ namespace SwapExceptionTester { // insulate users from the "using std::swap" bel
 }
 } // namespace QtPrivate
 
-// Documented in ../tools/qalgorithm.qdoc
 template <typename T>
 constexpr void qSwap(T &value1, T &value2)
     noexcept(noexcept(QtPrivate::SwapExceptionTester::checkSwap(value1)))
@@ -51,4 +52,4 @@ QT_WARNING_POP
 
 QT_END_NAMESPACE
 
-#endif // QSWAP_H
+#endif // QTCORE_QSWAP_H

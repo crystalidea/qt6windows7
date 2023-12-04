@@ -86,8 +86,6 @@ public:
     semaphore_t mach_semaphore;
 #elif defined(Q_OS_UNIX)
     sem_t semaphore;
-#elif defined(Q_OS_WIN)
-    Qt::HANDLE event;
 #endif
 };
 

@@ -23,7 +23,7 @@ qhp.QtNetwork.subprojects.classes.sortPages = true
 
 tagfile                 = ../../../doc/qtnetwork/qtnetwork.tags
 
-depends                 += qtcore qtgui qtdoc qmake qtcmake
+depends                 += qtcore qtgui qtdoc qmake qtcmake qtwidgets
 
 headerdirs  += ..
 
@@ -39,6 +39,13 @@ imagedirs   += images \
 
 navigation.landingpage = "Qt Network"
 navigation.cppclassespage = "Qt Network C++ Classes"
+
+manifestmeta.highlighted.names = \
+    "QtNetwork/Fortune Client" \
+    "QtNetwork/Fortune Server" \
+    "QtNetwork/HTTP Client" \
+    "QtNetwork/Secure Socket Client Example" \
+    "QtNetwork/Torrent Example"
 
 # Fail the documentation build if there are more warnings than the limit
 warninglimit = 0

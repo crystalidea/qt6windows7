@@ -42,8 +42,6 @@
 
 #include <algorithm>
 
-#include <VersionHelpers.h>
-
 #if QT_CONFIG(cpp_winrt)
 #   include <QtCore/private/qt_winrtbase_p.h>
 
@@ -245,21 +243,19 @@ static QColor placeHolderColor(QColor textColor)
 */
 static void populateLightSystemBasePalette(QPalette &result)
 {
-    QColor background = getSysColor(COLOR_BTNFACE);
-    QColor textColor = getSysColor(COLOR_WINDOWTEXT);
-    QColor accent = qt_accentColor();
-    QColor accentDarkest = accent.darker(120 * 120 * 120);
+    const QColor background = getSysColor(COLOR_BTNFACE);
+    const QColor textColor = getSysColor(COLOR_WINDOWTEXT);
 
 #if QT_CONFIG(cpp_winrt)
-    if (IsWindows10OrGreater())
-    {
-        // respect the Windows 11 accent color
-        using namespace winrt::Windows::UI::ViewManagement;
-        const auto settings = UISettings();
+    // respect the Windows 11 accent color
+    using namespace winrt::Windows::UI::ViewManagement;
+    const auto settings = UISettings();
 
-        accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-        accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
-    }
+    const QColor accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+    const QColor accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
+#else
+    const QColor accent = qt_accentColor();
+    const QColor accentDarkest = accent.darker(120 * 120 * 120);
 #endif
 
     const QColor linkColor = accent;
@@ -296,43 +292,39 @@ static void populateLightSystemBasePalette(QPalette &result)
 
 static void populateDarkSystemBasePalette(QPalette &result)
 {
-    QColor foreground = Qt::white;
-    QColor background = QColor(0x1E, 0x1E, 0x1E);
-    QColor accent = qt_accentColor();
-    QColor accentDark = accent.darker(120);
-    QColor accentDarker = accentDark.darker(120);
-    QColor accentDarkest = accentDarker.darker(120);
-    QColor accentLight = accent.lighter(120);
-    QColor accentLighter = accentLight.lighter(120);
-    QColor accentLightest = accentLighter.lighter(120);
-
 #if QT_CONFIG(cpp_winrt)
-    if (IsWindows10OrGreater())
-    {
-        using namespace winrt::Windows::UI::ViewManagement;
-        const auto settings = UISettings();
+    using namespace winrt::Windows::UI::ViewManagement;
+    const auto settings = UISettings();
 
-        // We have to craft a palette from these colors. The settings.UIElementColor(UIElementType) API
-        // returns the old system colors, not the dark mode colors. If the background is black (which it
-        // usually), then override it with a dark gray instead so that we can go up and down the lightness.
-        foreground = getSysColor(settings.GetColorValue(UIColorType::Foreground));
-        background = [&settings]() -> QColor {
-            auto systemBackground = getSysColor(settings.GetColorValue(UIColorType::Background));
-            if (systemBackground == Qt::black)
-                systemBackground = QColor(0x1E, 0x1E, 0x1E);
-            return systemBackground;
-        }();
+    // We have to craft a palette from these colors. The settings.UIElementColor(UIElementType) API
+    // returns the old system colors, not the dark mode colors. If the background is black (which it
+    // usually), then override it with a dark gray instead so that we can go up and down the lightness.
+    const QColor foreground = getSysColor(settings.GetColorValue(UIColorType::Foreground));
+    const QColor background = [&settings]() -> QColor {
+        auto systemBackground = getSysColor(settings.GetColorValue(UIColorType::Background));
+        if (systemBackground == Qt::black)
+            systemBackground = QColor(0x1E, 0x1E, 0x1E);
+        return systemBackground;
+    }();
 
-        accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-        accentDark = getSysColor(settings.GetColorValue(UIColorType::AccentDark1));
-        accentDarker = getSysColor(settings.GetColorValue(UIColorType::AccentDark2));
-        accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
-        accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
-        accentLighter = getSysColor(settings.GetColorValue(UIColorType::AccentLight2));
-        accentLightest = getSysColor(settings.GetColorValue(UIColorType::AccentLight3));
-    }
+    const QColor accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+    const QColor accentDark = getSysColor(settings.GetColorValue(UIColorType::AccentDark1));
+    const QColor accentDarker = getSysColor(settings.GetColorValue(UIColorType::AccentDark2));
+    const QColor accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
+    const QColor accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
+    const QColor accentLighter = getSysColor(settings.GetColorValue(UIColorType::AccentLight2));
+    const QColor accentLightest = getSysColor(settings.GetColorValue(UIColorType::AccentLight3));
+#else
+    const QColor foreground = Qt::white;
+    const QColor background = QColor(0x1E, 0x1E, 0x1E);
+    const QColor accent = qt_accentColor();
+    const QColor accentDark = accent.darker(120);
+    const QColor accentDarker = accentDark.darker(120);
+    const QColor accentDarkest = accentDarker.darker(120);
+    const QColor accentLight = accent.lighter(120);
+    const QColor accentLighter = accentLight.lighter(120);
+    const QColor accentLightest = accentLighter.lighter(120);
 #endif
-
     const QColor linkColor = accent;
     const QColor buttonColor = background.lighter(200);
 
@@ -559,19 +551,16 @@ void QWindowsTheme::refreshPalettes()
     m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette], light));
     m_palettes[MenuBarPalette] = menuBarPalette(*m_palettes[MenuPalette], light);
     if (!light) {
-        QColor accent = qt_accentColor();
-        QColor accentLight = accent.lighter(120);
-        QColor accentDarkest = accent.darker(120 * 120 * 120);
-
 #if QT_CONFIG(cpp_winrt)
-        if (IsWindows10OrGreater())
-        {
-            using namespace winrt::Windows::UI::ViewManagement;
-            const auto settings = UISettings();
-            accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-            accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
-            accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
-        }    
+        using namespace winrt::Windows::UI::ViewManagement;
+        const auto settings = UISettings();
+        const QColor accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+        const QColor accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
+        const QColor accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
+#else
+        const QColor accent = qt_accentColor();
+        const QColor accentLight = accent.lighter(120);
+        const QColor accentDarkest = accent.darker(120 * 120 * 120);
 #endif
         m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
         m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Base, accent);
@@ -675,14 +664,8 @@ void QWindowsTheme::refreshFonts()
     fixedFont.setStyleHint(QFont::TypeWriter);
 
     LOGFONT lfIconTitleFont;
-    QFont iconTitleFont;
-    if (QWindowsContext::user32dll.systemParametersInfoForDpi) {
-        QWindowsContext::user32dll.systemParametersInfoForDpi(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0, dpi);
-        iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont, dpi);
-    } else {
-        SystemParametersInfo(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0);
-        iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont);
-    }
+    SystemParametersInfoForDpi(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0, dpi);
+    const QFont iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont, dpi);
 
     m_fonts[SystemFont] = new QFont(QWindowsFontDatabase::systemDefaultFont());
     m_fonts[MenuFont] = new QFont(menuFont);
@@ -1124,7 +1107,11 @@ bool QWindowsTheme::queryDarkMode()
 
 bool QWindowsTheme::queryHighContrast()
 {
-    return booleanSystemParametersInfo(SPI_GETHIGHCONTRAST, false);
+    HIGHCONTRAST hcf = {};
+    hcf.cbSize = static_cast<UINT>(sizeof(HIGHCONTRAST));
+    if (SystemParametersInfo(SPI_GETHIGHCONTRAST, hcf.cbSize, &hcf, FALSE))
+        return hcf.dwFlags & HCF_HIGHCONTRASTON;
+    return false;
 }
 
 QPlatformMenuItem *QWindowsTheme::createPlatformMenuItem() const

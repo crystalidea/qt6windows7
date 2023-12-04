@@ -56,10 +56,13 @@ bool QBackingStoreRhiSupport::create()
     QOffscreenSurface *surface = nullptr;
     QRhi::Flags flags;
 
-    // This must be the same env.var. Qt Quick uses, to ensure symmetry in the
-    // behavior between a QQuickWindow and a (QRhi-based) widget top-level window.
+    // These must be the same env.vars Qt Quick uses (as documented), in order
+    // to ensure symmetry in the behavior between a QQuickWindow and a
+    // (QRhi-based) widget top-level window.
     if (qEnvironmentVariableIntValue("QSG_RHI_PREFER_SOFTWARE_RENDERER"))
         flags |= QRhi::PreferSoftwareRenderer;
+    if (qEnvironmentVariableIntValue("QSG_RHI_PROFILE"))
+        flags |= QRhi::EnableDebugMarkers | QRhi::EnableTimestamps;
 
     if (m_config.api() == QPlatformBackingStoreRhiConfig::Null) {
         QRhiNullInitParams params;
@@ -85,7 +88,7 @@ bool QBackingStoreRhiSupport::create()
             params.enableDebugLayer = m_config.isDebugLayerEnabled();
             rhi = QRhi::create(QRhi::D3D11, &params, flags);
             if (!rhi && !flags.testFlag(QRhi::PreferSoftwareRenderer)) {
-                qCDebug(lcQpaBackingStore, "Failed to create a D3D device with default settings; "
+                qCDebug(lcQpaBackingStore, "Failed to create a D3D11 device with default settings; "
                                            "attempting to get a software rasterizer backed device instead");
                 flags |= QRhi::PreferSoftwareRenderer;
                 rhi = QRhi::create(QRhi::D3D11, &params, flags);
@@ -94,6 +97,12 @@ bool QBackingStoreRhiSupport::create()
             QRhiD3D12InitParams params;
             params.enableDebugLayer = m_config.isDebugLayerEnabled();
             rhi = QRhi::create(QRhi::D3D12, &params, flags);
+            if (!rhi && !flags.testFlag(QRhi::PreferSoftwareRenderer)) {
+                qCDebug(lcQpaBackingStore, "Failed to create a D3D12 device with default settings; "
+                                           "attempting to get a software rasterizer backed device instead");
+                flags |= QRhi::PreferSoftwareRenderer;
+                rhi = QRhi::create(QRhi::D3D12, &params, flags);
+            }
         }
     }
 #endif
