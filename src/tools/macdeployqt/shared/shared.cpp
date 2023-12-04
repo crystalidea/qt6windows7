@@ -435,7 +435,7 @@ QStringList findAppLibraries(const QString &appBundlePath)
 {
     QStringList result;
     // dylibs
-    QDirIterator iter(appBundlePath, QStringList() << QString::fromLatin1("*.dylib"),
+    QDirIterator iter(appBundlePath, QStringList() << QString::fromLatin1("*.dylib") << QString::fromLatin1("*.so"),
             QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
     while (iter.hasNext()) {
         iter.next();
@@ -596,6 +596,10 @@ QStringList getBinaryDependencies(const QString executablePath,
         QString trimmedLine = info.binaryPath;
         if (trimmedLine.startsWith("@executable_path/")) {
             QString binary = QDir::cleanPath(executablePath + trimmedLine.mid(QStringLiteral("@executable_path/").length()));
+            if (binary != path)
+                binaries.append(binary);
+        } else if (trimmedLine.startsWith("@loader_path/")) {
+            QString binary = QDir::cleanPath(QFileInfo(path).path() + "/" + trimmedLine.mid(QStringLiteral("@loader_path/").length()));
             if (binary != path)
                 binaries.append(binary);
         } else if (trimmedLine.startsWith("@rpath/")) {

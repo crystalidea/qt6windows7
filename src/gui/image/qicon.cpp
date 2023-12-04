@@ -462,6 +462,11 @@ void QPixmapIconEngine::addFile(const QString &fileName, const QSize &size, QIco
         pixmaps += QPixmapIconEngineEntry(abs, size, mode, state);
 }
 
+bool QPixmapIconEngine::isNull()
+{
+    return pixmaps.isEmpty();
+}
+
 QString QPixmapIconEngine::key() const
 {
     return "QPixmapIconEngine"_L1;
@@ -599,9 +604,9 @@ QFactoryLoader *qt_iconEngineFactoryLoader()
   icons: via \l addFile() and \l fromTheme().
 
   \l addFile() is useful if you have your own custom directory structure and do
-  not need to use the \l {Icon Theme Specification}{freedesktop.org Icon Theme
-  Specification}. Icons created via this approach use Qt's \l {High Resolution
-  Versions of Images}{"@nx" high DPI syntax}.
+  not need to use the \l {Freedesktop Icon Theme Specification}. Icons
+  created via this approach use Qt's \l {High Resolution Versions of Images}
+  {"@nx" high DPI syntax}.
 
   Using \l fromTheme() is necessary if you plan on following the Icon Theme
   Specification. To make QIcon use the high DPI version of an image, add an
@@ -1154,7 +1159,7 @@ QStringList QIcon::themeSearchPaths()
 
     The fallback search paths are consulted for standalone
     icon files if the \l{themeName()}{current icon theme}
-    or \l{fallbackIconTheme()}{fallback icon theme} do
+    or \l{fallbackThemeName()}{fallback icon theme} do
     not provide results for an icon lookup.
 
     If not set, the fallback search paths will be defined
@@ -1174,7 +1179,7 @@ QStringList QIcon::fallbackSearchPaths()
 
     The fallback search paths are consulted for standalone
     icon files if the \l{themeName()}{current icon theme}
-    or \l{fallbackIconTheme()}{fallback icon theme} do
+    or \l{fallbackThemeName()}{fallback icon theme} do
     not provide results for an icon lookup.
 
     For example:
@@ -1200,10 +1205,8 @@ void QIcon::setFallbackSearchPaths(const QStringList &paths)
     correspond to a directory name in the themeSearchPath()
     containing an \c index.theme file describing its contents.
 
-    \externalpage http://standards.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
-    \title Freedesktop Icon Theme Specification
-
-    \sa themeSearchPaths(), themeName()
+    \sa themeSearchPaths(), themeName(),
+    {Freedesktop Icon Theme Specification}
 */
 void QIcon::setThemeName(const QString &name)
 {
@@ -1221,9 +1224,6 @@ void QIcon::setThemeName(const QString &name)
     \note Platform icon themes are only implemented on
     \l{Freedesktop} based systems at the moment, and the
     icon theme depends on your desktop settings.
-
-    \externalpage https://www.freedesktop.org/
-    \title Freedesktop
 
     \sa setThemeName(), themeSearchPaths(), fromTheme(),
     hasThemeIcon()
@@ -1282,7 +1282,7 @@ void QIcon::setFallbackThemeName(const QString &name)
     \l{themeName()}{current icon theme}.
 
     If the current theme does not provide an icon for \a name,
-    the \l{fallbackIconTheme()}{fallback icon theme} is consulted,
+    the \l{fallbackThemeName()}{fallback icon theme} is consulted,
     before falling back to looking up standalone icon files in the
     \l{QIcon::fallbackSearchPaths()}{fallback icon search path}.
 
@@ -1301,10 +1301,8 @@ void QIcon::setFallbackThemeName(const QString &name)
     to bundle a \l{setThemeName()}{compliant theme} in one of your
     themeSearchPaths(), and set the appropriate themeName().
 
-    \externalpage https://specifications.freedesktop.org/icon-naming-spec/icon-naming-spec-latest.html
-    \title Freedesktop Icon Naming Specification
-
-    \sa themeName(), fallbackIconTheme(), setThemeName(), themeSearchPaths(), fallbackSearchPaths()
+    \sa themeName(), fallbackThemeName(), setThemeName(), themeSearchPaths(), fallbackSearchPaths(),
+        {Freedesktop Icon Naming Specification}
 */
 QIcon QIcon::fromTheme(const QString &name)
 {
@@ -1327,7 +1325,7 @@ QIcon QIcon::fromTheme(const QString &name)
     \l{themeName()}{current icon theme}.
 
     If the current theme does not provide an icon for \a name,
-    the \l{fallbackIconTheme()}{fallback icon theme} is consulted,
+    the \l{fallbackThemeName()}{fallback icon theme} is consulted,
     before falling back to looking up standalone icon files in the
     \l{QIcon::fallbackSearchPaths()}{fallback icon search path}.
 
@@ -1341,7 +1339,7 @@ QIcon QIcon::fromTheme(const QString &name)
 
     \snippet code/src_gui_image_qicon.cpp 4
 
-    \sa fallbackIconTheme(), fallbackSearchPaths()
+    \sa fallbackThemeName(), fallbackSearchPaths()
 */
 QIcon QIcon::fromTheme(const QString &name, const QIcon &fallback)
 {

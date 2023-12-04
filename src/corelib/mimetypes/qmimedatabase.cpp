@@ -74,7 +74,7 @@ static QStringList locateMimeDirectories()
     return QStandardPaths::locateAll(QStandardPaths::GenericDataLocation, QStringLiteral("mime"), QStandardPaths::LocateDirectory);
 }
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_NACL) && !defined(Q_OS_INTEGRITY)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_INTEGRITY)
 #  define QT_USE_MMAP
 #endif
 
@@ -560,7 +560,7 @@ bool QMimeDatabasePrivate::inherits(const QString &mime, const QString &parent)
 
     \snippet code/src_corelib_mimetype_qmimedatabase.cpp 0
 
-    \sa QMimeType, {MIME Type Browser Example}
+    \sa QMimeType, {MIME Type Browser}
  */
 
 /*!

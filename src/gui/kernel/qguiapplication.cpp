@@ -1248,6 +1248,10 @@ static void init_platform(const QString &pluginNamesWithArguments, const QString
         QGuiApplicationPrivate::platform_integration = QPlatformIntegrationFactory::create(name, arguments, argc, argv, platformPluginPath);
         if (Q_UNLIKELY(!QGuiApplicationPrivate::platform_integration)) {
             if (availablePlugins.contains(name)) {
+                if (name == QStringLiteral("xcb") && QVersionNumber::compare(QLibraryInfo::version(), QVersionNumber(6, 5, 0)) >= 0) {
+                    qCWarning(lcQpaPluginLoading).nospace().noquote()
+                            << "From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin.";
+                }
                 qCInfo(lcQpaPluginLoading).nospace().noquote()
                         << "Could not load the Qt platform plugin \"" << name << "\" in \""
                         << QDir::toNativeSeparators(platformPluginPath) << "\" even though it was found.";
@@ -1993,7 +1997,8 @@ bool QGuiApplication::notify(QObject *object, QEvent *event)
 */
 bool QGuiApplication::event(QEvent *e)
 {
-    if (e->type() == QEvent::LanguageChange) {
+    switch (e->type()) {
+    case QEvent::LanguageChange:
         // if the layout direction was set explicitly, then don't override it here
         if (layout_direction == Qt::LayoutDirectionAuto)
             setLayoutDirection(layout_direction);
@@ -2001,13 +2006,15 @@ bool QGuiApplication::event(QEvent *e)
             if (topLevelWindow->flags() != Qt::Desktop)
                 postEvent(topLevelWindow, new QEvent(QEvent::LanguageChange));
         }
-    } else if (e->type() == QEvent::ApplicationFontChange ||
-               e->type() == QEvent::ApplicationPaletteChange) {
+        break;
+    case QEvent::ApplicationFontChange:
+    case QEvent::ApplicationPaletteChange:
         for (auto *topLevelWindow : QGuiApplication::topLevelWindows()) {
             if (topLevelWindow->flags() != Qt::Desktop)
                 postEvent(topLevelWindow, new QEvent(e->type()));
         }
-    } else if (e->type() == QEvent::Quit) {
+        break;
+    case QEvent::Quit:
         // Close open windows. This is done in order to deliver de-expose
         // events while the event loop is still running.
         for (QWindow *topLevelWindow : QGuiApplication::topLevelWindows()) {
@@ -2019,8 +2026,9 @@ bool QGuiApplication::event(QEvent *e)
                 return true;
             }
         }
+    default:
+        break;
     }
-
     return QCoreApplication::event(e);
 }
 
@@ -3259,6 +3267,14 @@ void QGuiApplicationPrivate::processExposeEvent(QWindowSystemInterfacePrivate::E
 
     const bool wasExposed = p->exposed;
     p->exposed = e->isExposed && window->screen();
+
+    // We expect that the platform plugins send DevicePixelRatioChange events.
+    // As a fail-safe make a final check here to make sure the cached DPR value is
+    // always up to date before sending the expose event.
+    const bool dprWasChanged = QWindowPrivate::get(window)->updateDevicePixelRatio();
+    if (dprWasChanged)
+        qWarning() << "The cached device pixel ratio value was stale on window expose. "
+                   << "Please file a QTBUG which explains how to reproduce.";
 
     // We treat expose events for an already exposed window as paint events
     if (wasExposed && p->exposed && shouldSynthesizePaintEvents) {

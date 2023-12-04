@@ -1,9 +1,8 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include "glwidget.h"
 #include "window.h"
-#include "mainwindow.h"
+#include "glwidget.h"
 #include <QSlider>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -11,9 +10,18 @@
 #include <QPushButton>
 #include <QApplication>
 #include <QMessageBox>
+#include <QMainWindow>
 
-Window::Window(MainWindow *mw)
-    : mainWindow(mw)
+static QMainWindow *findMainWindow()
+{
+    for (auto *w : QApplication::topLevelWidgets()) {
+        if (auto *mw = qobject_cast<QMainWindow *>(w))
+            return mw;
+    }
+    return nullptr;
+}
+
+Window::Window()
 {
     glWidget = new GLWidget;
 
@@ -28,21 +36,18 @@ Window::Window(MainWindow *mw)
     connect(zSlider, &QSlider::valueChanged, glWidget, &GLWidget::setZRotation);
     connect(glWidget, &GLWidget::zRotationChanged, zSlider, &QSlider::setValue);
 
-    QVBoxLayout *mainLayout = new QVBoxLayout;
-    QHBoxLayout *container = new QHBoxLayout;
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    QWidget *w = new QWidget;
+    QHBoxLayout *container = new QHBoxLayout(w);
     container->addWidget(glWidget);
     container->addWidget(xSlider);
     container->addWidget(ySlider);
     container->addWidget(zSlider);
 
-    QWidget *w = new QWidget;
-    w->setLayout(container);
     mainLayout->addWidget(w);
     dockBtn = new QPushButton(tr("Undock"), this);
     connect(dockBtn, &QPushButton::clicked, this, &Window::dockUndock);
     mainLayout->addWidget(dockBtn);
-
-    setLayout(mainLayout);
 
     xSlider->setValue(15 * 16);
     ySlider->setValue(345 * 16);
@@ -64,7 +69,7 @@ QSlider *Window::createSlider()
 
 void Window::keyPressEvent(QKeyEvent *e)
 {
-    if (e->key() == Qt::Key_Escape)
+    if (isWindow() && e->key() == Qt::Key_Escape)
         close();
     else
         QWidget::keyPressEvent(e);
@@ -72,26 +77,37 @@ void Window::keyPressEvent(QKeyEvent *e)
 
 void Window::dockUndock()
 {
-    if (parent()) {
-        setParent(nullptr);
-        setAttribute(Qt::WA_DeleteOnClose);
-        move(QGuiApplication::primaryScreen()->size().width() / 2 - width() / 2,
-             QGuiApplication::primaryScreen()->size().height() / 2 - height() / 2);
-        dockBtn->setText(tr("Dock"));
-        show();
-    } else {
-        if (!mainWindow->centralWidget()) {
-            if (mainWindow->isVisible()) {
-                setAttribute(Qt::WA_DeleteOnClose, false);
-                dockBtn->setText(tr("Undock"));
-                mainWindow->setCentralWidget(this);
-            } else {
-                QMessageBox::information(nullptr, tr("Cannot dock"),
-                                         tr("Main window already closed"));
-            }
-        } else {
-            QMessageBox::information(nullptr, tr("Cannot dock"),
-                                     tr("Main window already occupied"));
-        }
+    if (parent())
+        undock();
+    else
+        dock();
+}
+
+void Window::dock()
+{
+    auto *mainWindow = findMainWindow();
+    if (mainWindow == nullptr || !mainWindow->isVisible()) {
+        QMessageBox::information(this, tr("Cannot Dock"),
+                                 tr("Main window already closed"));
+        return;
     }
+    if (mainWindow->centralWidget()) {
+        QMessageBox::information(this, tr("Cannot Dock"),
+                                 tr("Main window already occupied"));
+        return;
+    }
+    setAttribute(Qt::WA_DeleteOnClose, false);
+    dockBtn->setText(tr("Undock"));
+    mainWindow->setCentralWidget(this);
+}
+
+void Window::undock()
+{
+    setParent(nullptr);
+    setAttribute(Qt::WA_DeleteOnClose);
+    const auto geometry = screen()->availableGeometry();
+    move(geometry.x() + (geometry.width() - width()) / 2,
+         geometry.y() + (geometry.height() - height()) / 2);
+    dockBtn->setText(tr("Dock"));
+    show();
 }

@@ -175,7 +175,7 @@ qt_internal_add_module(Core
         kernel/qobjectcleanuphandler.cpp kernel/qobjectcleanuphandler.h
         kernel/qobjectdefs.h
         kernel/qobjectdefs_impl.h
-        kernel/qpointer.cpp kernel/qpointer.h
+        kernel/qpointer.h
         kernel/qproperty.cpp kernel/qproperty.h kernel/qproperty_p.h
         kernel/qpropertyprivate.h
         kernel/qsequentialiterable.cpp kernel/qsequentialiterable.h
@@ -523,6 +523,7 @@ qt_internal_extend_target(Core CONDITION WIN32
         kernel/qwinregistry.cpp kernel/qwinregistry_p.h
         plugin/qsystemlibrary.cpp plugin/qsystemlibrary_p.h
         thread/qthread_win.cpp
+        platform/windows/qcomobject_p.h
     LIBRARIES
         advapi32
         authz
@@ -765,12 +766,12 @@ qt_internal_extend_target(Core CONDITION UNIX AND NOT HAIKU AND NOT INTEGRITY AN
         m
 )
 
-qt_internal_extend_target(Core CONDITION APPLE AND NOT NACL
+qt_internal_extend_target(Core CONDITION APPLE
     SOURCES
         text/qlocale_mac.mm
 )
 
-qt_internal_extend_target(Core CONDITION UNIX AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION UNIX AND NOT APPLE
     SOURCES
         text/qlocale_unix.cpp
 )
@@ -844,32 +845,32 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone
         time/qtimezoneprivate_data_p.h
 )
 
-qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_timezone AND NOT NACL
+qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_timezone
     SOURCES
         time/qtimezoneprivate_mac.mm
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND ANDROID AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND ANDROID AND NOT APPLE
     SOURCES
         time/qtimezoneprivate_android.cpp
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND UNIX AND NOT ANDROID AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND UNIX AND NOT ANDROID AND NOT APPLE
     SOURCES
         time/qtimezoneprivate_tz.cpp
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_icu AND QT_FEATURE_timezone AND UNIX AND NOT ANDROID AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_icu AND QT_FEATURE_timezone AND UNIX AND NOT ANDROID AND NOT APPLE
     SOURCES
         time/qtimezoneprivate_icu.cpp
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_icu AND QT_FEATURE_timezone AND WIN32 AND NOT ANDROID AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_icu AND QT_FEATURE_timezone AND WIN32 AND NOT ANDROID AND NOT APPLE
     SOURCES
         time/qtimezoneprivate_icu.cpp
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND WIN32 AND NOT QT_FEATURE_icu AND NOT ANDROID AND (NACL OR NOT APPLE)
+qt_internal_extend_target(Core CONDITION QT_FEATURE_timezone AND WIN32 AND NOT QT_FEATURE_icu AND NOT ANDROID AND NOT APPLE
     SOURCES
         time/qtimezoneprivate_win.cpp
 )
@@ -935,7 +936,7 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_settings AND WIN32
         io/qsettings_win.cpp
 )
 
-qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_settings AND NOT NACL
+qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_settings
     SOURCES
         io/qsettings_mac.cpp
 )
@@ -1415,4 +1416,12 @@ foreach(minor_version RANGE ${PROJECT_VERSION_MINOR})
 endforeach()
 qt_internal_extend_target(Core
     EXTRA_LINKER_SCRIPT_CONTENT "${linker_script_contents}"
+
+    # Workaround for QTBUG-117514:
+    # Function called by inline methods taking a pointer to a private class as a parameter
+    EXTRA_LINKER_SCRIPT_EXPORTS
+        # QFutureInterfaceBase::setContinuation(std::function<void (QFutureInterfaceBase const&)>, QFutureInterfaceBasePrivate*)
+        "_ZN20QFutureInterfaceBase15setContinuationE*P27QFutureInterfaceBasePrivate"
+        # QReadWriteLock::destroyRecursive(QReadWriteLockPrivate*)
+        "_ZN14QReadWriteLock16destroyRecursiveEP21QReadWriteLockPrivate"
 )

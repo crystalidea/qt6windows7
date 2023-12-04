@@ -6,6 +6,7 @@
 #include <QtDebug>
 #include <QMetaEnum>
 #include <QScreen>
+#include <QtCore/QFileInfo>
 #include <QtGui/QIcon>
 #include <QtGui/QRegion>
 #include <QtGui/private/qhighdpiscaling_p.h>
@@ -386,6 +387,31 @@ void QXcbWindow::create()
         xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE,
                             m_window, atom(QXcbAtom::AtomWM_CLASS),
                             XCB_ATOM_STRING, 8, wmClass.size(), wmClass.constData());
+    }
+
+    QString desktopFileName = QGuiApplication::desktopFileName();
+    if (QGuiApplication::desktopFileName().isEmpty()) {
+        QFileInfo fi = QFileInfo(QCoreApplication::instance()->applicationFilePath());
+        QStringList domainName =
+                QCoreApplication::instance()->organizationDomain().split(QLatin1Char('.'),
+                                                                         Qt::SkipEmptyParts);
+
+        if (domainName.isEmpty()) {
+            desktopFileName = fi.baseName();
+        } else {
+            for (int i = 0; i < domainName.size(); ++i)
+                desktopFileName.prepend(QLatin1Char('.')).prepend(domainName.at(i));
+            desktopFileName.append(fi.baseName());
+        }
+    }
+    if (!desktopFileName.isEmpty()) {
+        const QByteArray dfName = desktopFileName.toUtf8();
+        xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE,
+                            m_window, atom(QXcbAtom::Atom_KDE_NET_WM_DESKTOP_FILE),
+                            atom(QXcbAtom::AtomUTF8_STRING), 8, dfName.size(), dfName.constData());
+        xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE,
+                            m_window, atom(QXcbAtom::Atom_GTK_APPLICATION_ID),
+                            atom(QXcbAtom::AtomUTF8_STRING), 8, dfName.size(), dfName.constData());
     }
 
     if (connection()->hasXSync()) {
@@ -1026,7 +1052,7 @@ void QXcbWindow::setNetWmState(Qt::WindowFlags flags)
 void QXcbWindow::setNetWmStateOnUnmappedWindow()
 {
     if (Q_UNLIKELY(m_mapped))
-        qCWarning(lcQpaXcb()) << "internal error: " << Q_FUNC_INFO << "called on mapped window";
+        qCDebug(lcQpaXcb()) << "internal info: " << Q_FUNC_INFO << "called on mapped window";
 
     NetWmStates states;
     const Qt::WindowFlags flags = window()->flags();
@@ -1103,18 +1129,21 @@ void QXcbWindow::setWindowState(Qt::WindowStates state)
     if (state == m_windowState)
         return;
 
+    Qt::WindowStates unsetState = m_windowState & ~state;
+    Qt::WindowStates newState =  state & ~m_windowState;
+
     // unset old state
-    if (m_windowState & Qt::WindowMinimized)
+    if (unsetState & Qt::WindowMinimized)
         xcb_map_window(xcb_connection(), m_window);
-    if (m_windowState & Qt::WindowMaximized)
+    if (unsetState & Qt::WindowMaximized)
         setNetWmState(false,
                       atom(QXcbAtom::Atom_NET_WM_STATE_MAXIMIZED_HORZ),
                       atom(QXcbAtom::Atom_NET_WM_STATE_MAXIMIZED_VERT));
-    if (m_windowState & Qt::WindowFullScreen)
+    if (unsetState & Qt::WindowFullScreen)
         setNetWmState(false, atom(QXcbAtom::Atom_NET_WM_STATE_FULLSCREEN));
 
     // set new state
-    if (state & Qt::WindowMinimized) {
+    if (newState & Qt::WindowMinimized) {
         {
             xcb_client_message_event_t event;
 
@@ -1135,13 +1164,8 @@ void QXcbWindow::setWindowState(Qt::WindowStates state)
         }
         m_minimized = true;
     }
-    if (state & Qt::WindowMaximized)
-        setNetWmState(true,
-                      atom(QXcbAtom::Atom_NET_WM_STATE_MAXIMIZED_HORZ),
-                      atom(QXcbAtom::Atom_NET_WM_STATE_MAXIMIZED_VERT));
-    if (state & Qt::WindowFullScreen)
-        setNetWmState(true, atom(QXcbAtom::Atom_NET_WM_STATE_FULLSCREEN));
 
+    // set Maximized && FullScreen state if need
     setNetWmState(state);
 
     xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_hints_unchecked(xcb_connection(), m_window);

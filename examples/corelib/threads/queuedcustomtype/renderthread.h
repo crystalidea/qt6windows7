@@ -5,9 +5,9 @@
 #define RENDERTHREAD_H
 
 #include <QImage>
-#include <QMutex>
 #include <QThread>
-#include "block.h"
+
+class Block;
 
 //! [RenderThread class definition]
 class RenderThread : public QThread
@@ -23,16 +23,11 @@ public:
 signals:
     void sendBlock(const Block &block);
 
-public slots:
-    void stopProcess();
-
 protected:
     void run();
 
 private:
-    bool m_abort;
     QImage m_image;
-    QMutex mutex;
 };
 //! [RenderThread class definition]
 

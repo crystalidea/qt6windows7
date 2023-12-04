@@ -3,13 +3,13 @@
 
 /*!
     \example threads/waitconditions
-    \title Wait Conditions Example
-    \brief Demonstrates multi-thread programming using Qt.
+    \examplecategory {Data Processing & I/O}
+    \title Producer and Consumer using Wait Conditions
     \ingroup qtconcurrent-mtexamples
 
-    \brief The Wait Conditions example shows how to use QWaitCondition and
-    QMutex to control access to a circular buffer shared by a
-    producer thread and a consumer thread.
+    \brief The Producer and Consumer using Wait Conditions example shows
+    how to use QWaitCondition and QMutex to control access to a circular
+    buffer shared by a producer thread and a consumer thread.
 
     The producer writes data to the buffer until it reaches the end
     of the buffer, at which point it restarts from the beginning,
@@ -30,7 +30,7 @@
 
     An alternative to using QWaitCondition and QMutex to solve the
     producer-consumer problem is to use QSemaphore. This is what the
-    \l{Semaphores Example} does.
+    \l{Producer and Consumer using Semaphores} example does.
 
     \section1 Global Variables
 

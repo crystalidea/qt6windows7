@@ -235,6 +235,7 @@ QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QEvdevKeyMapper);
 
 /*!
     \class QNativeInterface::QWaylandApplication
+    \inheaderfile QGuiApplication
     \since 6.5
     \brief Native interface to a Wayland application.
 
@@ -270,6 +271,10 @@ QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QEvdevKeyMapper);
 /*!
     \fn wl_seat *QNativeInterface::QWaylandApplication::lastInputSeat() const
     \return the seat on which the last input event happened.
+*/
+/*!
+    \fn wl_seat *QNativeInterface::QWaylandApplication::seat() const
+    \return the seat associated with the default input device.
 */
 
 QT_DEFINE_NATIVE_INTERFACE(QWaylandApplication);

@@ -1,14 +1,19 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include <QtWidgets>
-#include <QtNetwork>
-
 #include "client.h"
+
+#include <QDialogButtonBox>
+#include <QGridLayout>
+#include <QGuiApplication>
+#include <QMessageBox>
+#include <QTimer>
+
+using namespace Qt::StringLiterals;
 
 Client::Client(QWidget *parent)
     : QDialog(parent),
-      hostLineEdit(new QLineEdit("fortune")),
+      hostLineEdit(new QLineEdit(u"fortune"_s)),
       getFortuneButton(new QPushButton(tr("Get Fortune"))),
       statusLabel(new QLabel(tr("This examples requires that you run the "
                                 "Local Fortune Server example as well."))),
@@ -28,7 +33,7 @@ Client::Client(QWidget *parent)
     buttonBox->addButton(quitButton, QDialogButtonBox::RejectRole);
 
     in.setDevice(socket);
-    in.setVersion(QDataStream::Qt_5_10);
+    in.setVersion(QDataStream::Qt_6_0);
 
     connect(hostLineEdit, &QLineEdit::textChanged,
             this, &Client::enableGetFortuneButton);

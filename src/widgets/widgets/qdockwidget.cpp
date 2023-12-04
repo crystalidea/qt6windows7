@@ -770,7 +770,7 @@ void QDockWidgetPrivate::initDrag(const QPoint &pos, bool nca)
     tabbed widgets, and false if the dock widget should always be dragged
     alone.
  */
-void QDockWidgetPrivate::startDrag(bool group)
+void QDockWidgetPrivate::startDrag(DragScope scope)
 {
     Q_Q(QDockWidget);
 
@@ -782,7 +782,7 @@ void QDockWidgetPrivate::startDrag(bool group)
 
     bool wasFloating = q->isFloating();
 
-    state->widgetItem = layout->unplug(q, group);
+    state->widgetItem = layout->unplug(q, scope);
     if (state->widgetItem == nullptr) {
         /*  Dock widget has a QMainWindow parent, but was never inserted with
             QMainWindow::addDockWidget, so the QMainWindowLayout has no
@@ -892,11 +892,15 @@ Qt::DockWidgetArea QDockWidgetPrivate::toDockWidgetArea(QInternal::DockPosition 
 
 void QDockWidgetPrivate::setResizerActive(bool active)
 {
+#ifdef Q_OS_WINDOWS
+    Q_UNUSED(active);
+#else
     Q_Q(QDockWidget);
     if (active && !resizer)
         resizer = new QWidgetResizeHandler(q);
     if (resizer)
         resizer->setEnabled(active);
+#endif
 }
 
 bool QDockWidgetPrivate::isAnimating() const
@@ -992,7 +996,7 @@ bool QDockWidgetPrivate::mouseMoveEvent(QMouseEvent *event)
             } else
 #endif
             {
-                startDrag();
+                startDrag(DragScope::Group);
                 q->grabMouse();
                 ret = true;
             }
@@ -1101,7 +1105,7 @@ void QDockWidgetPrivate::nonClientAreaMouseEvent(QMouseEvent *event)
                 break;
             state->ctrlDrag = (event->modifiers() & Qt::ControlModifier) ||
                               (!hasFeature(this, QDockWidget::DockWidgetMovable) && q->isFloating());
-            startDrag();
+            startDrag(DragScope::Group);
             break;
         case QEvent::NonClientAreaMouseMove:
             if (state == nullptr || !state->dragging)
@@ -1498,7 +1502,7 @@ void QDockWidget::changeEvent(QEvent *event)
 
     switch (event->type()) {
     case QEvent::WindowTitleChange:
-        if (isFloating() && windowHandle() && d->topData()) {
+        if (isFloating() && windowHandle() && d->topData() && windowHandle()->isVisible()) {
             // From QWidget::setWindowTitle(): Propagate window title without signal emission
             d->topData()->caption = windowHandle()->title();
             d->setWindowTitle_helper(windowHandle()->title());
@@ -1531,7 +1535,13 @@ void QDockWidget::closeEvent(QCloseEvent *event)
     Q_D(QDockWidget);
     if (d->state)
         d->endDrag(true);
-    QWidget::closeEvent(event);
+
+    // For non-closable widgets, don't allow closing, except when the mainwindow
+    // is hidden, as otherwise an application wouldn't be able to be shut down.
+    const QMainWindow *win = qobject_cast<QMainWindow*>(parentWidget());
+    const bool canClose = (d->features & DockWidgetClosable)
+                       || (!win || !win->isVisible());
+    event->setAccepted(canClose);
 }
 
 /*! \reimp */
@@ -1805,6 +1815,27 @@ QWidget *QDockWidget::titleBarWidget() const
         = qobject_cast<QDockWidgetLayout*>(this->layout());
     return layout->widgetForRole(QDockWidgetLayout::TitleBar);
 }
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug dbg, const QDockWidget *dockWidget)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace();
+    return dockWidget ? dbg << *dockWidget : dbg << "QDockWidget(0x0)";
+}
+
+QDebug operator<<(QDebug dbg, const QDockWidget &dockWidget)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace();
+    dbg << "QDockWidget(" << static_cast<const void *>(&dockWidget);
+    dbg << "->(ObjectName=" << dockWidget.objectName();
+    dbg << "; floating=" << dockWidget.isFloating();
+    dbg << "; features=" << dockWidget.features();
+    dbg << ";))";
+    return dbg;
+}
+#endif // QT_NO_DEBUG_STREAM
 
 QT_END_NAMESPACE
 

@@ -237,6 +237,8 @@ void QWindowPrivate::init(QScreen *targetScreen)
             QWindowSystemInterfacePrivate::GeometryChangeEvent gce(q, QHighDpi::fromNativePixels(q->handle()->geometry(), q));
             QGuiApplicationPrivate::processGeometryChangeEvent(&gce);
         }
+#else
+        Q_UNUSED(q);
 #endif
         updateDevicePixelRatio();
     });
@@ -523,6 +525,13 @@ void QWindowPrivate::create(bool recursive, WId nativeHandle)
 
     if (q->parent())
         q->parent()->create();
+
+    if (platformWindow) {
+        // Creating the parent window will end up creating any child window
+        // that was already visible, via setVisible. If this applies to us,
+        // we will already have a platform window at this point.
+        return;
+    }
 
     // QPlatformWindow will poll geometry() during construction below. Set the
     // screen here so that high-dpi scaling will use the correct scale factor.
@@ -1357,8 +1366,9 @@ qreal QWindow::devicePixelRatio() const
 /*
     Updates the cached devicePixelRatio value by polling for a new value.
     Sends QEvent::DevicePixelRatioChange to the window if the DPR has changed.
+    Returns true if the DPR was changed.
 */
-void QWindowPrivate::updateDevicePixelRatio()
+bool QWindowPrivate::updateDevicePixelRatio()
 {
     Q_Q(QWindow);
 
@@ -1369,11 +1379,12 @@ void QWindowPrivate::updateDevicePixelRatio()
         platformWindow->devicePixelRatio() * QHighDpiScaling::factor(q) : q->screen()->devicePixelRatio();
 
     if (newDevicePixelRatio == devicePixelRatio)
-        return;
+        return false;
 
     devicePixelRatio = newDevicePixelRatio;
     QEvent dprChangeEvent(QEvent::DevicePixelRatioChange);
     QGuiApplication::sendEvent(q, &dprChangeEvent);
+    return true;
 }
 
 Qt::WindowState QWindowPrivate::effectiveState(Qt::WindowStates state)

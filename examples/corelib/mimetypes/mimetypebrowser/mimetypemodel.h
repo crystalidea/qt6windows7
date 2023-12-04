@@ -4,14 +4,14 @@
 #ifndef MIMETYPEMODEL_H
 #define MIMETYPEMODEL_H
 
-#include <QStandardItemModel>
+#include <QCoreApplication>
 #include <QHash>
-
-QT_FORWARD_DECLARE_CLASS(QMimeType)
+#include <QMimeType>
+#include <QStandardItemModel>
 
 class MimetypeModel : public QStandardItemModel
 {
-    Q_OBJECT
+    Q_DECLARE_TR_FUNCTIONS(MimetypeModel)
 public:
     enum Columns { NameColumn, ColumnCount };
 

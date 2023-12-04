@@ -422,7 +422,8 @@ function(qt_internal_add_configure_time_executable target)
     )
 
     set(should_build_at_configure_time TRUE)
-    if(EXISTS "${target_binary_path}" AND EXISTS "${timestamp_file}")
+    if(QT_INTERNAL_HAVE_CONFIGURE_TIME_${target} AND
+        EXISTS "${target_binary_path}" AND EXISTS "${timestamp_file}")
         set(last_ts 0)
         foreach(source IN LISTS sources)
             file(TIMESTAMP "${source}" ts "%s")
@@ -435,6 +436,37 @@ function(qt_internal_add_configure_time_executable target)
         if(${ts} GREATER_EQUAL ${last_ts})
             set(should_build_at_configure_time FALSE)
         endif()
+    endif()
+
+    set(cmake_flags_arg "")
+    if(arg_CMAKE_FLAGS)
+        set(cmake_flags_arg CMAKE_FLAGS "${arg_CMAKE_FLAGS}")
+    endif()
+
+    qt_internal_get_enabled_languages_for_flag_manipulation(enabled_languages)
+    foreach(lang IN LISTS enabled_languages)
+        set(compiler_flags_var "CMAKE_${lang}_FLAGS")
+        list(APPEND cmake_flags_arg "-D${compiler_flags_var}:STRING=${${compiler_flags_var}}")
+        if(arg_CONFIG)
+            set(compiler_flags_var_config "${compiler_flags_var}${config_suffix}")
+            list(APPEND cmake_flags_arg
+                "-D${compiler_flags_var_config}:STRING=${${compiler_flags_var_config}}")
+        endif()
+    endforeach()
+
+    qt_internal_get_target_link_types_for_flag_manipulation(target_link_types)
+    foreach(linker_type IN LISTS target_link_types)
+        set(linker_flags_var "CMAKE_${linker_type}_LINKER_FLAGS")
+        list(APPEND cmake_flags_arg "-D${linker_flags_var}:STRING=${${linker_flags_var}}")
+        if(arg_CONFIG)
+            set(linker_flags_var_config "${linker_flags_var}${config_suffix}")
+            list(APPEND cmake_flags_arg
+                "-D${linker_flags_var_config}:STRING=${${linker_flags_var_config}}")
+        endif()
+    endforeach()
+
+    if(NOT "${QT_INTERNAL_CMAKE_FLAGS_CONFIGURE_TIME_TOOL_${target}}" STREQUAL "${cmake_flags_arg}")
+        set(should_build_at_configure_time TRUE)
     endif()
 
     if(should_build_at_configure_time)
@@ -460,33 +492,11 @@ function(qt_internal_add_configure_time_executable target)
             set(template "${arg_CMAKELISTS_TEMPLATE}")
         endif()
 
-        set(cmake_flags_arg)
-        if(arg_CMAKE_FLAGS)
-            set(cmake_flags_arg CMAKE_FLAGS "${arg_CMAKE_FLAGS}")
-        endif()
         configure_file("${template}" "${target_binary_dir}/CMakeLists.txt" @ONLY)
 
-        qt_internal_get_enabled_languages_for_flag_manipulation(enabled_languages)
-        foreach(lang IN LISTS enabled_languages)
-            set(compiler_flags_var "CMAKE_${lang}_FLAGS")
-            list(APPEND cmake_flags_arg "-D${compiler_flags_var}:STRING=${${compiler_flags_var}}")
-            if(arg_CONFIG)
-                set(compiler_flags_var_config "${compiler_flags_var}${config_suffix}")
-                list(APPEND cmake_flags_arg
-                    "-D${compiler_flags_var_config}:STRING=${${compiler_flags_var_config}}")
-            endif()
-        endforeach()
-
-        qt_internal_get_target_link_types_for_flag_manipulation(target_link_types)
-        foreach(linker_type IN LISTS target_link_types)
-            set(linker_flags_var "CMAKE_${linker_type}_LINKER_FLAGS")
-            list(APPEND cmake_flags_arg "-D${linker_flags_var}:STRING=${${linker_flags_var}}")
-            if(arg_CONFIG)
-                set(linker_flags_var_config "${linker_flags_var}${config_suffix}")
-                list(APPEND cmake_flags_arg
-                    "-D${linker_flags_var_config}:STRING=${${linker_flags_var_config}}")
-            endif()
-        endforeach()
+        if(EXISTS "${target_binary_dir}/CMakeCache.txt")
+            file(REMOVE "${target_binary_dir}/CMakeCache.txt")
+        endif()
 
         try_compile(result
             "${target_binary_dir}"
@@ -496,7 +506,12 @@ function(qt_internal_add_configure_time_executable target)
             OUTPUT_VARIABLE try_compile_output
         )
 
+        set(QT_INTERNAL_CMAKE_FLAGS_CONFIGURE_TIME_TOOL_${target}
+            "${cmake_flags_arg}" CACHE INTERNAL "")
+
         file(WRITE "${timestamp_file}" "")
+        set(QT_INTERNAL_HAVE_CONFIGURE_TIME_${target} ${result} CACHE INTERNAL
+            "Indicates that the configure-time target ${target} was built")
         if(NOT result)
             message(FATAL_ERROR "Unable to build ${target}: ${try_compile_output}")
         endif()

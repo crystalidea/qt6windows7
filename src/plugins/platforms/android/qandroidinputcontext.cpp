@@ -531,11 +531,24 @@ void QAndroidInputContext::updateCursorPosition()
     }
 }
 
+bool QAndroidInputContext::isImhNoTextHandlesSet()
+{
+    QSharedPointer<QInputMethodQueryEvent> query = focusObjectInputMethodQuery();
+    if (query.isNull())
+        return false;
+    return query->value(Qt::ImHints).toUInt() & Qt::ImhNoTextHandles;
+}
+
 void QAndroidInputContext::updateSelectionHandles()
 {
     static bool noHandles = qEnvironmentVariableIntValue("QT_QPA_NO_TEXT_HANDLES");
     if (noHandles || !m_focusObject)
         return;
+
+    if (isImhNoTextHandlesSet()) {
+        QtAndroidInput::updateHandles(Hidden);
+        return;
+    }
 
     auto im = qGuiApp->inputMethod();
 
@@ -549,6 +562,11 @@ void QAndroidInputContext::updateSelectionHandles()
     const QVariant readOnlyVariant = query.value(Qt::ImReadOnly);
     bool readOnly = readOnlyVariant.toBool();
     QPlatformWindow *qPlatformWindow = qGuiApp->focusWindow()->handle();
+
+    if (!readOnly && ((m_handleMode & 0xff) == Hidden)) {
+        QtAndroidInput::updateHandles(Hidden);
+        return;
+    }
 
     if ( cpos == anchor && (!readOnlyVariant.isValid() || readOnly)) {
         QtAndroidInput::updateHandles(Hidden);
@@ -576,9 +594,8 @@ void QAndroidInputContext::updateSelectionHandles()
         if (!query.value(Qt::ImSurroundingText).toString().isEmpty())
             buttons |= EditContext::SelectAllButton;
         QtAndroidInput::updateHandles(m_handleMode, editMenuPoint, buttons, cursorPointGlobal);
-        // The VK is hidden, reset the timer
-        if (m_hideCursorHandleTimer.isActive())
-            m_hideCursorHandleTimer.start();
+        m_hideCursorHandleTimer.start();
+
         return;
     }
 
@@ -752,7 +769,15 @@ void QAndroidInputContext::touchDown(int x, int y)
                 focusObjectStopComposing();
         }
 
-        updateSelectionHandles();
+        // Check if cursor is visible in focused window before updating handles
+        QPlatformWindow *window = qGuiApp->focusWindow()->handle();
+        const QRectF curRect = cursorRectangle();
+        const QPoint cursorGlobalPoint = window->mapToGlobal(QPoint(curRect.x(), curRect.y()));
+        const QRect windowRect = QPlatformInputContext::inputItemClipRectangle().toRect();
+        const QRect windowGlobalRect = QRect(window->mapToGlobal(windowRect.topLeft()), windowRect.size());
+
+        if (windowGlobalRect.contains(cursorGlobalPoint.x(), cursorGlobalPoint.y()))
+            updateSelectionHandles();
     }
 }
 

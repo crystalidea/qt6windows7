@@ -32,6 +32,8 @@
 #  include "qwindowsfontenginedirectwrite_p.h"
 #endif
 
+#include <mutex>
+
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
@@ -847,7 +849,10 @@ QT_WARNING_POP
                     UniqueFontData uniqueData;
                     uniqueData.handle = fontHandle;
                     uniqueData.refCount.ref();
-                    m_uniqueFontData[uniqueFamilyName] = uniqueData;
+                    {
+                        const std::scoped_lock lock(m_uniqueFontDataMutex);
+                        m_uniqueFontData[uniqueFamilyName] = uniqueData;
+                    }
                 }
             } else {
                 RemoveFontMemResourceEx(fontHandle);
@@ -1142,18 +1147,22 @@ bool QWindowsFontDatabase::fontsAlwaysScalable() const
 
 void QWindowsFontDatabase::derefUniqueFont(const QString &uniqueFont)
 {
-    if (m_uniqueFontData.contains(uniqueFont)) {
-        if (!m_uniqueFontData[uniqueFont].refCount.deref()) {
-            RemoveFontMemResourceEx(m_uniqueFontData[uniqueFont].handle);
-            m_uniqueFontData.remove(uniqueFont);
+    const std::scoped_lock lock(m_uniqueFontDataMutex);
+    const auto it = m_uniqueFontData.find(uniqueFont);
+    if (it != m_uniqueFontData.end()) {
+        if (!it->refCount.deref()) {
+            RemoveFontMemResourceEx(it->handle);
+            m_uniqueFontData.erase(it);
         }
     }
 }
 
 void QWindowsFontDatabase::refUniqueFont(const QString &uniqueFont)
 {
-    if (m_uniqueFontData.contains(uniqueFont))
-        m_uniqueFontData[uniqueFont].refCount.ref();
+    const std::scoped_lock lock(m_uniqueFontDataMutex);
+    const auto it = m_uniqueFontData.find(uniqueFont);
+    if (it != m_uniqueFontData.end())
+        it->refCount.ref();
 }
 
 QStringList QWindowsFontDatabase::fallbacksForFamily(const QString &family, QFont::Style style, QFont::StyleHint styleHint, QChar::Script script) const

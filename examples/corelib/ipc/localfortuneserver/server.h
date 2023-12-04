@@ -4,27 +4,33 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include <QApplication>
 #include <QDialog>
-
-QT_BEGIN_NAMESPACE
-class QLabel;
-class QPushButton;
-class QLocalServer;
-QT_END_NAMESPACE
+#include <QLabel>
+#include <QLineEdit>
+#include <QLocalServer>
+#include <QPushButton>
 
 class Server : public QDialog
 {
-    Q_OBJECT
+    Q_DECLARE_TR_FUNCTIONS(Server)
 
 public:
     explicit Server(QWidget *parent = nullptr);
 
-private slots:
-    void sendFortune();
-
 private:
+    void sendFortune();
+    void toggleListenButton();
+    void listenToServer();
+    void stopListening();
+
     QLocalServer *server;
+    QLineEdit *hostLineEdit;
+    QLabel *statusLabel;
+    QPushButton *listenButton;
+    QPushButton *stopListeningButton;
     QStringList fortunes;
+    QString name;
 };
 
 #endif
