@@ -1,7 +1,0 @@
-<RCC>
-    <qresource prefix="/">
-        <file>germany.png</file>
-        <file>norway.png</file>
-        <file>finland.png</file>
-    </qresource>
-</RCC>

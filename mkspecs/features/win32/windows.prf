@@ -1,5 +1,0 @@
-CONFIG -= console
-QMAKE_LFLAGS += $$QMAKE_LFLAGS_WINDOWS
-contains(TEMPLATE, ".*app") {
-    QMAKE_LFLAGS += $$QMAKE_LFLAGS_EXE
-}
