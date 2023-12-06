@@ -3,9 +3,11 @@ Approach is based on this [forum thread](https://forum.qt.io/topic/133002/qt-cre
 
 You can use [our prebuild binaries](https://github.com/crystalidea/qt6windows7/releases) (we used Visual C++ 2019 with OpenSSL 1.1.1k statically linked, see [compile_win.pl](https://github.com/crystalidea/qt-build-tools/tree/master/6.6.1) script) or compile Qt yourself.
 
-The only issue noticed is that scalled UI is somewhat too big for 125% scalling option set in Windows 7. Something should be tweaked with dpi settings probably.
+Known issues:
+
+- Scalled UI is somewhat too big for 125% scalling option set in Windows 7. Probably can be be tweaked with dpi settings (?)
+- QRhi using DirectX 11/12 is not ported
 
 Qt 6.6 designer running on Windows 7:
 
 ![image](https://github.com/crystalidea/qt6windows7/assets/2600624/4c5ad13f-db6e-4684-8184-9615e4e55461)
-
