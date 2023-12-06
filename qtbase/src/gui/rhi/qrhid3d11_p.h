@@ -586,7 +586,8 @@ struct QD3D11SwapChain : public QRhiSwapChain
 
     QRhiRenderPassDescriptor *newCompatibleRenderPassDescriptor() override;
     bool createOrResize() override;
-
+    bool createOrResizeWin7();
+    
     void releaseBuffers();
     bool newColorBuffer(const QSize &size, DXGI_FORMAT format, DXGI_SAMPLE_DESC sampleDesc,
                         ID3D11Texture2D **tex, ID3D11RenderTargetView **rtv) const;

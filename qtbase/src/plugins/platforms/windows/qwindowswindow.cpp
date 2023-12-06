@@ -523,11 +523,15 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
 
 [[nodiscard]] static inline int getResizeBorderThickness(const UINT dpi)
 {
-    // The width of the padded border will always be 0 if DWM composition is
-    // disabled, but since it will always be enabled and can't be programtically
-    // disabled from Windows 8, we are safe to go.
-    return GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
-           + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    if (QWindowsContext::user32dll.getSystemMetricsForDpi) {
+        // The width of the padded border will always be 0 if DWM composition is
+        // disabled, but since it will always be enabled and can't be programtically
+        // disabled from Windows 8, we are safe to go.
+        return QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
+               + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    }
+    
+    return GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
 }
 
 /*!
@@ -537,13 +541,17 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
 
 static QMargins invisibleMargins(QPoint screenPoint)
 {
-    POINT pt = {screenPoint.x(), screenPoint.y()};
-    if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
-        UINT dpiX;
-        UINT dpiY;
-        if (SUCCEEDED(GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
-            const int gap = getResizeBorderThickness(dpiX);
-            return QMargins(gap, 0, gap, gap);
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10) {
+        POINT pt = {screenPoint.x(), screenPoint.y()};
+        if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
+            if (QWindowsContext::shcoredll.isValid()) {
+                UINT dpiX;
+                UINT dpiY;
+                if (SUCCEEDED(QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+                    const int gap = getResizeBorderThickness(dpiX);
+                    return QMargins(gap, 0, gap, gap);
+                }
+            }
         }
     }
     return QMargins();
@@ -551,9 +559,12 @@ static QMargins invisibleMargins(QPoint screenPoint)
 
 [[nodiscard]] static inline QMargins invisibleMargins(const HWND hwnd)
 {
-    const UINT dpi = GetDpiForWindow(hwnd);
-    const int gap = getResizeBorderThickness(dpi);
-    return QMargins(gap, 0, gap, gap);
+    if (QWindowsContext::user32dll.getDpiForWindow) {
+        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
+        const int gap = getResizeBorderThickness(dpi);
+        return QMargins(gap, 0, gap, gap);
+    }
+    return QMargins();
 }
 
 /*!
@@ -1054,7 +1065,8 @@ QMargins QWindowsGeometryHint::frame(const QWindow *w, DWORD style, DWORD exStyl
         return {};
     RECT rect = {0,0,0,0};
     style &= ~DWORD(WS_OVERLAPPED); // Not permitted, see docs.
-    if (AdjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) {
+    if (QWindowsContext::user32dll.adjustWindowRectExForDpi &&
+        QWindowsContext::user32dll.adjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) {
         qErrnoWarning("%s: AdjustWindowRectExForDpi failed", __FUNCTION__);
     }
     const QMargins result(qAbs(rect.left), qAbs(rect.top),
@@ -1548,7 +1560,8 @@ void QWindowsWindow::initialize()
             QWindowSystemInterface::handleGeometryChange<QWindowSystemInterface::SynchronousDelivery>(w, obtainedGeometry);
         }
     }
-    QWindowsWindow::setSavedDpi(GetDpiForWindow(handle()));
+    QWindowsWindow::setSavedDpi(QWindowsContext::user32dll.getDpiForWindow ?
+        QWindowsContext::user32dll.getDpiForWindow(handle()) : 96);
 }
 
 QSurfaceFormat QWindowsWindow::format() const
@@ -2040,17 +2053,20 @@ void QWindowsWindow::handleDpiChanged(HWND hwnd, WPARAM wParam, LPARAM lParam)
 
 void QWindowsWindow::handleDpiChangedAfterParent(HWND hwnd)
 {
-    const UINT dpi = GetDpiForWindow(hwnd);
-    const qreal scale = dpiRelativeScale(dpi);
-    setSavedDpi(dpi);
+    if (QWindowsContext::user32dll.getDpiForWindow)
+    {
+        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
+        const qreal scale = dpiRelativeScale(dpi);
+        setSavedDpi(dpi);
 
-    checkForScreenChanged(QWindowsWindow::FromDpiChange);
+        checkForScreenChanged(QWindowsWindow::FromDpiChange);
 
-    // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
-    // Windows about the new size, so we need to manually scale them.
-    QRect currentGeometry = geometry();
-    QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
-    setGeometry(scaledGeometry);
+        // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
+        // Windows about the new size, so we need to manually scale them.
+        QRect currentGeometry = geometry();
+        QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
+        setGeometry(scaledGeometry);
+    }    
 }
 
 static QRect normalFrameGeometry(HWND hwnd)
