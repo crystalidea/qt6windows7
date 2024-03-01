@@ -10,4 +10,4 @@ Known issues:
 
 Qt 6.6 designer running on Windows 7:
 
-![image](https://github.com/crystalidea/qt6windows7/assets/2600624/4c5ad13f-db6e-4684-8184-9615e4e55461)
+![sshot-533](https://github.com/crystalidea/qt6windows7/assets/2600624/86b1763a-13d3-4b93-b4a9-654c70838ef2)
