@@ -5,8 +5,8 @@ You can use [our prebuild binaries](https://github.com/crystalidea/qt6windows7/r
 
 Known issues:
 
-- Scalled UI is somewhat too big for 125% scalling option set in Windows 7. Probably can be be tweaked with dpi settings (?)
 - QRhi using DirectX 11/12 is not ported
+- setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round) is recommended
 
 Qt 6.6 designer running on Windows 7:
 
