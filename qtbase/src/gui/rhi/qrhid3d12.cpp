@@ -469,8 +469,10 @@ void QRhiD3D12::destroy()
     cbvSrvUavPool.destroy();
 
     for (int i = 0; i < QD3D12_FRAMES_IN_FLIGHT; ++i) {
-        cmdAllocators[i]->Release();
-        cmdAllocators[i] = nullptr;
+        if (cmdAllocators[i]) {
+            cmdAllocators[i]->Release();
+            cmdAllocators[i] = nullptr;
+        }
     }
 
     if (fullFenceEvent) {
@@ -1504,6 +1506,10 @@ QRhi::FrameOpResult QRhiD3D12::endFrame(QRhiSwapChain *swapChain, QRhi::EndFrame
                 && (swapChainD->swapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING))
         {
             presentFlags |= DXGI_PRESENT_ALLOW_TEARING;
+        }
+        if (!swapChainD->swapChain) {
+            qWarning("Failed to present, no swapchain");
+            return QRhi::FrameOpError;
         }
         HRESULT hr = swapChainD->swapChain->Present(swapChainD->swapInterval, presentFlags);
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
@@ -2913,24 +2919,18 @@ void QRhiD3D12::waitGpu()
     }
 }
 
-DXGI_SAMPLE_DESC QRhiD3D12::effectiveSampleCount(int sampleCount, DXGI_FORMAT format) const
+DXGI_SAMPLE_DESC QRhiD3D12::effectiveSampleDesc(int sampleCount, DXGI_FORMAT format) const
 {
     DXGI_SAMPLE_DESC desc;
     desc.Count = 1;
     desc.Quality = 0;
 
-    // Stay compatible with QSurfaceFormat and friends where samples == 0 means the same as 1.
-    int s = qBound(1, sampleCount, 64);
-
-    if (!supportedSampleCounts().contains(s)) {
-        qWarning("Attempted to set unsupported sample count %d", sampleCount);
-        return desc;
-    }
+    const int s = effectiveSampleCount(sampleCount);
 
     if (s > 1) {
         D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msaaInfo = {};
         msaaInfo.Format = format;
-        msaaInfo.SampleCount = s;
+        msaaInfo.SampleCount = UINT(s);
         if (SUCCEEDED(dev->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &msaaInfo, sizeof(msaaInfo)))) {
             if (msaaInfo.NumQualityLevels > 0) {
                 desc.Count = UINT(s);
@@ -3801,7 +3801,7 @@ bool QD3D12RenderBuffer::create()
     case QRhiRenderBuffer::Color:
     {
         dxgiFormat = toD3DTextureFormat(backingFormat(), {});
-        sampleDesc = rhiD->effectiveSampleCount(m_sampleCount, dxgiFormat);
+        sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, dxgiFormat);
         D3D12_RESOURCE_DESC resourceDesc = {};
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         resourceDesc.Width = UINT64(m_pixelSize.width());
@@ -3842,7 +3842,7 @@ bool QD3D12RenderBuffer::create()
     case QRhiRenderBuffer::DepthStencil:
     {
         dxgiFormat = DS_FORMAT;
-        sampleDesc = rhiD->effectiveSampleCount(m_sampleCount, dxgiFormat);
+        sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, dxgiFormat);
         D3D12_RESOURCE_DESC resourceDesc = {};
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         resourceDesc.Width = UINT64(m_pixelSize.width());
@@ -3998,7 +3998,7 @@ bool QD3D12Texture::prepareCreate(QSize *adjustedSize)
     QRHI_RES_RHI(QRhiD3D12);
     dxgiFormat = toD3DTextureFormat(m_format, m_flags);
     mipLevelCount = uint(hasMipMaps ? rhiD->q->mipLevelsForSize(size) : 1);
-    sampleDesc = rhiD->effectiveSampleCount(m_sampleCount, dxgiFormat);
+    sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, dxgiFormat);
     if (sampleDesc.Count > 1) {
         if (isCube) {
             qWarning("Cubemap texture cannot be multisample");
@@ -4152,7 +4152,7 @@ bool QD3D12Texture::create()
 
     bool needsOptimizedClearValueSpecified = false;
     UINT resourceFlags = 0;
-    if (m_flags.testFlag(RenderTarget)) {
+    if (m_flags.testFlag(RenderTarget) || sampleDesc.Count > 1) {
         if (isDepth)
             resourceFlags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         else
@@ -5328,7 +5328,7 @@ bool QD3D12GraphicsPipeline::create()
     }
 
     QD3D12RenderPassDescriptor *rpD = QRHI_RES(QD3D12RenderPassDescriptor, m_renderPassDesc);
-    const DXGI_SAMPLE_DESC sampleDesc = rhiD->effectiveSampleCount(m_sampleCount, DXGI_FORMAT(rpD->colorFormat[0]));
+    const DXGI_SAMPLE_DESC sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, DXGI_FORMAT(rpD->colorFormat[0]));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.pRootSignature = rootSig;
@@ -5951,7 +5951,7 @@ void QD3D12SwapChain::chooseFormats()
                      "(or Use HDR is Off in the Display Settings), ignoring HDR format request");
         }
     }
-    sampleDesc = rhiD->effectiveSampleCount(m_sampleCount, colorFormat);
+    sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, colorFormat);
 }
 
 bool QD3D12SwapChain::createOrResize()
@@ -5982,7 +5982,7 @@ bool QD3D12SwapChain::createOrResize()
             if (!dcompTarget) {
                 hr = rhiD->dcompDevice->CreateTargetForHwnd(hwnd, true, &dcompTarget);
                 if (FAILED(hr)) {
-                    qWarning("Failed to create Direct Compsition target for the window: %s",
+                    qWarning("Failed to create Direct Composition target for the window: %s",
                              qPrintable(QSystemError::windowsComString(hr)));
                 }
             }
@@ -6078,7 +6078,11 @@ bool QD3D12SwapChain::createOrResize()
             }
         }
         if (FAILED(hr)) {
-            qWarning("Failed to create D3D12 swapchain: %s", qPrintable(QSystemError::windowsComString(hr)));
+            qWarning("Failed to create D3D12 swapchain: %s"
+                     " (Width=%u Height=%u Format=%u SampleCount=%u BufferCount=%u Scaling=%u SwapEffect=%u Stereo=%u)",
+                     qPrintable(QSystemError::windowsComString(hr)),
+                     desc.Width, desc.Height, UINT(desc.Format), desc.SampleDesc.Count,
+                     desc.BufferCount, UINT(desc.Scaling), UINT(desc.SwapEffect), UINT(desc.Stereo));
             return false;
         }
 

@@ -437,19 +437,13 @@ QList<int> QRhiD3D11::supportedSampleCounts() const
     return { 1, 2, 4, 8 };
 }
 
-DXGI_SAMPLE_DESC QRhiD3D11::effectiveSampleCount(int sampleCount) const
+DXGI_SAMPLE_DESC QRhiD3D11::effectiveSampleDesc(int sampleCount) const
 {
     DXGI_SAMPLE_DESC desc;
     desc.Count = 1;
     desc.Quality = 0;
 
-    // Stay compatible with QSurfaceFormat and friends where samples == 0 means the same as 1.
-    int s = qBound(1, sampleCount, 64);
-
-    if (!supportedSampleCounts().contains(s)) {
-        qWarning("Attempted to set unsupported sample count %d", sampleCount);
-        return desc;
-    }
+    const int s = effectiveSampleCount(sampleCount);
 
     desc.Count = UINT(s);
     if (s > 1)
@@ -1461,9 +1455,9 @@ static inline DXGI_FORMAT toD3DTextureFormat(QRhiTexture::Format format, QRhiTex
     case QRhiTexture::D16:
         return DXGI_FORMAT_R16_TYPELESS;
     case QRhiTexture::D24:
-        return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        return DXGI_FORMAT_R24G8_TYPELESS;
     case QRhiTexture::D24S8:
-        return DXGI_FORMAT_D24_UNORM_S8_UINT;
+        return DXGI_FORMAT_R24G8_TYPELESS;
     case QRhiTexture::D32F:
         return DXGI_FORMAT_R32_TYPELESS;
 
@@ -3043,7 +3037,7 @@ bool QD3D11RenderBuffer::create()
         return false;
 
     QRHI_RES_RHI(QRhiD3D11);
-    sampleDesc = rhiD->effectiveSampleCount(m_sampleCount);
+    sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount);
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = UINT(m_pixelSize.width());
@@ -3185,7 +3179,7 @@ static inline DXGI_FORMAT toD3DDepthTextureDSVFormat(QRhiTexture::Format format)
     case QRhiTexture::Format::D16:
         return DXGI_FORMAT_D16_UNORM;
     case QRhiTexture::Format::D24:
-        return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        return DXGI_FORMAT_D24_UNORM_S8_UINT;
     case QRhiTexture::Format::D24S8:
         return DXGI_FORMAT_D24_UNORM_S8_UINT;
     case QRhiTexture::Format::D32F:
@@ -3214,7 +3208,7 @@ bool QD3D11Texture::prepareCreate(QSize *adjustedSize)
     QRHI_RES_RHI(QRhiD3D11);
     dxgiFormat = toD3DTextureFormat(m_format, m_flags);
     mipLevelCount = uint(hasMipMaps ? rhiD->q->mipLevelsForSize(size) : 1);
-    sampleDesc = rhiD->effectiveSampleCount(m_sampleCount);
+    sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount);
     if (sampleDesc.Count > 1) {
         if (isCube) {
             qWarning("Cubemap texture cannot be multisample");
@@ -4390,7 +4384,7 @@ bool QD3D11GraphicsPipeline::create()
     rastDesc.SlopeScaledDepthBias = m_slopeScaledDepthBias;
     rastDesc.DepthClipEnable = true;
     rastDesc.ScissorEnable = m_flags.testFlag(UsesScissor);
-    rastDesc.MultisampleEnable = rhiD->effectiveSampleCount(m_sampleCount).Count > 1;
+    rastDesc.MultisampleEnable = rhiD->effectiveSampleDesc(m_sampleCount).Count > 1;
     HRESULT hr = rhiD->dev->CreateRasterizerState(&rastDesc, &rastState);
     if (FAILED(hr)) {
         qWarning("Failed to create rasterizer state: %s",
@@ -4857,8 +4851,12 @@ void QD3D11SwapChain::destroy()
     }
 
     QRHI_RES_RHI(QRhiD3D11);
-    if (rhiD)
+    if (rhiD) {
         rhiD->unregisterResource(this);
+        // See Deferred Destruction Issues with Flip Presentation Swap Chains in
+        // https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-flush
+        rhiD->context->Flush();
+    }
 }
 
 QRhiCommandBuffer *QD3D11SwapChain::currentFrameCommandBuffer()
@@ -5074,7 +5072,7 @@ bool QD3D11SwapChain::createOrResize()
         swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
     if (!swapChain) {
-        sampleDesc = rhiD->effectiveSampleCount(m_sampleCount);
+        sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount);
         colorFormat = DEFAULT_FORMAT;
         srgbAdjustedColorFormat = m_flags.testFlag(sRGB) ? DEFAULT_SRGB_FORMAT : DEFAULT_FORMAT;
 
@@ -5187,8 +5185,11 @@ bool QD3D11SwapChain::createOrResize()
             }
         }
         if (FAILED(hr)) {
-            qWarning("Failed to create D3D11 swapchain: %s",
-                qPrintable(QSystemError::windowsComString(hr)));
+            qWarning("Failed to create D3D11 swapchain: %s"
+                     " (Width=%u Height=%u Format=%u SampleCount=%u BufferCount=%u Scaling=%u SwapEffect=%u Stereo=%u)",
+                     qPrintable(QSystemError::windowsComString(hr)),
+                     desc.Width, desc.Height, UINT(desc.Format), desc.SampleDesc.Count,
+                     desc.BufferCount, UINT(desc.Scaling), UINT(desc.SwapEffect), UINT(desc.Stereo));
             return false;
         }
     } else {
