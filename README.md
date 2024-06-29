@@ -10,7 +10,6 @@ You can use [our prebuild binaries](https://github.com/crystalidea/qt6windows7/r
 ### Known issues:
 
 - QRhi using DirectX 11/12 is not ported
-- setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round) is recommended
 
 ### Older versions:
 
