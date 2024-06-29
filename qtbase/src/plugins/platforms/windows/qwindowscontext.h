@@ -34,6 +34,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcQpaScreen)
 class QWindow;
 class QPlatformScreen;
 class QPlatformWindow;
+class QPlatformKeyMapper;
 class QWindowsMenuBar;
 class QWindowsScreenManager;
 class QWindowsTabletSupport;
@@ -217,7 +218,7 @@ public:
     unsigned systemInfo() const;
 
     bool useRTLExtensions() const;
-    QList<int> possibleKeys(const QKeyEvent *e) const;
+    QPlatformKeyMapper *keyMapper() const;
 
     HandleBaseWindowHash &windows();
 

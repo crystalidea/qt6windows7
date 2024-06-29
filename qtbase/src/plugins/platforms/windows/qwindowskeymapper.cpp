@@ -17,6 +17,8 @@
 #include <QtCore/private/qdebug_p.h>
 #include <QtCore/private/qtools_p.h>
 
+#include "vxkex.h"
+
 #if defined(WM_APPCOMMAND)
 #  ifndef FAPPCOMMAND_MOUSE
 #    define FAPPCOMMAND_MOUSE 0x8000
@@ -88,9 +90,17 @@ QWindowsKeyMapper::~QWindowsKeyMapper()= default;
 #define VK_OEM_3 0xC0
 #endif
 
-// We not only need the scancode itself but also the extended bit of key messages. Thus we need
-// the additional bit when masking the scancode.
-enum { scancodeBitmask = 0x1ff };
+// Get scancode from the given message
+static constexpr quint32 getScancode(const MSG &msg)
+{
+    const auto keyFlags = HIWORD(msg.lParam);
+    quint32 scancode = LOBYTE(keyFlags);
+    // if extended-key flag is on, the scan code consists of a sequence of two bytes,
+    // where the first byte has a value of 0xe0.
+    if ((keyFlags & KF_EXTENDED) != 0)
+        scancode |= 0xE000;
+    return scancode;
+}
 
 // Key recorder ------------------------------------------------------------------------[ start ] --
 struct KeyRecord {
@@ -532,33 +542,6 @@ QDebug operator<<(QDebug d, const KeyboardLayoutItem &k)
     d << ')';
     return d;
 }
-
-// Helpers to format a list of int as Qt key sequence
-class formatKeys
-{
-public:
-    explicit formatKeys(const QList<int> &keys) : m_keys(keys) {}
-
-private:
-    friend QDebug operator<<(QDebug d, const formatKeys &keys);
-    const QList<int> &m_keys;
-};
-
-QDebug operator<<(QDebug d, const formatKeys &k)
-{
-    QDebugStateSaver saver(d);
-    d.nospace();
-    d << '(';
-    for (int i =0, size = k.m_keys.size(); i < size; ++i) {
-        if (i)
-            d << ", ";
-        d << QKeySequence(k.m_keys.at(i));
-    }
-    d << ')';
-    return d;
-}
-#else // !QT_NO_DEBUG_STREAM
-static int formatKeys(const QList<int> &) { return 0; }
 #endif // QT_NO_DEBUG_STREAM
 
 /**
@@ -656,7 +639,7 @@ void QWindowsKeyMapper::updateKeyMap(const MSG &msg)
 {
     unsigned char kbdBuffer[256]; // Will hold the complete keyboard state
     GetKeyboardState(kbdBuffer);
-    const quint32 scancode = (msg.lParam >> 16) & scancodeBitmask;
+    const quint32 scancode = getScancode(msg);
     updatePossibleKeyCodes(kbdBuffer, scancode, quint32(msg.wParam));
 }
 
@@ -751,28 +734,18 @@ static inline QString messageKeyText(const MSG &msg)
 
 [[nodiscard]] static inline int getTitleBarHeight(const HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow && QWindowsContext::user32dll.getSystemMetricsForDpi)
-    {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const int captionHeight = QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYCAPTION, dpi);
-        if (IsZoomed(hwnd))
-            return captionHeight;
-        // The frame height should also be taken into account if the window
-        // is not maximized.
-        const int frameHeight = QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
-                                + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-        return captionHeight + frameHeight;    
-    }
-    else
-    {
-        const int captionHeight = GetSystemMetrics(SM_CYCAPTION);
-        if (IsZoomed(hwnd))
-            return captionHeight;
-        // The frame height should also be taken into account if the window
-        // is not maximized.
-        const int frameHeight = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-        return captionHeight + frameHeight;    
-    }
+    const BOOL bNewAPI = (QWindowsContext::user32dll.getSystemMetricsForDpi != nullptr);
+    const UINT dpi = bNewAPI ? QWindowsContext::user32dll.getDpiForWindow(hwnd) : vxkex::GetDpiForWindow(hwnd);
+    const int captionHeight = bNewAPI ? QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYCAPTION, dpi) : vxkex::GetSystemMetricsForDpi(SM_CYCAPTION, dpi);
+    if (IsZoomed(hwnd))
+        return captionHeight;
+    // The frame height should also be taken into account if the window
+    // is not maximized.
+    const int frameHeight = bNewAPI ? 
+        (QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi))
+        : (vxkex::GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + vxkex::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi));
+
+    return captionHeight + frameHeight;
 }
 
 [[nodiscard]] static inline bool isSystemMenuOffsetNeeded(const Qt::WindowFlags flags)
@@ -955,7 +928,7 @@ bool QWindowsKeyMapper::translateKeyEventInternal(QWindow *window, MSG msg,
         m_seenAltGr = true;
     const UINT msgType = msg.message;
 
-    const quint32 scancode = (msg.lParam >> 16) & scancodeBitmask;
+    const quint32 scancode = getScancode(msg);
     auto vk_key = quint32(msg.wParam);
     quint32 nModifiers = 0;
 
@@ -1352,7 +1325,7 @@ bool QWindowsKeyMapper::translateKeyEventInternal(QWindow *window, MSG msg,
     return result;
 }
 
-Qt::KeyboardModifiers QWindowsKeyMapper::queryKeyboardModifiers()
+Qt::KeyboardModifiers QWindowsKeyMapper::queryKeyboardModifiers() const
 {
     Qt::KeyboardModifiers modifiers = Qt::NoModifier;
     if (GetKeyState(VK_SHIFT) < 0)
@@ -1366,9 +1339,9 @@ Qt::KeyboardModifiers QWindowsKeyMapper::queryKeyboardModifiers()
     return modifiers;
 }
 
-QList<int> QWindowsKeyMapper::possibleKeys(const QKeyEvent *e) const
+QList<QKeyCombination> QWindowsKeyMapper::possibleKeyCombinations(const QKeyEvent *e) const
 {
-    QList<int> result;
+    QList<QKeyCombination> result;
 
 
     const quint32 nativeVirtualKey = e->nativeVirtualKey();
@@ -1382,31 +1355,34 @@ QList<int> QWindowsKeyMapper::possibleKeys(const QKeyEvent *e) const
     quint32 baseKey = kbItem.qtKey[0];
     Qt::KeyboardModifiers keyMods = e->modifiers();
     if (baseKey == Qt::Key_Return && (e->nativeModifiers() & ExtendedKey)) {
-        result << (Qt::Key_Enter | keyMods).toCombined();
+        result << (Qt::Key_Enter | keyMods);
         return result;
     }
-    result << int(baseKey) + int(keyMods); // The base key is _always_ valid, of course
+
+    // The base key is _always_ valid, of course
+    result << QKeyCombination::fromCombined(int(baseKey) + int(keyMods));
 
     for (size_t i = 1; i < NumMods; ++i) {
         Qt::KeyboardModifiers neededMods = ModsTbl[i];
         quint32 key = kbItem.qtKey[i];
         if (key && key != baseKey && ((keyMods & neededMods) == neededMods)) {
             const Qt::KeyboardModifiers missingMods = keyMods & ~neededMods;
-            const int matchedKey = int(key) + int(missingMods);
-            const auto it =
-                std::find_if(result.begin(), result.end(),
-                             [key] (int k) { return (k & ~Qt::KeyboardModifierMask) == key; });
+            const auto matchedKey = QKeyCombination::fromCombined(int(key) + int(missingMods));
+            const auto it = std::find_if(result.begin(), result.end(),
+                [key](auto keyCombination) {
+                    return keyCombination.key() == key;
+                });
             // QTBUG-67200: Use the match with the least modifiers (prefer
             // Shift+9 over Alt + Shift + 9) resulting in more missing modifiers.
             if (it == result.end())
                 result << matchedKey;
-            else if (missingMods > Qt::KeyboardModifiers(*it & Qt::KeyboardModifierMask))
+            else if (missingMods > it->keyboardModifiers())
                 *it = matchedKey;
         }
     }
     qCDebug(lcQpaEvents) << __FUNCTION__  << e << "nativeVirtualKey="
         << Qt::showbase << Qt::hex << e->nativeVirtualKey() << Qt::dec << Qt::noshowbase
-        << e->modifiers() << kbItem << "\n  returns" << formatKeys(result);
+        << e->modifiers() << kbItem << "\n  returns" << result;
     return result;
 }
 

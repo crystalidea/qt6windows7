@@ -8,7 +8,6 @@
 #include "qmutex.h"
 #include <qdebug.h>
 #include "qatomic.h"
-#include "qelapsedtimer.h"
 #include "qfutex_p.h"
 #include "qthread.h"
 #include "qmutex_p.h"
@@ -673,12 +672,11 @@ bool QBasicMutex::lockInternal(int timeout) QT_MUTEX_LOCK_NOEXCEPT
  */
 bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXCEPT
 {
-    qint64 remainingTime = deadlineTimer.remainingTimeNSecs();
-    if (remainingTime == 0)
+    if (deadlineTimer.hasExpired())
         return false;
 
     if (futexAvailable()) {
-        if (Q_UNLIKELY(remainingTime < 0)) {    // deadlineTimer.isForever()
+        if (Q_UNLIKELY(deadlineTimer.isForever())) {
             lockInternal();
             return true;
         }
@@ -689,8 +687,8 @@ bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXC
         if (d_ptr.fetchAndStoreAcquire(dummyFutexValue()) == nullptr)
             return true;
 
-        Q_FOREVER {
-            if (!futexWait(d_ptr, dummyFutexValue(), remainingTime))
+        for (;;) {
+            if (!futexWait(d_ptr, dummyFutexValue(), deadlineTimer))
                 return false;
 
             // We got woken up, so must try to acquire the mutex. We must set
@@ -699,9 +697,7 @@ bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXC
             if (d_ptr.fetchAndStoreAcquire(dummyFutexValue()) == nullptr)
                 return true;
 
-            // calculate the remaining time
-            remainingTime = deadlineTimer.remainingTimeNSecs();
-            if (remainingTime <= 0)
+            if (deadlineTimer.hasExpired())
                 return false;
         }
     }
@@ -713,7 +709,7 @@ bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXC
             continue;
 
         if (copy == dummyLocked()) {
-            if (remainingTime == 0)
+            if (deadlineTimer.hasExpired())
                 return false;
             // The mutex is locked but does not have a QMutexPrivate yet.
             // we need to allocate a QMutexPrivate
@@ -728,7 +724,7 @@ bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXC
         }
 
         QMutexPrivate *d = static_cast<QMutexPrivate *>(copy);
-        if (remainingTime == 0 && !d->possiblyUnlocked.loadRelaxed())
+        if (deadlineTimer.hasExpired() && !d->possiblyUnlocked.loadRelaxed())
             return false;
 
         // At this point we have a pointer to a QMutexPrivate. But the other thread
@@ -790,7 +786,6 @@ bool QBasicMutex::lockInternal(QDeadlineTimer deadlineTimer) QT_MUTEX_LOCK_NOEXC
             Q_ASSERT(d == d_ptr.loadRelaxed());
             return true;
         } else {
-            Q_ASSERT(remainingTime >= 0);
             // timed out
             d->derefWaiters(1);
             //There may be a race in which the mutex is unlocked right after we timed out,
@@ -915,7 +910,7 @@ QT_END_NAMESPACE
 
 #if defined(QT_ALWAYS_USE_FUTEX)
 // nothing
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_DARWIN)
 #  include "qmutex_mac.cpp"
 #elif defined(Q_OS_WIN)
 #  include "qmutex_win.cpp"

@@ -7,6 +7,7 @@
 #include "qwindowsmenu.h"
 #include "qwindowsdialoghelpers.h"
 #include "qwindowscontext.h"
+#include "qwindowsiconengine.h"
 #include "qwindowsintegration.h"
 #if QT_CONFIG(systemtrayicon)
 #  include "qwindowssystemtrayicon.h"
@@ -27,6 +28,7 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qwaitcondition.h>
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtGui/qcolor.h>
 #include <QtGui/qpalette.h>
 #include <QtGui/qguiapplication.h>
@@ -42,7 +44,7 @@
 
 #include <algorithm>
 
-#include <VersionHelpers.h>
+#include "vxkex.h"
 
 #if QT_CONFIG(cpp_winrt)
 #   include <QtCore/private/qt_winrtbase_p.h>
@@ -81,11 +83,11 @@ static inline QColor mixColors(const QColor &c1, const QColor &c2)
             (c1.blue() + c2.blue()) / 2};
 }
 
-static inline QColor getSysColor(int index)
-{
-    COLORREF cr = GetSysColor(index);
-    return QColor(GetRValue(cr), GetGValue(cr), GetBValue(cr));
-}
+enum AccentColorLevel {
+    AccentColorDarkest,
+    AccentColorNormal,
+    AccentColorLightest
+};
 
 #if QT_CONFIG(cpp_winrt)
 static constexpr QColor getSysColor(winrt::Windows::UI::Color &&color)
@@ -93,6 +95,54 @@ static constexpr QColor getSysColor(winrt::Windows::UI::Color &&color)
     return QColor(color.R, color.G, color.B, color.A);
 }
 #endif
+
+[[maybe_unused]] [[nodiscard]] static inline QColor qt_accentColor(AccentColorLevel level)
+{
+    QColor accent;
+    QColor accentLight;
+    QColor accentDarkest;
+
+#if QT_CONFIG(cpp_winrt)
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10)
+    {
+        using namespace winrt::Windows::UI::ViewManagement;
+        const auto settings = UISettings();
+        accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
+        accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
+        accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));
+    }
+#endif
+
+    if (!accent.isValid())
+    {
+        const QWinRegistryKey registry(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)");
+        if (!registry.isValid())
+            return {};
+        const QVariant value = registry.value(L"AccentColor");
+        if (!value.isValid())
+            return {};
+        // The retrieved value is in the #AABBGGRR format, we need to
+        // convert it to the #AARRGGBB format which Qt expects.
+        const QColor abgr = QColor::fromRgba(qvariant_cast<DWORD>(value));
+        if (!abgr.isValid())
+            return {};
+        accent = QColor::fromRgb(abgr.blue(), abgr.green(), abgr.red(), abgr.alpha());
+        accentLight = accent.lighter(120);
+        accentDarkest = accent.darker(120 * 120 * 120);
+    }
+
+    if (level == AccentColorDarkest)
+        return accentDarkest;
+    else if (level == AccentColorLightest)
+        return accentLight;
+    return accent;
+}
+
+static inline QColor getSysColor(int index)
+{
+    COLORREF cr = GetSysColor(index);
+    return QColor(GetRValue(cr), GetGValue(cr), GetBValue(cr));
+}
 
 // QTBUG-48823/Windows 10: SHGetFileInfo() (as called by item views on file system
 // models has been observed to trigger a WM_PAINT on the mainwindow. Suppress the
@@ -223,44 +273,17 @@ static QColor placeHolderColor(QColor textColor)
     return textColor;
 }
 
-[[maybe_unused]] [[nodiscard]] static inline QColor qt_accentColor()
-{
-    const QWinRegistryKey registry(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\DWM)");
-    if (!registry.isValid())
-        return {};
-    const QVariant value = registry.value(L"AccentColor");
-    if (!value.isValid())
-        return {};
-    // The retrieved value is in the #AABBGGRR format, we need to
-    // convert it to the #AARRGGBB format which Qt expects.
-    const QColor abgr = QColor::fromRgba(qvariant_cast<DWORD>(value));
-    if (!abgr.isValid())
-        return {};
-    return QColor::fromRgb(abgr.blue(), abgr.green(), abgr.red(), abgr.alpha());
-}
-
 /*
     This is used when the theme is light mode, and when the theme is dark but the
     application doesn't support dark mode. In the latter case, we need to check.
 */
 static void populateLightSystemBasePalette(QPalette &result)
 {
-    QColor background = getSysColor(COLOR_BTNFACE);
-    QColor textColor = getSysColor(COLOR_WINDOWTEXT);
-    QColor accent = qt_accentColor();
-    QColor accentDarkest = accent.darker(120 * 120 * 120);
+    const QColor background = getSysColor(COLOR_BTNFACE);
+    const QColor textColor = getSysColor(COLOR_WINDOWTEXT);
 
-#if QT_CONFIG(cpp_winrt)
-    if (IsWindows10OrGreater())
-    {
-        // respect the Windows 11 accent color
-        using namespace winrt::Windows::UI::ViewManagement;
-        const auto settings = UISettings();
-
-        accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-        accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
-    }
-#endif
+    const QColor accent = qt_accentColor(AccentColorNormal);
+    const QColor accentDarkest = qt_accentColor(AccentColorDarkest);
 
     const QColor linkColor = accent;
     const QColor btnFace = background;
@@ -298,7 +321,7 @@ static void populateDarkSystemBasePalette(QPalette &result)
 {
     QColor foreground = Qt::white;
     QColor background = QColor(0x1E, 0x1E, 0x1E);
-    QColor accent = qt_accentColor();
+    QColor accent = qt_accentColor(AccentColorNormal);
     QColor accentDark = accent.darker(120);
     QColor accentDarker = accentDark.darker(120);
     QColor accentDarkest = accentDarker.darker(120);
@@ -307,7 +330,7 @@ static void populateDarkSystemBasePalette(QPalette &result)
     QColor accentLightest = accentLighter.lighter(120);
 
 #if QT_CONFIG(cpp_winrt)
-    if (IsWindows10OrGreater())
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10)
     {
         using namespace winrt::Windows::UI::ViewManagement;
         const auto settings = UISettings();
@@ -472,7 +495,10 @@ static inline QStringList iconThemeSearchPaths()
 
 static inline QStringList styleNames()
 {
-    return { QStringLiteral("WindowsVista"), QStringLiteral("Windows") };
+    QStringList styles = { QStringLiteral("WindowsVista"), QStringLiteral("Windows") };
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11)
+        styles.prepend(QStringLiteral("Windows11"));
+    return styles;
 }
 
 static inline int uiEffects()
@@ -537,6 +563,8 @@ QVariant QWindowsTheme::themeHint(ThemeHint hint) const
 
 Qt::ColorScheme QWindowsTheme::colorScheme() const
 {
+    if (queryHighContrast())
+        return Qt::ColorScheme::Unknown;
     return QWindowsContext::isDarkMode() ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
 }
 
@@ -559,24 +587,10 @@ void QWindowsTheme::refreshPalettes()
     m_palettes[MenuPalette] = new QPalette(menuPalette(*m_palettes[SystemPalette], light));
     m_palettes[MenuBarPalette] = menuBarPalette(*m_palettes[MenuPalette], light);
     if (!light) {
-        QColor accent = qt_accentColor();
-        QColor accentLight = accent.lighter(120);
-        QColor accentDarkest = accent.darker(120 * 120 * 120);
-
-#if QT_CONFIG(cpp_winrt)
-        if (IsWindows10OrGreater())
-        {
-            using namespace winrt::Windows::UI::ViewManagement;
-            const auto settings = UISettings();
-            accent = getSysColor(settings.GetColorValue(UIColorType::Accent));
-            accentLight = getSysColor(settings.GetColorValue(UIColorType::AccentLight1));
-            accentDarkest = getSysColor(settings.GetColorValue(UIColorType::AccentDark3));    
-        }    
-#endif
         m_palettes[CheckBoxPalette] = new QPalette(*m_palettes[SystemPalette]);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Base, accent);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Button, accentLight);
-        m_palettes[CheckBoxPalette]->setColor(QPalette::Inactive, QPalette::Base, accentDarkest);
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Base, qt_accentColor(AccentColorNormal));
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Active, QPalette::Button, qt_accentColor(AccentColorLightest));
+        m_palettes[CheckBoxPalette]->setColor(QPalette::Inactive, QPalette::Base, qt_accentColor(AccentColorDarkest));
         m_palettes[RadioButtonPalette] = new QPalette(*m_palettes[CheckBoxPalette]);
     }
 }
@@ -586,15 +600,15 @@ QPalette QWindowsTheme::systemPalette(Qt::ColorScheme colorScheme)
     QPalette result = standardPalette();
 
     switch (colorScheme) {
-        case Qt::ColorScheme::Light:
-            populateLightSystemBasePalette(result);
-            break;
-        case Qt::ColorScheme::Dark:
-            populateDarkSystemBasePalette(result);
-            break;
-        default:
-            qFatal("Unknown color scheme");
-            break;
+    case Qt::ColorScheme::Light:
+        populateLightSystemBasePalette(result);
+        break;
+    case Qt::ColorScheme::Dark:
+        populateDarkSystemBasePalette(result);
+        break;
+    default:
+        qFatal("Unknown color scheme");
+        break;
     }
 
     if (result.window() != result.base()) {
@@ -675,14 +689,11 @@ void QWindowsTheme::refreshFonts()
     fixedFont.setStyleHint(QFont::TypeWriter);
 
     LOGFONT lfIconTitleFont;
-    QFont iconTitleFont;
-    if (QWindowsContext::user32dll.systemParametersInfoForDpi) {
+    if (QWindowsContext::user32dll.systemParametersInfoForDpi)
         QWindowsContext::user32dll.systemParametersInfoForDpi(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0, dpi);
-        iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont, dpi);
-    } else {
-        SystemParametersInfo(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0);
-        iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont);
-    }
+    else
+        vxkex::SystemParametersInfoForDpi(SPI_GETICONTITLELOGFONT, sizeof(lfIconTitleFont), &lfIconTitleFont, 0, dpi);
+    const QFont iconTitleFont = QWindowsFontDatabase::LOGFONT_to_QFont(lfIconTitleFont, dpi);
 
     m_fonts[SystemFont] = new QFont(QWindowsFontDatabase::systemDefaultFont());
     m_fonts[MenuFont] = new QFont(menuFont);
@@ -856,15 +867,18 @@ QPixmap QWindowsTheme::standardPixmap(StandardPixmap sp, const QSizeF &pixmapSiz
     }
 
     if (stockId != SIID_INVALID) {
-        QPixmap pixmap;
         SHSTOCKICONINFO iconInfo;
         memset(&iconInfo, 0, sizeof(iconInfo));
         iconInfo.cbSize = sizeof(iconInfo);
-        stockFlags |= (pixmapSize.width() > 16 ? SHGFI_LARGEICON : SHGFI_SMALLICON);
-        if (SHGetStockIconInfo(stockId, SHGFI_ICON | stockFlags, &iconInfo) == S_OK) {
-            pixmap = qt_pixmapFromWinHICON(iconInfo.hIcon);
-            DestroyIcon(iconInfo.hIcon);
-            return pixmap;
+        stockFlags |= SHGSI_ICONLOCATION;
+        if (SHGetStockIconInfo(stockId, stockFlags, &iconInfo) == S_OK) {
+            const auto iconSize = pixmapSize.width();
+            HICON icon;
+            if (SHDefExtractIcon(iconInfo.szPath, iconInfo.iIcon, 0, &icon, nullptr, iconSize) == S_OK) {
+                QPixmap pixmap = qt_pixmapFromWinHICON(icon);
+                DestroyIcon(icon);
+                return pixmap;
+            }
         }
     }
 
@@ -1086,6 +1100,11 @@ QPixmap QWindowsFileIconEngine::filePixmap(const QSize &size, QIcon::Mode, QIcon
 QIcon QWindowsTheme::fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions iconOptions) const
 {
     return QIcon(new QWindowsFileIconEngine(fileInfo, iconOptions));
+}
+
+QIconEngine *QWindowsTheme::createIconEngine(const QString &iconName) const
+{
+    return new QWindowsIconEngine(iconName);
 }
 
 static inline bool doUseNativeMenus()

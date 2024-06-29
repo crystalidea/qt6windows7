@@ -27,6 +27,7 @@
 #include <QtGui/qwindow.h>
 #include <QtGui/qregion.h>
 #include <QtGui/qopenglcontext.h>
+#include <QtGui/private/qwindowsthemecache_p.h>
 #include <private/qwindow_p.h> // QWINDOWSIZE_MAX
 #include <private/qguiapplication_p.h>
 #include <private/qhighdpiscaling_p.h>
@@ -42,6 +43,8 @@
 #endif
 
 #include <shellscalingapi.h>
+
+#include "vxkex.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -526,8 +529,8 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
         return QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
                + QWindowsContext::user32dll.getSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
     }
-    
-    return GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+    else
+        return vxkex::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + vxkex::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 /*!
@@ -537,16 +540,22 @@ static inline void updateGLWindowSettings(const QWindow *w, HWND hwnd, Qt::Windo
 
 static QMargins invisibleMargins(QPoint screenPoint)
 {
-    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10) {
-        POINT pt = {screenPoint.x(), screenPoint.y()};
-        if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
-            if (QWindowsContext::shcoredll.isValid()) {
-                UINT dpiX;
-                UINT dpiY;
-                if (SUCCEEDED(QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
-                    const int gap = getResizeBorderThickness(dpiX);
-                    return QMargins(gap, 0, gap, gap);
-                }
+    POINT pt = {screenPoint.x(), screenPoint.y()};
+    if (HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
+        if (QWindowsContext::shcoredll.isValid()) {
+            UINT dpiX;
+            UINT dpiY;
+
+            HRESULT hr = S_OK;
+
+            if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10)
+                hr = QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+            else
+                hr = vxkex::GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+
+            if (SUCCEEDED(hr)) {
+                const int gap = getResizeBorderThickness(dpiX);
+                return QMargins(gap, 0, gap, gap);
             }
         }
     }
@@ -555,12 +564,10 @@ static QMargins invisibleMargins(QPoint screenPoint)
 
 [[nodiscard]] static inline QMargins invisibleMargins(const HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow) {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const int gap = getResizeBorderThickness(dpi);
-        return QMargins(gap, 0, gap, gap);
-    }
-    return QMargins();
+    const UINT dpi = (QWindowsContext::user32dll.getDpiForWindow) ? QWindowsContext::user32dll.getDpiForWindow(hwnd) : vxkex::GetDpiForWindow(hwnd);
+
+    const int gap = getResizeBorderThickness(dpi);
+    return QMargins(gap, 0, gap, gap);
 }
 
 /*!
@@ -848,6 +855,10 @@ void WindowCreationData::fromWindow(const QWindow *w, const Qt::WindowFlags flag
         // NOTE: WS_EX_TRANSPARENT flag can make mouse inputs fall through a layered window
         if (flagsIn & Qt::WindowTransparentForInput)
             exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+
+        // Currently only compatible with D3D surfaces, use it with care.
+        if (qEnvironmentVariableIntValue("QT_QPA_DISABLE_REDIRECTION_SURFACE"))
+            exStyle |= WS_EX_NOREDIRECTIONBITMAP;
     }
 }
 
@@ -1074,10 +1085,17 @@ QMargins QWindowsGeometryHint::frame(const QWindow *w, DWORD style, DWORD exStyl
         return {};
     RECT rect = {0,0,0,0};
     style &= ~DWORD(WS_OVERLAPPED); // Not permitted, see docs.
-    if (QWindowsContext::user32dll.adjustWindowRectExForDpi &&
-        QWindowsContext::user32dll.adjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) {
-        qErrnoWarning("%s: AdjustWindowRectExForDpi failed", __FUNCTION__);
+    if (QWindowsContext::user32dll.adjustWindowRectExForDpi)
+    {
+        if (QWindowsContext::user32dll.adjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) 
+            qErrnoWarning("%s: AdjustWindowRectExForDpi failed", __FUNCTION__);
     }
+    else
+    {
+        if (vxkex::AdjustWindowRectExForDpi(&rect, style, FALSE, exStyle, unsigned(qRound(dpi))) == FALSE) 
+            qErrnoWarning("%s: vxkex::AdjustWindowRectExForDpi failed", __FUNCTION__);
+    }
+
     const QMargins result(qAbs(rect.left), qAbs(rect.top),
                           qAbs(rect.right), qAbs(rect.bottom));
     qCDebug(lcQpaWindow).nospace() << __FUNCTION__ << " style="
@@ -1364,6 +1382,8 @@ QWindowsForeignWindow::QWindowsForeignWindow(QWindow *window, HWND hwnd)
     , m_hwnd(hwnd)
     , m_topLevelStyle(0)
 {
+    if (QPlatformWindow::parent())
+        setParent(QPlatformWindow::parent());
 }
 
 void QWindowsForeignWindow::setParent(const QPlatformWindow *newParentWindow)
@@ -1539,6 +1559,7 @@ QWindowsWindow::QWindowsWindow(QWindow *aWindow, const QWindowsWindowData &data)
 QWindowsWindow::~QWindowsWindow()
 {
     setFlag(WithinDestroy);
+    QWindowsThemeCache::clearThemeCache(m_data.hwnd);
     if (testFlag(TouchRegistered))
         UnregisterTouchWindow(m_data.hwnd);
     destroyWindow();
@@ -1568,7 +1589,7 @@ void QWindowsWindow::initialize()
         }
     }
     QWindowsWindow::setSavedDpi(QWindowsContext::user32dll.getDpiForWindow ?
-        QWindowsContext::user32dll.getDpiForWindow(handle()) : 96);
+        QWindowsContext::user32dll.getDpiForWindow(handle()) : vxkex::GetDpiForWindow(handle()));
 }
 
 QSurfaceFormat QWindowsWindow::format() const
@@ -2018,6 +2039,9 @@ void QWindowsWindow::handleDpiChanged(HWND hwnd, WPARAM wParam, LPARAM lParam)
     const UINT dpi = HIWORD(wParam);
     const qreal scale = dpiRelativeScale(dpi);
     setSavedDpi(dpi);
+
+    QWindowsThemeCache::clearThemeCache(hwnd);
+
     // Send screen change first, so that the new screen is set during any following resize
     checkForScreenChanged(QWindowsWindow::FromDpiChange);
 
@@ -2060,20 +2084,17 @@ void QWindowsWindow::handleDpiChanged(HWND hwnd, WPARAM wParam, LPARAM lParam)
 
 void QWindowsWindow::handleDpiChangedAfterParent(HWND hwnd)
 {
-    if (QWindowsContext::user32dll.getDpiForWindow)
-    {
-        const UINT dpi = QWindowsContext::user32dll.getDpiForWindow(hwnd);
-        const qreal scale = dpiRelativeScale(dpi);
-        setSavedDpi(dpi);
+    const UINT dpi = QWindowsContext::user32dll.getDpiForWindow ? QWindowsContext::user32dll.getDpiForWindow(hwnd) : vxkex::GetDpiForWindow(hwnd);
+    const qreal scale = dpiRelativeScale(dpi);
+    setSavedDpi(dpi);
 
-        checkForScreenChanged(QWindowsWindow::FromDpiChange);
+    checkForScreenChanged(QWindowsWindow::FromDpiChange);
 
-        // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
-        // Windows about the new size, so we need to manually scale them.
-        QRect currentGeometry = geometry();
-        QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
-        setGeometry(scaledGeometry);
-    }    
+    // Child windows do not get WM_GETDPISCALEDSIZE messages to inform
+    // Windows about the new size, so we need to manually scale them.
+    QRect currentGeometry = geometry();
+    QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
+    setGeometry(scaledGeometry);
 }
 
 static QRect normalFrameGeometry(HWND hwnd)
@@ -2485,6 +2506,11 @@ void QWindowsWindow::handleWindowStateChange(Qt::WindowStates state)
             GetWindowPlacement(m_data.hwnd, &windowPlacement);
             const RECT geometry = RECTfromQRect(m_data.restoreGeometry);
             windowPlacement.rcNormalPosition = geometry;
+            // Even if the window is hidden, windowPlacement's showCmd is not SW_HIDE, so change it
+            // manually to avoid unhiding a hidden window with the subsequent call to
+            // SetWindowPlacement().
+            if (!isVisible())
+                windowPlacement.showCmd = SW_HIDE;
             SetWindowPlacement(m_data.hwnd, &windowPlacement);
         }
         // QTBUG-17548: We send expose events when receiving WM_Paint, but for

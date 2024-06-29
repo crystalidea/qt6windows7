@@ -28,8 +28,12 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qbuffer.h>
 #include <QtCore/qpoint.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/private/qcomobject_p.h>
 
 #include <shlobj.h>
+
+#include "vxkex.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -167,7 +171,7 @@ static Qt::MouseButtons lastButtons = Qt::NoButton;
     \internal
 */
 
-class QWindowsOleDropSource : public QWindowsComBase<IDropSource>
+class QWindowsOleDropSource : public QComObject<IDropSource>
 {
 public:
     enum Mode {
@@ -526,7 +530,8 @@ QWindowsOleDropTarget::DragLeave()
 
     qCDebug(lcQpaMime) << __FUNCTION__ << ' ' << m_window;
 
-    lastModifiers = QWindowsKeyMapper::queryKeyboardModifiers();
+    const auto *keyMapper = QWindowsContext::instance()->keyMapper();
+    lastModifiers = keyMapper->queryKeyboardModifiers();
     lastButtons = QWindowsMouseHandler::queryMouseButtons();
 
     QWindowSystemInterface::handleDrag(m_window, nullptr, QPoint(), Qt::IgnoreAction,
@@ -611,7 +616,6 @@ QWindowsOleDropTarget::Drop(LPDATAOBJECT pDataObj, DWORD grfKeyState,
 */
 
 bool QWindowsDrag::m_canceled = false;
-bool QWindowsDrag::m_dragging = false;
 
 QWindowsDrag::QWindowsDrag() = default;
 
@@ -671,7 +675,11 @@ static HRESULT startDoDragDrop(LPDATAOBJECT pDataObj, LPDROPSOURCE pDropSource, 
                 const quint32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
 
                 POINTER_INFO pointerInfo{};
-                if (!QWindowsContext::user32dll.getPointerInfo || !QWindowsContext::user32dll.getPointerInfo(pointerId, &pointerInfo))
+                BOOL bResultPointerInfo = QWindowsContext::user32dll.getPointerInfo ? 
+                    QWindowsContext::user32dll.getPointerInfo(pointerId, &pointerInfo) : 
+                        vxkex::GetPointerInfo(pointerId, &pointerInfo);
+
+                if (!bResultPointerInfo)
                     return E_FAIL;
 
                 if (pointerInfo.pointerFlags & POINTER_FLAG_PRIMARY) {
@@ -739,10 +747,7 @@ Qt::DropAction QWindowsDrag::drag(QDrag *drag)
     const DWORD allowedEffects = translateToWinDragEffects(possibleActions);
     qCDebug(lcQpaMime) << '>' << __FUNCTION__ << "possible Actions=0x"
         << Qt::hex << int(possibleActions) << "effects=0x" << allowedEffects << Qt::dec;
-    // Indicate message handlers we are in DoDragDrop() event loop.
-    QWindowsDrag::m_dragging = true;
     const HRESULT r = startDoDragDrop(dropDataObject, windowDropSource, allowedEffects, &resultEffect);
-    QWindowsDrag::m_dragging = false;
     const DWORD  reportedPerformedEffect = dropDataObject->reportedPerformedEffect();
     if (r == DRAGDROP_S_DROP) {
         if (reportedPerformedEffect == DROPEFFECT_MOVE && resultEffect != DROPEFFECT_MOVE) {

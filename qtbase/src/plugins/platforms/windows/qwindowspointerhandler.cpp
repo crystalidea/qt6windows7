@@ -27,6 +27,8 @@
 
 #include <windowsx.h>
 
+#include "vxkex.h"
+
 QT_BEGIN_NAMESPACE
 
 enum {
@@ -48,7 +50,11 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     *result = 0;
     const quint32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
 
-    if (!QWindowsContext::user32dll.getPointerType(pointerId, &m_pointerType)) {
+    BOOL bResultPt = QWindowsContext::user32dll.getPointerType ? 
+        QWindowsContext::user32dll.getPointerType(pointerId, &m_pointerType) : 
+            vxkex::GetPointerType(pointerId, &m_pointerType);
+
+    if (!bResultPt) {
         qWarning() << "GetPointerType() failed:" << qt_error_string();
         return false;
     }
@@ -62,12 +68,21 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     }
     case QT_PT_TOUCH: {
         quint32 pointerCount = 0;
-        if (!QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, nullptr)) {
+        BOOL bResultPointerTouchInfo = QWindowsContext::user32dll.getPointerFrameTouchInfo ? 
+            QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, nullptr) : 
+                vxkex::GetPointerFrameTouchInfo(pointerId, &pointerCount, nullptr);
+
+        if (!bResultPointerTouchInfo) {
             qWarning() << "GetPointerFrameTouchInfo() failed:" << qt_error_string();
             return false;
         }
         QVarLengthArray<POINTER_TOUCH_INFO, 10> touchInfo(pointerCount);
-        if (!QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data())) {
+
+        bResultPointerTouchInfo = QWindowsContext::user32dll.getPointerFrameTouchInfo ? 
+            QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data()) : 
+                vxkex::GetPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data());
+
+        if (!bResultPointerTouchInfo) {
             qWarning() << "GetPointerFrameTouchInfo() failed:" << qt_error_string();
             return false;
         }
@@ -80,10 +95,12 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
         // dispatch any skipped frames if event compression is disabled by the app
         if (historyCount > 1 && !QCoreApplication::testAttribute(Qt::AA_CompressHighFrequencyEvents)) {
             touchInfo.resize(pointerCount * historyCount);
-            if (!QWindowsContext::user32dll.getPointerFrameTouchInfoHistory(pointerId,
-                                                                            &historyCount,
-                                                                            &pointerCount,
-                                                                            touchInfo.data())) {
+
+            BOOL bResultTouchHistory = QWindowsContext::user32dll.getPointerFrameTouchInfoHistory ?
+                QWindowsContext::user32dll.getPointerFrameTouchInfoHistory(pointerId, &historyCount, &pointerCount, touchInfo.data()) :
+                    vxkex::GetPointerFrameTouchInfoHistory(pointerId, &historyCount, &pointerCount, touchInfo.data());
+
+            if (!bResultTouchHistory) {
                 qWarning() << "GetPointerFrameTouchInfoHistory() failed:" << qt_error_string();
                 return false;
             }
@@ -101,7 +118,11 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     }
     case QT_PT_PEN: {
         POINTER_PEN_INFO penInfo;
-        if (!QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo)) {
+
+        BOOL bResultPenInfo = QWindowsContext::user32dll.getPointerPenInfo ? 
+            QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo) : vxkex::GetPointerPenInfo(pointerId, &penInfo);
+
+        if (!bResultPenInfo) {
             qWarning() << "GetPointerPenInfo() failed:" << qt_error_string();
             return false;
         }
@@ -113,7 +134,11 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
                 || !QCoreApplication::testAttribute(Qt::AA_CompressTabletEvents))) {
             QVarLengthArray<POINTER_PEN_INFO, 10> penInfoHistory(historyCount);
 
-            if (!QWindowsContext::user32dll.getPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data())) {
+            BOOL bResultPenInfoHistory = QWindowsContext::user32dll.getPointerPenInfoHistory ?
+                QWindowsContext::user32dll.getPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data()) : 
+                    vxkex::GetPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data());
+
+            if (!bResultPenInfoHistory) {
                 qWarning() << "GetPointerPenInfoHistory() failed:" << qt_error_string();
                 return false;
             }
@@ -428,8 +453,9 @@ bool QWindowsPointerHandler::translateTouchEvent(QWindow *window, HWND hwnd,
         return false;
 
     if (msg.message == WM_POINTERCAPTURECHANGED) {
+        const auto *keyMapper = QWindowsContext::instance()->keyMapper();
         QWindowSystemInterface::handleTouchCancelEvent(window, m_touchDevice.data(),
-                                                       QWindowsKeyMapper::queryKeyboardModifiers());
+                                                       keyMapper->queryKeyboardModifiers());
         m_lastTouchPoints.clear();
         return true;
     }
@@ -519,7 +545,10 @@ bool QWindowsPointerHandler::translateTouchEvent(QWindow *window, HWND hwnd,
         inputIds.insert(touchPoint.id);
 
         // Avoid getting repeated messages for this frame if there are multiple pointerIds
-        QWindowsContext::user32dll.skipPointerFrameMessages(touchInfo[i].pointerInfo.pointerId);
+        if (QWindowsContext::user32dll.skipPointerFrameMessages)
+            QWindowsContext::user32dll.skipPointerFrameMessages(touchInfo[i].pointerInfo.pointerId);
+        else
+            vxkex::SkipPointerFrameMessages(touchInfo[i].pointerInfo.pointerId);
     }
 
     // Some devices send touches for each finger in a different message/frame, instead of consolidating
@@ -539,8 +568,9 @@ bool QWindowsPointerHandler::translateTouchEvent(QWindow *window, HWND hwnd,
     if (allStates == QEventPoint::State::Released)
         m_touchInputIDToTouchPointID.clear();
 
+    const auto *keyMapper = QWindowsContext::instance()->keyMapper();
     QWindowSystemInterface::handleTouchEvent(window, m_touchDevice.data(), touchPoints,
-                                             QWindowsKeyMapper::queryKeyboardModifiers());
+                                             keyMapper->queryKeyboardModifiers());
     return false; // Allow mouse messages to be generated.
 }
 
@@ -565,7 +595,12 @@ bool QWindowsPointerHandler::translatePenEvent(QWindow *window, HWND hwnd, QtWin
     auto *penInfo = static_cast<POINTER_PEN_INFO *>(vPenInfo);
 
     RECT pRect, dRect;
-    if (!QWindowsContext::user32dll.getPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect))
+
+    BOOL bResultDeviceRects = QWindowsContext::user32dll.getPointerDeviceRects ? 
+        QWindowsContext::user32dll.getPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect) : 
+            vxkex::GetPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect);
+
+    if (!bResultDeviceRects)
         return false;
 
     const auto systemId = (qint64)penInfo->pointerInfo.sourceDevice;
@@ -673,7 +708,8 @@ bool QWindowsPointerHandler::translatePenEvent(QWindow *window, HWND hwnd, QtWin
                     wumPlatformWindow->applyCursor();
             }
         }
-        const Qt::KeyboardModifiers keyModifiers = QWindowsKeyMapper::queryKeyboardModifiers();
+        const auto *keyMapper = QWindowsContext::instance()->keyMapper();
+        const Qt::KeyboardModifiers keyModifiers = keyMapper->queryKeyboardModifiers();
 
         QWindowSystemInterface::handleTabletEvent(target, device.data(),
                                                   localPos, hiResGlobalPos, mouseButtons,
@@ -762,7 +798,8 @@ bool QWindowsPointerHandler::translateMouseEvent(QWindow *window,
             : QWindowsGeometryHint::mapFromGlobal(targetHwnd, globalPos);
     }
 
-    const Qt::KeyboardModifiers keyModifiers = QWindowsKeyMapper::queryKeyboardModifiers();
+    const auto *keyMapper = QWindowsContext::instance()->keyMapper();
+    const Qt::KeyboardModifiers keyModifiers = keyMapper->queryKeyboardModifiers();
     QWindow *currentWindowUnderPointer = getWindowUnderPointer(window, globalPos);
 
     if (et == QtWindows::MouseWheelEvent)
