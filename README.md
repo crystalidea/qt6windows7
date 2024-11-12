@@ -7,7 +7,7 @@ Approach is based on this [forum thread](https://forum.qt.io/topic/133002/qt-cre
 
 **Qt 6.7.3 designer running on Windows 7**:
 
-![image](https://github.com/crystalidea/qt6windows7/assets/2600624/41f4291a-082a-41e8-a09d-c3b9e7f36e9e)
+![Qt Designer](designer.png)
 
 ### Known issues:
 
