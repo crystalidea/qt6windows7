@@ -1,4 +1,4 @@
-This is Qt 6.7.2 backport that runs on Windows 7/8. The repository contains patched source files from the qtbase module. 
+This is Qt 6.7.2 **qtbase module** backport that runs on Windows 7/8. The repository contains patched source files from the qtbase module. 
 Approach is based on this [forum thread](https://forum.qt.io/topic/133002/qt-creator-6-0-1-and-qt-6-2-2-running-on-windows-7/60) but better: many improvements amongst important fallbacks to default Qt 6 behaviour when running on newer Windows.
 
 - After replacing qtbase source files with the patched ones from this repository, you can compile Qt yourself using compiler and build options you need.
