@@ -10,6 +10,8 @@
 #include <QtCore/private/qsystemerror_p.h>
 #include "qrhid3dhelpers_p.h"
 
+#include <cstdio>
+
 #include <VersionHelpers.h>
 
 QT_BEGIN_NAMESPACE
@@ -28,7 +30,8 @@ using namespace Qt::StringLiterals;
 
 /*!
     \class QRhiD3D11InitParams
-    \inmodule QtGui
+    \inmodule QtGuiPrivate
+    \inheaderfile rhi/qrhi.h
     \since 6.6
     \brief Direct3D 11 specific initialization parameters.
 
@@ -81,7 +84,8 @@ using namespace Qt::StringLiterals;
 
 /*!
     \class QRhiD3D11NativeHandles
-    \inmodule QtGui
+    \inmodule QtGuiPrivate
+    \inheaderfile rhi/qrhi.h
     \since 6.6
     \brief Holds the D3D device and device context used by the QRhi.
 
@@ -233,9 +237,19 @@ bool QRhiD3D11::create(QRhi::Flags flags)
     // there. (some features are not supported then, however)
     useLegacySwapchainModel = qEnvironmentVariableIntValue("QT_D3D_NO_FLIP");
 
-    qCDebug(QRHI_LOG_INFO, "FLIP_* swapchain supported = true, ALLOW_TEARING supported = %s, use legacy (non-FLIP) model = %s",
+    if (!useLegacySwapchainModel) {
+        if (qEnvironmentVariableIsSet("QT_D3D_MAX_FRAME_LATENCY"))
+            maxFrameLatency = UINT(qMax(0, qEnvironmentVariableIntValue("QT_D3D_MAX_FRAME_LATENCY")));
+    } else {
+        maxFrameLatency = 0;
+    }
+
+    qCDebug(QRHI_LOG_INFO, "FLIP_* swapchain supported = true, ALLOW_TEARING supported = %s, use legacy (non-FLIP) model = %s, max frame latency = %u",
             supportsAllowTearing ? "true" : "false",
-            useLegacySwapchainModel ? "true" : "false");
+            useLegacySwapchainModel ? "true" : "false",
+            maxFrameLatency);
+    if (maxFrameLatency == 0)
+        qCDebug(QRHI_LOG_INFO, "Disabling FRAME_LATENCY_WAITABLE_OBJECT usage");
 
     if (!importedDeviceAndContext) {
         IDXGIAdapter1 *adapter;
@@ -633,6 +647,10 @@ bool QRhiD3D11::isFeatureSupported(QRhi::Feature feature) const
     case QRhi::ThreeDimensionalTextureMipmaps:
         return true;
     case QRhi::MultiView:
+        return false;
+    case QRhi::TextureViewFormat:
+        return false; // because we use fully typed formats for textures and relaxed casting is a D3D12 thing
+    case QRhi::ResolveDepthStencil:
         return false;
     default:
         Q_UNREACHABLE();
@@ -1346,6 +1364,10 @@ QRhi::FrameOpResult QRhiD3D11::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginF
     QD3D11SwapChain *swapChainD = QRHI_RES(QD3D11SwapChain, swapChain);
     contextState.currentSwapChain = swapChainD;
     const int currentFrameSlot = swapChainD->currentFrameSlot;
+
+    // if we have a waitable object, now is the time to wait on it
+    if (swapChainD->frameLatencyWaitableObject)
+        WaitForSingleObjectEx(swapChainD->frameLatencyWaitableObject, 1000, true);
 
     swapChainD->cb.resetState();
 
@@ -2153,6 +2175,8 @@ void QRhiD3D11::endPass(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resource
             cmd.args.resolveSubRes.srcSubRes = D3D11CalcSubresource(0, UINT(colorAtt.layer()), 1);
             cmd.args.resolveSubRes.format = dstTexD->dxgiFormat;
         }
+        if (rtTex->m_desc.depthResolveTexture())
+            qWarning("Resolving multisample depth-stencil buffers is not supported with D3D");
     }
 
     cbD->recordingPass = QD3D11CommandBuffer::NoPass;
@@ -4250,6 +4274,22 @@ static inline DXGI_FORMAT toD3DAttributeFormat(QRhiVertexInputAttribute::Format 
         return DXGI_FORMAT_R16G16_FLOAT;
     case QRhiVertexInputAttribute::Half:
          return DXGI_FORMAT_R16_FLOAT;
+    case QRhiVertexInputAttribute::UShort4:
+    // Note: D3D does not support UShort3.  Pass through UShort3 as UShort4.
+    case QRhiVertexInputAttribute::UShort3:
+        return DXGI_FORMAT_R16G16B16A16_UINT;
+    case QRhiVertexInputAttribute::UShort2:
+        return DXGI_FORMAT_R16G16_UINT;
+    case QRhiVertexInputAttribute::UShort:
+        return DXGI_FORMAT_R16_UINT;
+    case QRhiVertexInputAttribute::SShort4:
+    // Note: D3D does not support SShort3.  Pass through SShort3 as SShort4.
+    case QRhiVertexInputAttribute::SShort3:
+        return DXGI_FORMAT_R16G16B16A16_SINT;
+    case QRhiVertexInputAttribute::SShort2:
+        return DXGI_FORMAT_R16G16_SINT;
+    case QRhiVertexInputAttribute::SShort:
+        return DXGI_FORMAT_R16_SINT;
     default:
         Q_UNREACHABLE();
         return DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -4672,7 +4712,7 @@ bool QD3D11GraphicsPipeline::create()
             } else {
                 QByteArray sem;
                 sem.resize(16);
-                qsnprintf(sem.data(), sem.size(), "TEXCOORD%d_", it->location() - matrixSlice);
+                std::snprintf(sem.data(), sem.size(), "TEXCOORD%d_", it->location() - matrixSlice);
                 matrixSliceSemantics.append(sem);
                 desc.SemanticName = matrixSliceSemantics.last().constData();
                 desc.SemanticIndex = UINT(matrixSlice);
@@ -4938,6 +4978,11 @@ void QD3D11SwapChain::destroy()
         dcompTarget = nullptr;
     }
 
+    if (frameLatencyWaitableObject) {
+        CloseHandle(frameLatencyWaitableObject);
+        frameLatencyWaitableObject = nullptr;
+    }
+
     QRHI_RES_RHI(QRhiD3D11);
     if (rhiD) {
         rhiD->unregisterResource(this);
@@ -5100,7 +5145,7 @@ bool QD3D11SwapChain::createOrResize()
     if (m_flags.testFlag(SurfaceHasPreMulAlpha) || m_flags.testFlag(SurfaceHasNonPreMulAlpha)) {
         if (!rhiD->useLegacySwapchainModel && rhiD->ensureDirectCompositionDevice()) {
             if (!dcompTarget) {
-                hr = rhiD->dcompDevice->CreateTargetForHwnd(hwnd, true, &dcompTarget);
+                hr = rhiD->dcompDevice->CreateTargetForHwnd(hwnd, false, &dcompTarget);
                 if (FAILED(hr)) {
                     qWarning("Failed to create Direct Compsition target for the window: %s",
                              qPrintable(QSystemError::windowsComString(hr)));
@@ -5129,6 +5174,17 @@ bool QD3D11SwapChain::createOrResize()
     // supported, to get better results for 'unthrottled' presentation.
     if (swapInterval == 0 && rhiD->supportsAllowTearing)
         swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+
+    // maxFrameLatency 0 means no waitable object usage.
+    // Ignore it also when NoVSync is on, and when using WARP.
+    const bool useFrameLatencyWaitableObject = rhiD->maxFrameLatency != 0
+                                               && swapInterval != 0
+                                               && rhiD->driverInfoStruct.deviceType != QRhiDriverInfo::CpuDevice;
+
+    if (useFrameLatencyWaitableObject) {
+        // the flag is not supported in real fullscreen on D3D11, but perhaps that's fine since we only do borderless
+        swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    }
 
     if (!swapChain) {
         sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount);
@@ -5215,16 +5271,31 @@ bool QD3D11SwapChain::createOrResize()
 
         if (SUCCEEDED(hr)) {
             swapChain = sc1;
-            if (m_format != SDR) {
-                IDXGISwapChain3 *sc3 = nullptr;
-                if (SUCCEEDED(sc1->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void **>(&sc3)))) {
+            IDXGISwapChain3 *sc3 = nullptr;
+            if (SUCCEEDED(sc1->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void **>(&sc3)))) {
+                if (m_format != SDR) {
                     hr = sc3->SetColorSpace1(hdrColorSpace);
                     if (FAILED(hr))
                         qWarning("Failed to set color space on swapchain: %s",
-                            qPrintable(QSystemError::windowsComString(hr)));
-                    sc3->Release();
-                } else {
+                                 qPrintable(QSystemError::windowsComString(hr)));
+                }
+                if (useFrameLatencyWaitableObject) {
+                    sc3->SetMaximumFrameLatency(rhiD->maxFrameLatency);
+                    frameLatencyWaitableObject = sc3->GetFrameLatencyWaitableObject();
+                }
+                sc3->Release();
+            } else {
+                if (m_format != SDR)
                     qWarning("IDXGISwapChain3 not available, HDR swapchain will not work as expected");
+                if (useFrameLatencyWaitableObject) {
+                    IDXGISwapChain2 *sc2 = nullptr;
+                    if (SUCCEEDED(sc1->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void **>(&sc2)))) {
+                        sc2->SetMaximumFrameLatency(rhiD->maxFrameLatency);
+                        frameLatencyWaitableObject = sc2->GetFrameLatencyWaitableObject();
+                        sc2->Release();
+                    } else { // this cannot really happen since we require DXGIFactory2
+                        qWarning("IDXGISwapChain2 not available, FrameLatencyWaitableObject cannot be used");
+                    }
                 }
             }
             if (dcompVisual) {

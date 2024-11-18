@@ -23,7 +23,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QRhiD3D12InitParams
-    \inmodule QtGui
+    \inmodule QtGuiPrivate
+    \inheaderfile rhi/qrhi.h
     \brief Direct3D 12 specific initialization parameters.
 
     \note This is a RHI API with limited compatibility guarantees, see \l QRhi
@@ -70,7 +71,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QRhiD3D12NativeHandles
-    \inmodule QtGui
+    \inmodule QtGuiPrivate
+    \inheaderfile rhi/qrhi.h
     \brief Holds the D3D12 device used by the QRhi.
 
     \note The class uses \c{void *} as the type since including the COM-based
@@ -129,7 +131,8 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class QRhiD3D12CommandBufferNativeHandles
-    \inmodule QtGui
+    \inmodule QtGuiPrivate
+    \inheaderfile rhi/qrhi.h
     \brief Holds the ID3D12GraphicsCommandList1 object that is backing a QRhiCommandBuffer.
 
     \note The command list object is only guaranteed to be valid, and
@@ -238,6 +241,11 @@ bool QRhiD3D12::create(QRhi::Flags flags)
             return false;
         }
     }
+
+    if (qEnvironmentVariableIsSet("QT_D3D_MAX_FRAME_LATENCY"))
+        maxFrameLatency = UINT(qMax(0, qEnvironmentVariableIntValue("QT_D3D_MAX_FRAME_LATENCY")));
+    if (maxFrameLatency != 0)
+        qCDebug(QRHI_LOG_INFO, "Using frame latency waitable object with max frame latency %u", maxFrameLatency);
 
     supportsAllowTearing = false;
     IDXGIFactory5 *factory5 = nullptr;
@@ -501,9 +509,13 @@ bool QRhiD3D12::create(QRhi::Flags flags)
         memset(timestampReadbackArea.mem.p, 0, readbackBufSize);
     }
 
+    caps = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3 = {};
-    if (SUCCEEDED(dev->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3))))
+    if (SUCCEEDED(dev->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3)))) {
         caps.multiView = options3.ViewInstancingTier != D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+        // https://microsoft.github.io/DirectX-Specs/d3d/RelaxedCasting.html
+        caps.textureViewFormat = options3.CastingFullyTypedFormatSupported;
+    }
 
     deviceLost = false;
     offscreenActive = false;
@@ -748,6 +760,12 @@ bool QRhiD3D12::isFeatureSupported(QRhi::Feature feature) const
         return false; // we generate mipmaps ourselves with compute and this is not implemented
     case QRhi::MultiView:
         return caps.multiView;
+    case QRhi::TextureViewFormat:
+        return caps.textureViewFormat;
+    case QRhi::ResolveDepthStencil:
+        // there is no Multisample Resolve support for depth/stencil formats
+        // https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/hardware-support-for-direct3d-12-1-formats
+        return false;
     }
     return false;
 }
@@ -974,7 +992,7 @@ void QD3D12CommandBuffer::visitStorageImage(QD3D12Stage s,
     const bool isArray = texD->m_flags.testFlag(QRhiTexture::TextureArray);
     const bool is3D = texD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-    uavDesc.Format = texD->dxgiFormat;
+    uavDesc.Format = texD->rtFormat;
     if (isCube) {
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
         uavDesc.Texture2DArray.MipSlice = UINT(d.level);
@@ -1533,6 +1551,9 @@ QRhi::FrameOpResult QRhiD3D12::beginFrame(QRhiSwapChain *swapChain, QRhi::BeginF
     for (QD3D12SwapChain *sc : std::as_const(swapchains))
         sc->waitCommandCompletionForFrameSlot(currentFrameSlot); // note: swapChainD->currentFrameSlot, not sc's
 
+    if (swapChainD->frameLatencyWaitableObject)
+        WaitForSingleObjectEx(swapChainD->frameLatencyWaitableObject, 1000, true);
+
     HRESULT hr = cmdAllocators[currentFrameSlot]->Reset();
     if (FAILED(hr)) {
         qWarning("Failed to reset command allocator: %s",
@@ -1996,7 +2017,8 @@ void QRhiD3D12::endPass(QRhiCommandBuffer *cb, QRhiResourceUpdateBatch *resource
                                                  dstTexD->dxgiFormat);
             }
         }
-
+        if (rtTex->m_desc.depthResolveTexture())
+            qWarning("Resolving multisample depth-stencil buffers is not supported with D3D");
     }
 
     cbD->recordingPass = QD3D12CommandBuffer::NoPass;
@@ -4198,8 +4220,27 @@ bool QD3D12Texture::prepareCreate(QSize *adjustedSize)
     const QSize size = is1D ? QSize(qMax(1, m_pixelSize.width()), 1)
                             : (m_pixelSize.isEmpty() ? QSize(1, 1) : m_pixelSize);
 
-    QRHI_RES_RHI(QRhiD3D12);
     dxgiFormat = toD3DTextureFormat(m_format, m_flags);
+    if (isDepth) {
+        srvFormat = toD3DDepthTextureSRVFormat(m_format);
+        rtFormat = toD3DDepthTextureDSVFormat(m_format);
+    } else {
+        srvFormat = dxgiFormat;
+        rtFormat = dxgiFormat;
+    }
+    if (m_writeViewFormat.format != UnknownFormat) {
+        if (isDepth)
+            rtFormat = toD3DDepthTextureDSVFormat(m_writeViewFormat.format);
+        else
+            rtFormat = toD3DTextureFormat(m_writeViewFormat.format, m_writeViewFormat.srgb ? sRGB : Flags());
+    }
+    if (m_readViewFormat.format != UnknownFormat) {
+        if (isDepth)
+            srvFormat = toD3DDepthTextureSRVFormat(m_readViewFormat.format);
+        else
+            srvFormat = toD3DTextureFormat(m_readViewFormat.format, m_readViewFormat.srgb ? sRGB : Flags());
+    }
+    QRHI_RES_RHI(QRhiD3D12);
     mipLevelCount = uint(hasMipMaps ? rhiD->q->mipLevelsForSize(size) : 1);
     sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount, dxgiFormat);
     if (sampleDesc.Count > 1) {
@@ -4258,14 +4299,13 @@ bool QD3D12Texture::prepareCreate(QSize *adjustedSize)
 bool QD3D12Texture::finishCreate()
 {
     QRHI_RES_RHI(QRhiD3D12);
-    const bool isDepth = isDepthTextureFormat(m_format);
     const bool isCube = m_flags.testFlag(CubeMap);
     const bool is3D = m_flags.testFlag(ThreeDimensional);
     const bool isArray = m_flags.testFlag(TextureArray);
     const bool is1D = m_flags.testFlag(OneDimensional);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = isDepth ? toD3DDepthTextureSRVFormat(m_format) : dxgiFormat;
+    srvDesc.Format = srvFormat;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
     if (isCube) {
@@ -4624,7 +4664,7 @@ QRhiRenderPassDescriptor *QD3D12TextureRenderTarget::newCompatibleRenderPassDesc
         QD3D12Texture *texD = QRHI_RES(QD3D12Texture, it->texture());
         QD3D12RenderBuffer *rbD = QRHI_RES(QD3D12RenderBuffer, it->renderBuffer());
         if (texD)
-            rpD->colorFormat[rpD->colorAttachmentCount] = texD->dxgiFormat;
+            rpD->colorFormat[rpD->colorAttachmentCount] = texD->rtFormat;
         else if (rbD)
             rpD->colorFormat[rpD->colorAttachmentCount] = rbD->dxgiFormat;
         rpD->colorAttachmentCount += 1;
@@ -4675,7 +4715,7 @@ bool QD3D12TextureRenderTarget::create()
             const bool isMultiView = it->multiViewCount() >= 2;
             UINT layerCount = isMultiView ? UINT(it->multiViewCount()) : 1;
             D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-            rtvDesc.Format = toD3DTextureFormat(texD->format(), texD->flags());
+            rtvDesc.Format = texD->rtFormat;
             if (texD->flags().testFlag(QRhiTexture::CubeMap)) {
                 rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
                 rtvDesc.Texture2DArray.MipSlice = UINT(colorAtt.level());
@@ -4749,7 +4789,7 @@ bool QD3D12TextureRenderTarget::create()
                 return false;
             }
             D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-            dsvDesc.Format = toD3DDepthTextureDSVFormat(depthTexD->format());
+            dsvDesc.Format = depthTexD->rtFormat;
             dsvDesc.ViewDimension = depthTexD->sampleDesc.Count > 1 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
                                                                     : D3D12_DSV_DIMENSION_TEXTURE2D;
             if (depthTexD->flags().testFlag(QRhiTexture::TextureArray)) {
@@ -5545,6 +5585,22 @@ static inline DXGI_FORMAT toD3DAttributeFormat(QRhiVertexInputAttribute::Format 
         return DXGI_FORMAT_R16G16_FLOAT;
     case QRhiVertexInputAttribute::Half:
          return DXGI_FORMAT_R16_FLOAT;
+    case QRhiVertexInputAttribute::UShort4:
+    // Note: D3D does not support UShort3.  Pass through UShort3 as UShort4.
+    case QRhiVertexInputAttribute::UShort3:
+        return DXGI_FORMAT_R16G16B16A16_UINT;
+    case QRhiVertexInputAttribute::UShort2:
+        return DXGI_FORMAT_R16G16_UINT;
+    case QRhiVertexInputAttribute::UShort:
+        return DXGI_FORMAT_R16_UINT;
+    case QRhiVertexInputAttribute::SShort4:
+    // Note: D3D does not support SShort3.  Pass through SShort3 as SShort4.
+    case QRhiVertexInputAttribute::SShort3:
+        return DXGI_FORMAT_R16G16B16A16_SINT;
+    case QRhiVertexInputAttribute::SShort2:
+        return DXGI_FORMAT_R16G16_SINT;
+    case QRhiVertexInputAttribute::SShort:
+        return DXGI_FORMAT_R16_SINT;
     }
     Q_UNREACHABLE_RETURN(DXGI_FORMAT_R32G32B32A32_FLOAT);
 }
@@ -5678,7 +5734,7 @@ bool QD3D12GraphicsPipeline::create()
             } else {
                 QByteArray sem;
                 sem.resize(16);
-                qsnprintf(sem.data(), sem.size(), "TEXCOORD%d_", it->location() - matrixSlice);
+                std::snprintf(sem.data(), sem.size(), "TEXCOORD%d_", it->location() - matrixSlice);
                 matrixSliceSemantics.append(sem);
                 desc.SemanticName = matrixSliceSemantics.last().constData();
                 desc.SemanticIndex = UINT(matrixSlice);
@@ -6105,6 +6161,11 @@ void QD3D12SwapChain::destroy()
         dcompTarget = nullptr;
     }
 
+    if (frameLatencyWaitableObject) {
+        CloseHandle(frameLatencyWaitableObject);
+        frameLatencyWaitableObject = nullptr;
+    }
+
     QRHI_RES_RHI(QRhiD3D12);
     if (rhiD) {
         rhiD->swapchains.remove(this);
@@ -6296,7 +6357,7 @@ bool QD3D12SwapChain::createOrResize()
     if (m_flags.testFlag(SurfaceHasPreMulAlpha) || m_flags.testFlag(SurfaceHasNonPreMulAlpha)) {
         if (rhiD->ensureDirectCompositionDevice()) {
             if (!dcompTarget) {
-                hr = rhiD->dcompDevice->CreateTargetForHwnd(hwnd, true, &dcompTarget);
+                hr = rhiD->dcompDevice->CreateTargetForHwnd(hwnd, false, &dcompTarget);
                 if (FAILED(hr)) {
                     qWarning("Failed to create Direct Composition target for the window: %s",
                              qPrintable(QSystemError::windowsComString(hr)));
@@ -6320,6 +6381,14 @@ bool QD3D12SwapChain::createOrResize()
     swapChainFlags = 0;
     if (swapInterval == 0 && rhiD->supportsAllowTearing)
         swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+
+    // maxFrameLatency 0 means no waitable object usage.
+    // Ignore it also when NoVSync is on, and when using WARP.
+    const bool useFrameLatencyWaitableObject = rhiD->maxFrameLatency != 0
+                                               && swapInterval != 0
+                                               && rhiD->driverInfoStruct.deviceType != QRhiDriverInfo::CpuDevice;
+    if (useFrameLatencyWaitableObject)
+        swapChainFlags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     if (!swapChain) {
         chooseFormats();
@@ -6376,6 +6445,10 @@ bool QD3D12SwapChain::createOrResize()
                     qWarning("Failed to set color space on swapchain: %s",
                              qPrintable(QSystemError::windowsComString(hr)));
                 }
+            }
+            if (useFrameLatencyWaitableObject) {
+                swapChain->SetMaximumFrameLatency(rhiD->maxFrameLatency);
+                frameLatencyWaitableObject = swapChain->GetFrameLatencyWaitableObject();
             }
             if (dcompVisual) {
                 hr = dcompVisual->SetContent(swapChain);
