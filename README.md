@@ -9,6 +9,15 @@ Approach is based on this [forum thread](https://forum.qt.io/topic/133002/qt-cre
 
 ![Qt Designer](designer.png)
 
+**Other modules**:
+
+Many of other modules should also work on Windows 7 without modifications, e.g.
+
+- qt5compat
+- qtimageformats
+- qttools
+- ... please let me know which work and which don't !
+
 ### Known issues:
 
 - QRhi using DirectX 11/12 is not ported
