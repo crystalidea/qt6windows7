@@ -15,7 +15,7 @@ Alternatively, you can download our [prebuild Qt dlls](https://github.com/crysta
 
 **Other modules**:
 
-Many of other modules should also work on Windows 7 without modifications, e.g.
+Many of other Qt 6 modules are known to work fine on Windows 7 without modifications when compiled with patched qtbase. Verified modules:
 
 - qt5compat
 - qtimageformats
