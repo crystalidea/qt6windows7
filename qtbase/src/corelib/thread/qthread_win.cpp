@@ -240,6 +240,8 @@ typedef struct tagTHREADNAME_INFO
 
 typedef HRESULT(WINAPI* SetThreadDescriptionFunc)(HANDLE, PCWSTR);
 
+#if defined(Q_CC_MSVC)
+
 // Helper function to set the thread name using RaiseException and __try
 static void setThreadNameUsingException(HANDLE threadId, LPCSTR threadName) {
     THREADNAME_INFO info;
@@ -255,6 +257,8 @@ static void setThreadNameUsingException(HANDLE threadId, LPCSTR threadName) {
     __except (EXCEPTION_CONTINUE_EXECUTION) {
     }
 }
+
+#endif // Q_CC_MSVC
 
 void qt_set_thread_name(HANDLE threadId, const QString &name)
 {
