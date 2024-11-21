@@ -1,6 +1,6 @@
 This repository provides a backport of the Qt 6.8.0 qtbase module, tailored for compatibility with Windows 7 and 8. It contains patched source files from the qtbase module, along with some additional required files. To apply the backport, simply copy the contents of the src folder into your qtbase/src directory, replacing the existing files.
 
-This approach builds upon the methodology discussed in [forum thread](https://forum.qt.io/topic/133002/qt-creator-6-0-1-and-qt-6-2-2-running-on-windows-7/60) but offers significant enhancements, including important fallbacks to the default Qt 6 behavior when running on newer versions of Windows.
+This approach builds upon the methodology discussed in this forum [thread](https://forum.qt.io/topic/133002/qt-creator-6-0-1-and-qt-6-2-2-running-on-windows-7/60) but offers significant enhancements, including important fallbacks to the default Qt 6 behavior when running on newer versions of Windows.
 
 You have two options for compiling Qt:
 
