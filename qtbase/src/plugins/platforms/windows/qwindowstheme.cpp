@@ -501,7 +501,8 @@ QWindowsTheme *QWindowsTheme::m_instance = nullptr;
 QWindowsTheme::QWindowsTheme()
 {
     m_instance = this;
-    s_colorScheme = QWindowsTheme::queryColorScheme();
+    s_colorScheme = Qt::ColorScheme::Unknown; // Used inside QWindowsTheme::effectiveColorScheme();
+    s_colorScheme = QWindowsTheme::effectiveColorScheme();
     std::fill(m_fonts, m_fonts + NFonts, nullptr);
     std::fill(m_palettes, m_palettes + NPalettes, nullptr);
     refresh();
@@ -596,12 +597,15 @@ Qt::ColorScheme QWindowsTheme::colorScheme() const
 
 Qt::ColorScheme QWindowsTheme::effectiveColorScheme()
 {
+    auto integration = QWindowsIntegration::instance();
     if (queryHighContrast())
         return Qt::ColorScheme::Unknown;
     if (s_colorSchemeOverride != Qt::ColorScheme::Unknown)
         return s_colorSchemeOverride;
     if (s_colorScheme != Qt::ColorScheme::Unknown)
         return s_colorScheme;
+    if (!integration->darkModeHandling().testFlag(QWindowsApplication::DarkModeStyle))
+        return Qt::ColorScheme::Light;
     return queryColorScheme();
 }
 
@@ -1186,9 +1190,11 @@ Qt::ColorScheme QWindowsTheme::queryColorScheme()
     if (queryHighContrast())
         return Qt::ColorScheme::Unknown;
 
-    const auto setting = QWinRegistryKey(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)")
-                         .dwordValue(L"AppsUseLightTheme");
-    return setting.second && setting.first == 0 ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
+    QWinRegistryKey personalizeKey{
+        HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\CurrentVersion\Themes\Personalize)"
+    };
+    const bool useDarkTheme = personalizeKey.value<DWORD>(L"AppsUseLightTheme") == 0;
+    return useDarkTheme ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
 }
 
 bool QWindowsTheme::queryHighContrast()
