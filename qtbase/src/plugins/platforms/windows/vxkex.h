@@ -261,16 +261,13 @@ static BOOL GetDisplayAutoRotationPreferences(
 static BOOL SetProcessDpiAwarenessContext(
     IN  DPI_AWARENESS_CONTEXT   DpiContext)
 {
-    switch ((ULONG_PTR)DpiContext) {
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE:
+    if ((ULONG_PTR)DpiContext == (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE) {
         //NOTHING;
-        break;
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_SYSTEM_AWARE:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2:
+    } else if ((ULONG_PTR)DpiContext == (ULONG_PTR)DPI_AWARENESS_CONTEXT_SYSTEM_AWARE ||
+             (ULONG_PTR)DpiContext == (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE ||
+             (ULONG_PTR)DpiContext == (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) {
         SetProcessDPIAware();
-        break;
-    default:
+    } else {
         return FALSE;
     }
 
@@ -287,14 +284,13 @@ static BOOL AreDpiAwarenessContextsEqual(
 static BOOL IsValidDpiAwarenessContext(
     IN  DPI_AWARENESS_CONTEXT   Value)
 {
-    switch ((ULONG_PTR)Value) {
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_SYSTEM_AWARE:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE:
-    case (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2:
+    if ((ULONG_PTR)Value == (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE ||
+        (ULONG_PTR)Value == (ULONG_PTR)DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED ||
+        (ULONG_PTR)Value == (ULONG_PTR)DPI_AWARENESS_CONTEXT_SYSTEM_AWARE ||
+        (ULONG_PTR)Value == (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE ||
+        (ULONG_PTR)Value == (ULONG_PTR)DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) {
         return TRUE;
-    default:
+    } else {
         return FALSE;
     }
 }
