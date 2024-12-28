@@ -12,7 +12,7 @@
 
 #include <cstdio>
 
-#include <VersionHelpers.h>
+#include <versionhelpers.h>
 
 QT_BEGIN_NAMESPACE
 

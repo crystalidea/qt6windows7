@@ -12,7 +12,7 @@
 
 #include <qt_windows.h>
 #include <shlobj.h>
-#include <VersionHelpers.h>
+#include <versionhelpers.h>
 #include <intshcut.h>
 #include <qvarlengtharray.h>
 
