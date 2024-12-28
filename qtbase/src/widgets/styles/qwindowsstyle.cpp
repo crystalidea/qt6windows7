@@ -59,7 +59,9 @@
 
 #include <algorithm>
 
+#if defined(Q_OS_WIN)
 #include "../../plugins/platforms/windows/vxkex.h"
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -256,8 +258,10 @@ void QWindowsStyle::polish(QPalette &pal)
     QCommonStyle::polish(pal);
 }
 
+#if defined(Q_OS_WIN)
 typedef BOOL (WINAPI *GetSystemMetricsForDpiFunc)(int, UINT);
 typedef BOOL (WINAPI *SystemParametersInfoForDpiFunc)(UINT, UINT, PVOID, UINT, UINT);
+#endif
 
 int QWindowsStylePrivate::pixelMetricFromSystemDp(QStyle::PixelMetric pm, const QStyleOption *, const QWidget *widget)
 {
