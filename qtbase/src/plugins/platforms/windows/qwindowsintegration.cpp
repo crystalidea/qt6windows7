@@ -134,12 +134,42 @@ bool parseIntOption(const QString &parameter,const QLatin1StringView &option,
 using DarkModeHandlingFlag = QNativeInterface::Private::QWindowsApplication::DarkModeHandlingFlag;
 using DarkModeHandling = QNativeInterface::Private::QWindowsApplication::DarkModeHandling;
 
+typedef LONG (WINAPI *RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
+
+bool isWindows81() {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    if (!hNtdll) {
+        return false; // Failed to load ntdll.dll
+    }
+
+    RtlGetVersionPtr RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(hNtdll, "RtlGetVersion");
+    if (!RtlGetVersion) {
+        return false; // Failed to get RtlGetVersion
+    }
+
+    RTL_OSVERSIONINFOW rovi = {0};
+    rovi.dwOSVersionInfoSize = sizeof(rovi);
+
+    if (RtlGetVersion(&rovi) == 0) { // STATUS_SUCCESS
+        return (rovi.dwMajorVersion == 6 && rovi.dwMinorVersion == 3);
+    }
+
+    return false; // Unknown version
+}
+
 static inline unsigned parseOptions(const QStringList &paramList,
                                     int *tabletAbsoluteRange,
                                     QtWindows::DpiAwareness *dpiAwareness,
                                     DarkModeHandling *darkModeHandling)
 {
     unsigned options = 0;
+
+    // for some reason DirectWrite fonts don't work on Windows 8.1
+    // https://github.com/crystalidea/qt6windows7/issues/26
+
+    if (isWindows81())
+        options |= QWindowsIntegration::DontUseDirectWriteFonts;
+
     for (const QString &param : paramList) {
         if (param.startsWith(u"fontengine=")) {
             if (param.endsWith(u"gdi")) {
