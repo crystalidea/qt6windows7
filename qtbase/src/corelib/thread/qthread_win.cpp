@@ -11,6 +11,7 @@
 
 #include <private/qcoreapplication_p.h>
 #include <private/qeventdispatcher_win_p.h>
+#include "qloggingcategory.h"
 
 #include <qt_windows.h>
 
@@ -352,7 +353,6 @@ void QThreadPrivate::finish(bool lockAnyway) noexcept
     if (lockAnyway)
         locker.unlock();
     emit thr->finished(QThread::QPrivateSignal());
-    qCDebug(lcDeleteLater) << "Sending deferred delete events as part of finishing thread" << thr;
     QCoreApplicationPrivate::sendPostedEvents(nullptr, QEvent::DeferredDelete, d->data);
     QThreadStorageData::finish(tls_data);
     if (lockAnyway)
