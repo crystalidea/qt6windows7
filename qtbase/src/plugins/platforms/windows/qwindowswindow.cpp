@@ -1405,7 +1405,7 @@ void QWindowsForeignWindow::setParent(const QPlatformWindow *newParentWindow)
     qCDebug(lcQpaWindow) << __FUNCTION__ << window() << "newParent="
         << newParentWindow << newParent << "oldStyle=" << debugWinStyle(oldStyle);
 
-    auto updateWindowFlags = [=]{
+    auto updateWindowFlags = [&]{
         // Top level window flags need to be set/cleared manually.
         DWORD newStyle = oldStyle;
         if (isTopLevel) {
