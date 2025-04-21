@@ -71,7 +71,7 @@ void * WIN_LoadComBaseFunction(const char *name)
        s_bLoaded = true;
     }
     if (s_hComBase) {
-        return ::GetProcAddress(s_hComBase, name);
+        return (void *) ::GetProcAddress(s_hComBase, name);
     } else {
         return NULL;
     }
