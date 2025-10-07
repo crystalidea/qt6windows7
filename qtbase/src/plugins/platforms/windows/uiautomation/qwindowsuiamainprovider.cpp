@@ -161,9 +161,9 @@ void QWindowsUiaMainProvider::notifyValueChange(QAccessibleValueChangeEvent *eve
 void QWindowsUiaMainProvider::notifyNameChange(QAccessibleEvent *event)
 {
     if (QAccessibleInterface *accessible = event->accessibleInterface()) {
-        // Restrict notification to combo boxes, which need it for accessibility,
-        // in order to avoid slowdowns with unnecessary notifications.
-        if (accessible->role() == QAccessible::ComboBox) {
+        // Restrict notification to combo boxes and the currently focused element, which
+        // need it for accessibility, in order to avoid slowdowns with unnecessary notifications.
+        if (accessible->role() == QAccessible::ComboBox || accessible->state().focused) {
             if (auto provider = providerForAccessible(accessible)) {
                 QComVariant oldVal;
                 QComVariant newVal{ accessible->text(QAccessible::Name) };
@@ -213,9 +213,23 @@ void QWindowsUiaMainProvider::raiseNotification(QAccessibleAnnouncementEvent *ev
                     ? NotificationProcessing_ImportantAll
                     : NotificationProcessing_All;
             QBStr activityId{ QString::fromLatin1("") };
+#if !defined(Q_CC_MSVC) || !defined(QT_WIN_SERVER_2016_COMPAT)
             QWindowsUiaWrapper::instance()->raiseNotificationEvent(provider.Get(), NotificationKind_Other, processing, message.bstr(),
                                       activityId.bstr());
+#else
+            HMODULE uiautomationcore = GetModuleHandleW(L"UIAutomationCore.dll");
+            if (uiautomationcore != NULL) {
+                typedef HRESULT (WINAPI *EVENTFUNC)(IRawElementProviderSimple *, NotificationKind,
+                                                    NotificationProcessing, BSTR, BSTR);
 
+                EVENTFUNC uiaRaiseNotificationEvent =
+                    (EVENTFUNC)GetProcAddress(uiautomationcore, "UiaRaiseNotificationEvent");
+                if (uiaRaiseNotificationEvent != NULL) {
+                    uiaRaiseNotificationEvent(provider.Get(), NotificationKind_Other, processing,
+                                              message.bstr(), activityId.bstr());
+                }
+            }
+#endif
         }
     }
 }
@@ -490,6 +504,10 @@ HRESULT QWindowsUiaMainProvider::GetPropertyValue(PROPERTYID idProp, VARIANT *pR
         // Accelerator key.
         *pRetVal = QComVariant{ accessible->text(QAccessible::Accelerator) }.release();
         break;
+    case UIA_AriaRolePropertyId:
+        if (accessible->role() == QAccessible::Heading)
+            *pRetVal = QComVariant{ QStringLiteral("heading") }.release();
+        break;
     case UIA_AriaPropertiesPropertyId:
         setAriaProperties(accessible, pRetVal);
         break;
@@ -588,6 +606,12 @@ HRESULT QWindowsUiaMainProvider::GetPropertyValue(PROPERTYID idProp, VARIANT *pR
         break;
     case UIA_FullDescriptionPropertyId:
         *pRetVal = QComVariant{ accessible->text(QAccessible::Description) }.release();
+        break;
+    case UIA_LocalizedControlTypePropertyId:
+        // see Core Accessibility API Mappings spec:
+        // https://www.w3.org/TR/core-aam-1.2/#role-map-blockquote
+        if (accessible->role() == QAccessible::BlockQuote)
+            *pRetVal = QComVariant{ tr("blockquote") }.release();
         break;
     case UIA_NamePropertyId: {
         QString name = accessible->text(QAccessible::Name);

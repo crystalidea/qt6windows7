@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Intel Corporation.
 // Copyright (C) 2012 Olivier Goffart <ogoffart@woboq.com>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QMUTEX_P_H
 #define QMUTEX_P_H
@@ -35,6 +36,7 @@ struct timespec;
 
 QT_BEGIN_NAMESPACE
 
+// ### Qt7 remove this comment block
 // We manipulate the pointer to this class in inline, atomic code,
 // so syncqt mustn't mark them as private, so ELFVERSION:ignore-next
 class QMutexPrivate

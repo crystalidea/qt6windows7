@@ -1,17 +1,16 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qthread.h"
 #include "qthread_p.h"
-#include "qthreadstorage.h"
-#include "qmutex.h"
 
-#include <qcoreapplication.h>
-#include <qpointer.h>
-
+#include "qcoreapplication.h"
 #include <private/qcoreapplication_p.h>
 #include <private/qeventdispatcher_win_p.h>
 #include "qloggingcategory.h"
+#include "qmutex.h"
+#include "qthreadstorage.h"
 
 #include <qt_windows.h>
 
@@ -31,200 +30,101 @@ SetThreadDescription(
     );
 }
 
+#ifndef THREAD_POWER_THROTTLING_EXECUTION_SPEED
+#define THREAD_POWER_THROTTLING_EXECUTION_SPEED 0x1
+#define THREAD_POWER_THROTTLING_CURRENT_VERSION 1
+
+typedef struct _THREAD_POWER_THROTTLING_STATE {
+    ULONG Version;
+    ULONG ControlMask;
+    ULONG StateMask;
+} THREAD_POWER_THROTTLING_STATE;
+#endif
+
+
 QT_BEGIN_NAMESPACE
+
+Q_STATIC_LOGGING_CATEGORY(lcQThread, "qt.core.thread", QtWarningMsg)
 
 #if QT_CONFIG(thread)
 
-void qt_watch_adopted_thread(const HANDLE adoptedThreadHandle, QThread *qthread);
-DWORD WINAPI qt_adopted_thread_watcher_function(LPVOID);
+Q_CONSTINIT static thread_local QThreadData *currentThreadData = nullptr;
 
-static DWORD qt_current_thread_data_tls_index = TLS_OUT_OF_INDEXES;
-void qt_create_tls()
+static void destroy_current_thread_data(void *p)
 {
-    if (qt_current_thread_data_tls_index != TLS_OUT_OF_INDEXES)
-        return;
-    Q_CONSTINIT static QBasicMutex mutex;
-    QMutexLocker locker(&mutex);
-    if (qt_current_thread_data_tls_index != TLS_OUT_OF_INDEXES)
-        return;
-    qt_current_thread_data_tls_index = TlsAlloc();
-}
+    QThreadData *data = static_cast<QThreadData *>(p);
+    QThread *thread = data->thread.loadAcquire();
 
-static void qt_free_tls()
-{
-    if (qt_current_thread_data_tls_index != TLS_OUT_OF_INDEXES) {
-        TlsFree(qt_current_thread_data_tls_index);
-        qt_current_thread_data_tls_index = TLS_OUT_OF_INDEXES;
+    if (data->isAdopted) {
+        // If this is an adopted thread, then QThreadData owns the QThread and
+        // this is very likely the last reference. These pointers cannot be
+        // null and there is no race.
+        QThreadPrivate *thread_p = static_cast<QThreadPrivate *>(QObjectPrivate::get(thread));
+        thread_p->finish();
+    } else {
+        // We may be racing the QThread destructor in another thread and it may
+        // have begun destruction; we must not dereference the QThread pointer.
     }
+
+    // the QThread object may still have a reference, so this may not delete
+    data->deref();
+
+    // ... but we must reset it to zero before returning so we aren't
+    // leaving a dangling pointer.
+    currentThreadData = nullptr;
 }
-Q_DESTRUCTOR_FUNCTION(qt_free_tls)
+
+static QThreadData *get_thread_data()
+{
+    return currentThreadData;
+}
+
+static void set_thread_data(QThreadData *data) noexcept
+{
+    if (data) {
+        struct Cleanup {
+            Cleanup() { QThreadStoragePrivate::init(); }
+            ~Cleanup() { destroy_current_thread_data(currentThreadData); }
+        };
+        static thread_local Cleanup currentThreadCleanup;
+    }
+    currentThreadData = data;
+}
 
 /*
     QThreadData
 */
 void QThreadData::clearCurrentThreadData()
 {
-    TlsSetValue(qt_current_thread_data_tls_index, 0);
+    set_thread_data(nullptr);
 }
 
-QThreadData *QThreadData::current(bool createIfNecessary)
+QThreadData *QThreadData::currentThreadData() noexcept
 {
-    qt_create_tls();
-    QThreadData *threadData = reinterpret_cast<QThreadData *>(TlsGetValue(qt_current_thread_data_tls_index));
-    if (!threadData && createIfNecessary) {
-        threadData = new QThreadData;
-        // This needs to be called prior to new AdoptedThread() to
-        // avoid recursion.
-        TlsSetValue(qt_current_thread_data_tls_index, threadData);
-        QT_TRY {
-            threadData->thread.storeRelease(new QAdoptedThread(threadData));
-        } QT_CATCH(...) {
-            TlsSetValue(qt_current_thread_data_tls_index, 0);
-            threadData->deref();
-            threadData = 0;
-            QT_RETHROW;
-        }
-        threadData->deref();
-        threadData->isAdopted = true;
-        threadData->threadId.storeRelaxed(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
+    return get_thread_data();
+}
 
-        if (!QCoreApplicationPrivate::theMainThreadId) {
-            auto *mainThread = threadData->thread.loadRelaxed();
-            mainThread->setObjectName("Qt mainThread");
-            QCoreApplicationPrivate::theMainThread.storeRelease(mainThread);
-            QCoreApplicationPrivate::theMainThreadId.storeRelaxed(threadData->threadId.loadRelaxed());
-        } else {
-            HANDLE realHandle = INVALID_HANDLE_VALUE;
-            DuplicateHandle(GetCurrentProcess(),
-                    GetCurrentThread(),
-                    GetCurrentProcess(),
-                    &realHandle,
-                    0,
-                    FALSE,
-                    DUPLICATE_SAME_ACCESS);
-            qt_watch_adopted_thread(realHandle, threadData->thread.loadRelaxed());
-        }
+QThreadData *QThreadData::createCurrentThreadData()
+{
+    Q_ASSERT(!currentThreadData());
+    std::unique_ptr data = std::make_unique<QThreadData>();
+
+    // This needs to be called prior to new QAdoptedThread() to avoid
+    // recursion (see qobject.cpp).
+    set_thread_data(data.get());
+
+    QT_TRY {
+        data->thread.storeRelease(new QAdoptedThread(data.get()));
+    } QT_CATCH(...) {
+        clearCurrentThreadData();
+        QT_RETHROW;
     }
-    return threadData;
+    return data.release();
 }
 
 void QAdoptedThread::init()
 {
     d_func()->handle = GetCurrentThread();
-    d_func()->id = GetCurrentThreadId();
-}
-
-static QList<HANDLE> qt_adopted_thread_handles;
-static QList<QThread *> qt_adopted_qthreads;
-Q_CONSTINIT static QBasicMutex qt_adopted_thread_watcher_mutex;
-static DWORD qt_adopted_thread_watcher_id = 0;
-static HANDLE qt_adopted_thread_wakeup = 0;
-
-/*!
-    \internal
-    Adds an adopted thread to the list of threads that Qt watches to make sure
-    the thread data is properly cleaned up. This function starts the watcher
-    thread if necessary.
-*/
-void qt_watch_adopted_thread(const HANDLE adoptedThreadHandle, QThread *qthread)
-{
-    QMutexLocker lock(&qt_adopted_thread_watcher_mutex);
-
-    if (GetCurrentThreadId() == qt_adopted_thread_watcher_id) {
-        CloseHandle(adoptedThreadHandle);
-        return;
-    }
-
-    qt_adopted_thread_handles.append(adoptedThreadHandle);
-    qt_adopted_qthreads.append(qthread);
-
-    // Start watcher thread if it is not already running.
-    if (qt_adopted_thread_watcher_id == 0) {
-        if (qt_adopted_thread_wakeup == 0) {
-            qt_adopted_thread_wakeup = CreateEvent(0, false, false, 0);
-            qt_adopted_thread_handles.prepend(qt_adopted_thread_wakeup);
-        }
-
-        CloseHandle(CreateThread(0, 0, qt_adopted_thread_watcher_function, 0, 0, &qt_adopted_thread_watcher_id));
-    } else {
-        SetEvent(qt_adopted_thread_wakeup);
-    }
-}
-
-/*
-    This function loops and waits for native adopted threads to finish.
-    When this happens it derefs the QThreadData for the adopted thread
-    to make sure it gets cleaned up properly.
-*/
-DWORD WINAPI qt_adopted_thread_watcher_function(LPVOID)
-{
-    forever {
-        qt_adopted_thread_watcher_mutex.lock();
-
-        if (qt_adopted_thread_handles.count() == 1) {
-            qt_adopted_thread_watcher_id = 0;
-            qt_adopted_thread_watcher_mutex.unlock();
-            break;
-        }
-
-        QList<HANDLE> handlesCopy = qt_adopted_thread_handles;
-        qt_adopted_thread_watcher_mutex.unlock();
-
-        DWORD ret = WAIT_TIMEOUT;
-        int count;
-        int offset;
-        int loops = handlesCopy.size() / MAXIMUM_WAIT_OBJECTS;
-        if (handlesCopy.size() % MAXIMUM_WAIT_OBJECTS)
-            ++loops;
-        if (loops == 1) {
-            // no need to loop, no timeout
-            offset = 0;
-            count = handlesCopy.count();
-            ret = WaitForMultipleObjects(handlesCopy.count(), handlesCopy.constData(), false, INFINITE);
-        } else {
-            int loop = 0;
-            do {
-                offset = loop * MAXIMUM_WAIT_OBJECTS;
-                count = qMin(handlesCopy.count() - offset, MAXIMUM_WAIT_OBJECTS);
-                ret = WaitForMultipleObjects(count, handlesCopy.constData() + offset, false, 100);
-                loop = (loop + 1) % loops;
-            } while (ret == WAIT_TIMEOUT);
-        }
-
-        if (ret == WAIT_FAILED || ret >= WAIT_OBJECT_0 + uint(count)) {
-            qWarning("QThread internal error while waiting for adopted threads: %d", int(GetLastError()));
-            continue;
-        }
-
-        const int handleIndex = offset + ret - WAIT_OBJECT_0;
-        if (handleIndex == 0) // New handle to watch was added.
-            continue;
-        const int qthreadIndex = handleIndex - 1;
-
-        qt_adopted_thread_watcher_mutex.lock();
-        QThreadData *data = QThreadData::get2(qt_adopted_qthreads.at(qthreadIndex));
-        qt_adopted_thread_watcher_mutex.unlock();
-        if (data->isAdopted) {
-            QThread *thread = data->thread;
-            Q_ASSERT(thread);
-            auto thread_p = static_cast<QThreadPrivate *>(QObjectPrivate::get(thread));
-            Q_UNUSED(thread_p);
-            Q_ASSERT(!thread_p->finished);
-            thread_p->finish();
-        }
-        data->deref();
-
-        QMutexLocker lock(&qt_adopted_thread_watcher_mutex);
-        CloseHandle(qt_adopted_thread_handles.at(handleIndex));
-        qt_adopted_thread_handles.remove(handleIndex);
-        qt_adopted_qthreads.remove(qthreadIndex);
-    }
-
-    QThreadData *threadData = reinterpret_cast<QThreadData *>(TlsGetValue(qt_current_thread_data_tls_index));
-    if (threadData)
-        threadData->deref();
-
-    return 0;
 }
 
 #ifndef Q_OS_WIN64
@@ -302,15 +202,18 @@ unsigned int __stdcall QT_ENSURE_STACK_ALIGNED_FOR_SSE QThreadPrivate::start(voi
     QThread *thr = reinterpret_cast<QThread *>(arg);
     QThreadData *data = QThreadData::get2(thr);
 
-    qt_create_tls();
-    TlsSetValue(qt_current_thread_data_tls_index, data);
-    data->threadId.storeRelaxed(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
+    data->ref();
+    set_thread_data(data);
+    data->threadId.storeRelaxed(QThread::currentThreadId());
 
     QThread::setTerminationEnabled(false);
 
     {
         QMutexLocker locker(&thr->d_func()->mutex);
         data->quitNow = thr->d_func()->exited;
+
+        if (thr->d_func()->serviceLevel != QThread::QualityOfService::Auto)
+            thr->d_func()->setQualityOfServiceLevel(thr->d_func()->serviceLevel);
     }
 
     data->ensureEventDispatcher();
@@ -330,6 +233,45 @@ unsigned int __stdcall QT_ENSURE_STACK_ALIGNED_FOR_SSE QThreadPrivate::start(voi
     return 0;
 }
 
+void QThreadPrivate::setQualityOfServiceLevel(QThread::QualityOfService qosLevel)
+{
+    Q_Q(QThread);
+    serviceLevel = qosLevel;
+
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN10_RS3)
+    typedef BOOL(WINAPI* SetThreadInformationFunc)(HANDLE, THREAD_INFORMATION_CLASS, LPVOID, DWORD);
+    static SetThreadInformationFunc mySetThreadInformation = (SetThreadInformationFunc)::GetProcAddress(::GetModuleHandle(L"kernel32"), "SetThreadInformation");
+    
+    if (mySetThreadInformation) {
+        qCDebug(lcQThread) << "Setting thread QoS class to" << qosLevel << "for thread" << q;
+
+        THREAD_POWER_THROTTLING_STATE state;
+        memset(&state, 0, sizeof(state));
+        state.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+
+        switch (qosLevel) {
+        case QThread::QualityOfService::Auto:
+            state.ControlMask = 0; // Unset control of QoS
+            state.StateMask = 0;
+            break;
+        case QThread::QualityOfService::Eco:
+            state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+            state.StateMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+            break;
+        case QThread::QualityOfService::High:
+            state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+            state.StateMask = 0; // Ask to disable throttling
+            break;
+        }
+        
+        if (!mySetThreadInformation(::GetCurrentThread(), THREAD_INFORMATION_CLASS::ThreadPowerThrottling,
+                                  &state, sizeof(state))) {
+            qErrnoWarning("Failed to set thread power throttling state");
+        }
+    }
+#endif
+}
+
 /*
     For regularly terminating threads, this will be called and executed by the thread as the
     last code before the thread exits. In that case, \a arg is the current QThread.
@@ -347,7 +289,7 @@ void QThreadPrivate::finish(bool lockAnyway) noexcept
     QThread *thr = q_func();
 
     QMutexLocker locker(lockAnyway ? &d->mutex : nullptr);
-    d->isInFinish = true;
+    d->threadState = QThreadPrivate::Finishing;
     d->priority = QThread::InheritPriority;
     void **tls_data = reinterpret_cast<void **>(&d->data->tls);
     if (lockAnyway)
@@ -369,17 +311,13 @@ void QThreadPrivate::finish(bool lockAnyway) noexcept
             locker.relock();
     }
 
-    d->running = false;
-    d->finished = true;
-    d->isInFinish = false;
+    d->threadState = QThreadPrivate::Finished;
     d->interruptionRequested.store(false, std::memory_order_relaxed);
 
     if (!d->waiters) {
         CloseHandle(d->handle);
         d->handle = 0;
     }
-
-    d->id = 0;
 }
 
 /**************************************************************************
@@ -433,20 +371,19 @@ void QThread::start(Priority priority)
     Q_D(QThread);
     QMutexLocker locker(&d->mutex);
 
-    if (d->isInFinish) {
+    if (d->threadState == QThreadPrivate::Finishing) {
         locker.unlock();
         wait();
         locker.relock();
     }
 
-    if (d->running)
+    if (d->threadState == QThreadPrivate::Running)
         return;
 
     // avoid interacting with the binding system
     d->objectName = d->extraData ? d->extraData->objectName.valueBypassingBindings()
                                  : QString();
-    d->running = true;
-    d->finished = false;
+    d->threadState = QThreadPrivate::Running;
     d->exited = false;
     d->returnCode = 0;
     d->interruptionRequested.store(false, std::memory_order_relaxed);
@@ -464,18 +401,17 @@ void QThread::start(Priority priority)
 #if defined(Q_CC_MSVC) && !defined(_DLL)
     // MSVC -MT or -MTd build
     d->handle = (Qt::HANDLE) _beginthreadex(NULL, d->stackSize, QThreadPrivate::start,
-                                            this, CREATE_SUSPENDED, &(d->id));
+                                            this, CREATE_SUSPENDED, nullptr);
 #else
     // MSVC -MD or -MDd or MinGW build
     d->handle = CreateThread(nullptr, d->stackSize,
                              reinterpret_cast<LPTHREAD_START_ROUTINE>(QThreadPrivate::start),
-                             this, CREATE_SUSPENDED, reinterpret_cast<LPDWORD>(&d->id));
+                             this, CREATE_SUSPENDED, nullptr);
 #endif
 
     if (!d->handle) {
         qErrnoWarning("QThread::start: Failed to create thread");
-        d->running = false;
-        d->finished = true;
+        d->threadState = QThreadPrivate::NotStarted;
         return;
     }
 
@@ -529,7 +465,7 @@ void QThread::terminate()
 {
     Q_D(QThread);
     QMutexLocker locker(&d->mutex);
-    if (!d->running)
+    if (d->threadState != QThreadPrivate::Running)
         return;
     if (!d->terminationEnabled) {
         d->terminatePending = true;
@@ -540,22 +476,9 @@ void QThread::terminate()
     d->finish(false);
 }
 
-bool QThread::wait(QDeadlineTimer deadline)
-{
-    Q_D(QThread);
-    QMutexLocker locker(&d->mutex);
-
-    if (d->id == GetCurrentThreadId()) {
-        qWarning("QThread::wait: Thread tried to wait on itself");
-        return false;
-    }
-    if (d->finished || !d->running)
-        return true;
-    return d->wait(locker, deadline);
-}
-
 bool QThreadPrivate::wait(QMutexLocker<QMutex> &locker, QDeadlineTimer deadline)
 {
+    Q_ASSERT(threadState != QThreadPrivate::Finished);
     Q_ASSERT(locker.isLocked());
     QThreadPrivate *d = this;
 
@@ -579,13 +502,13 @@ bool QThreadPrivate::wait(QMutexLocker<QMutex> &locker, QDeadlineTimer deadline)
     locker.mutex()->lock();
     --d->waiters;
 
-    if (ret && !d->finished) {
+    if (ret && d->threadState < QThreadPrivate::Finished) {
         // thread was terminated by someone else
 
         d->finish(false);
     }
 
-    if (d->finished && !d->waiters) {
+    if (d->threadState == QThreadPrivate::Finished && !d->waiters) {
         CloseHandle(d->handle);
         d->handle = 0;
     }

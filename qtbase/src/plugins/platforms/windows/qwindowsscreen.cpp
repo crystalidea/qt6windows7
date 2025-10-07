@@ -32,8 +32,6 @@
 #include <setupapi.h>
 #include <shellscalingapi.h>
 
-#include "vxkex.h"
-
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
@@ -47,15 +45,7 @@ static inline QDpi monitorDPI(HMONITOR hMonitor)
 {
     UINT dpiX;
     UINT dpiY;
-
-    HRESULT hr = S_OK;
-
-    if (QWindowsContext::shcoredll.isValid())
-        hr = QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-    else
-        hr = vxkex::GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-
-    if (SUCCEEDED(hr))
+    if (QWindowsContext::shcoredll.getDpiForMonitor && SUCCEEDED(QWindowsContext::shcoredll.getDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)))
         return QDpi(dpiX, dpiY);
     return {0, 0};
 }
@@ -621,8 +611,6 @@ bool QWindowsScreen::setOrientationPreference(Qt::ScreenOrientation o)
     }
     if (QWindowsContext::user32dll.setDisplayAutoRotationPreferences)
         result = QWindowsContext::user32dll.setDisplayAutoRotationPreferences(orientationPreference);
-    else
-        result = vxkex::SetDisplayAutoRotationPreferences(orientationPreference);
     return result;
 }
 
@@ -630,15 +618,7 @@ Qt::ScreenOrientation QWindowsScreen::orientationPreference()
 {
     Qt::ScreenOrientation result = Qt::PrimaryOrientation;
     ORIENTATION_PREFERENCE orientationPreference = ORIENTATION_PREFERENCE_NONE;
-
-    BOOL bResult = TRUE;
-    
-    if (QWindowsContext::user32dll.getDisplayAutoRotationPreferences)
-        bResult = QWindowsContext::user32dll.getDisplayAutoRotationPreferences((DWORD *)&orientationPreference);
-    else
-        bResult = vxkex::GetDisplayAutoRotationPreferences(&orientationPreference);
-
-    if (bResult) {
+    if (QWindowsContext::user32dll.getDisplayAutoRotationPreferences && QWindowsContext::user32dll.getDisplayAutoRotationPreferences(&orientationPreference)) {
         switch (orientationPreference) {
         case ORIENTATION_PREFERENCE_NONE:
             break;
@@ -783,10 +763,33 @@ static void moveToVirtualScreen(QWindow *w, const QScreen *newScreen)
     w->setGeometry(geometry);
 }
 
+void QWindowsScreenManager::addScreen(const QWindowsScreenData &screenData)
+{
+    auto *newScreen = new QWindowsScreen(screenData);
+    m_screens.push_back(newScreen);
+    QWindowSystemInterface::handleScreenAdded(newScreen,
+                                              screenData.flags & QWindowsScreenData::PrimaryScreen);
+    qCDebug(lcQpaScreen) << "New Monitor: " << screenData;
+
+    // When a new screen is attached Window might move windows to the new screen
+    // automatically, in which case they will get a WM_DPICHANGED event. But at
+    // that point we have not received WM_DISPLAYCHANGE yet, so we fail to reflect
+    // the new screen's DPI. To account for this we explicitly check for screen
+    // change here, now that we are processing the WM_DISPLAYCHANGE.
+    const auto allWindows = QGuiApplication::allWindows();
+    for (QWindow *w : allWindows) {
+        if (w->isVisible() && w->handle() && w->type() != Qt::Desktop) {
+            if (QWindowsWindow *window = QWindowsWindow::windowsWindowOf(w))
+                window->checkForScreenChanged(QWindowsWindow::ScreenChangeMode::FromScreenAdded);
+        }
+    }
+}
+
 void QWindowsScreenManager::removeScreen(int index)
 {
     qCDebug(lcQpaScreen) << "Removing Monitor:" << m_screens.at(index)->data();
-    QScreen *screen = m_screens.at(index)->screen();
+    QPlatformScreen *platformScreen = m_screens.takeAt(index);
+    QScreen *screen = platformScreen->screen();
     QScreen *primaryScreen = QGuiApplication::primaryScreen();
     // QTBUG-38650: When a screen is disconnected, Windows will automatically
     // move the Window to another screen. This will trigger a geometry change
@@ -804,7 +807,7 @@ void QWindowsScreenManager::removeScreen(int index)
                     && (QWindowsWindow::baseWindowOf(w)->exStyle() & WS_EX_TOOLWINDOW)) {
                     moveToVirtualScreen(w, primaryScreen);
                 } else {
-                    QWindowSystemInterface::handleWindowScreenChanged(w, primaryScreen);
+                    QWindowSystemInterface::handleWindowScreenChanged<QWindowSystemInterface::SynchronousDelivery>(w, primaryScreen);
                 }
                 ++movedWindowCount;
             }
@@ -812,7 +815,7 @@ void QWindowsScreenManager::removeScreen(int index)
         if (movedWindowCount)
             QWindowSystemInterface::flushWindowSystemEvents();
     }
-    QWindowSystemInterface::handleScreenRemoved(m_screens.takeAt(index));
+    QWindowSystemInterface::handleScreenRemoved(platformScreen);
 }
 
 /*!
@@ -833,11 +836,7 @@ bool QWindowsScreenManager::handleScreenChanges()
             if (existingIndex == 0)
                 primaryScreenChanged = true;
         } else {
-            auto *newScreen = new QWindowsScreen(newData);
-            m_screens.push_back(newScreen);
-            QWindowSystemInterface::handleScreenAdded(newScreen,
-                                                             newData.flags & QWindowsScreenData::PrimaryScreen);
-            qCDebug(lcQpaScreen) << "New Monitor: " << newData;
+            addScreen(newData);
         }    // exists
     }        // for new screens.
     // Remove deleted ones but keep main monitors if we get only the

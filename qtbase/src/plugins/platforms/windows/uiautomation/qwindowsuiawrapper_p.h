@@ -15,9 +15,12 @@
 // We mean it.
 //
 
-#include <QtGui/private/qtguiglobal_p.h>
+#include <QtGui/qtguiglobal.h>
+#if QT_CONFIG(accessibility)
+#include <QtCore/qt_windows.h>
+#include "qwindowscontext.h"
 
-QT_REQUIRE_CONFIG(accessibility);
+#include <uiautomation.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -52,6 +55,8 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#endif // QT_CONFIG(accessibility)
 
 #endif //QWINDOWSUIAWRAPPER_H
 

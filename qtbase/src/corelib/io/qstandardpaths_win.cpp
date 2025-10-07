@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:provides-trusted-directory-paths
 
 #include "qstandardpaths.h"
 
@@ -70,8 +71,7 @@ static bool isProcessLowIntegrity()
     QVarLengthArray<char,256> token_info_buf(256);
     auto* token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
     DWORD token_info_length = token_info_buf.size();
-    if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length)
-        && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+    if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_info, token_info_length, &token_info_length) && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
         // grow buffer and retry GetTokenInformation
         token_info_buf.resize(token_info_length);
         token_info = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_info_buf.data());
@@ -80,7 +80,7 @@ static bool isProcessLowIntegrity()
     }
     else
         return false;
-    
+
     // The GetSidSubAuthorityCount return-code is undefined on failure, so
     // there's no point in checking before dereferencing
     DWORD integrity_level = *GetSidSubAuthority(token_info->Label.Sid, *GetSidSubAuthorityCount(token_info->Label.Sid) - 1);

@@ -368,7 +368,7 @@ void QEventDispatcherWin32Private::registerTimer(WinTimerInfo *t)
         // user normal timers for (Very)CoarseTimers, or if no more multimedia timers available
         ok = mySetCoalescableTimerFunc(internalHwnd, t->timerId, interval, nullptr, tolerance);
     }
-    
+
     if (!ok)
         ok = SetTimer(internalHwnd, t->timerId, interval, nullptr);
 

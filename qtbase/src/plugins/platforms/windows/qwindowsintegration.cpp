@@ -50,8 +50,7 @@
 
 #include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/private/qfunctions_win_p.h>
-
-#include <wrl.h>
+#include <QtCore/private/qcomptr_p.h>
 
 #include <limits.h>
 
@@ -140,7 +139,6 @@ static inline unsigned parseOptions(const QStringList &paramList,
                                     DarkModeHandling *darkModeHandling)
 {
     unsigned options = 0;
-
     for (const QString &param : paramList) {
         if (param.startsWith(u"fontengine=")) {
             if (param.endsWith(u"gdi")) {
@@ -486,7 +484,6 @@ QPlatformFontDatabase *QWindowsIntegration::fontDatabase() const
         else
 #endif // QT_NO_FREETYPE
 #if QT_CONFIG(directwrite3)
-
         /* IDWriteFontFace3 is only reportedly available starting with Windows 10. This change is necessary starting
         with Qt 6.8, where DirectWrite is used by default to populate the font database. 
         More info: https://github.com/videolan/vlc/blob/master/contrib/src/qt/0001-Use-DirectWrite-font-database-only-with-Windows-10-a.patch
@@ -728,8 +725,6 @@ void QWindowsIntegration::setApplicationBadge(qint64 number)
 void QWindowsIntegration::setApplicationBadge(const QImage &image)
 {
     QComHelper comHelper;
-
-    using Microsoft::WRL::ComPtr;
 
     ComPtr<ITaskbarList3> taskbarList;
     CoCreateInstance(CLSID_TaskbarList, nullptr,

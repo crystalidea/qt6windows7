@@ -35,6 +35,23 @@ QComHelper::~QComHelper()
 
 /*!
     \internal
+    Make sure the COM library is is initialized on current thread.
+
+    Initializes COM as a single-threaded apartment on this thread and
+    ensures that CoUninitialize will be called on the same thread when
+    the thread exits. Note that the last call to CoUninitialize on the
+    main thread will always be made during destruction of static
+    variables at process exit.
+
+    https://docs.microsoft.com/en-us/windows/apps/desktop/modernize/modernize-packaged-apps
+*/
+void qt_win_ensureComInitializedOnThisThread()
+{
+    static thread_local QComHelper s_comHelper;
+}
+
+/*!
+    \internal
     Checks if the application has a \e{package identity}
 
     Having a \e{package identity} is required to use many modern
@@ -45,9 +62,7 @@ QComHelper::~QComHelper()
 bool qt_win_hasPackageIdentity()
 {
     typedef BOOL (WINAPI *GetCurrentPackageFullNameFunc) (UINT32 *, PWSTR);
-    static GetCurrentPackageFullNameFunc myGetCurrentPackageFullName = 
-        (GetCurrentPackageFullNameFunc)::GetProcAddress(::GetModuleHandle(L"kernel32"), "GetCurrentPackageFullName");
-
+    static GetCurrentPackageFullNameFunc myGetCurrentPackageFullName =         (GetCurrentPackageFullNameFunc)::GetProcAddress(::GetModuleHandle(L"kernel32"), "GetCurrentPackageFullName");
     if (myGetCurrentPackageFullName)
     {
 #if defined(HAS_APPMODEL)
@@ -69,7 +84,7 @@ bool qt_win_hasPackageIdentity()
     return false;
 #endif
     }
-
+    
     return false;
 }
 

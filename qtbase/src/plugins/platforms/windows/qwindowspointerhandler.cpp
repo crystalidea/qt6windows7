@@ -26,8 +26,6 @@
 
 #include <windowsx.h>
 
-#include "vxkex.h"
-
 QT_BEGIN_NAMESPACE
 
 enum {
@@ -57,11 +55,7 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     *result = 0;
     const quint32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
 
-    BOOL bResultPt = QWindowsContext::user32dll.getPointerType ? 
-        QWindowsContext::user32dll.getPointerType(pointerId, &m_pointerType) : 
-            vxkex::GetPointerType(pointerId, &m_pointerType);
-
-    if (!bResultPt) {
+    if (!QWindowsContext::user32dll.getPointerType || !QWindowsContext::user32dll.getPointerType(pointerId, &m_pointerType)) {
         qWarning() << "GetPointerType() failed:" << qt_error_string();
         return false;
     }
@@ -75,21 +69,12 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     }
     case QT_PT_TOUCH: {
         quint32 pointerCount = 0;
-        BOOL bResultPointerTouchInfo = QWindowsContext::user32dll.getPointerFrameTouchInfo ? 
-            QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, nullptr) : 
-                vxkex::GetPointerFrameTouchInfo(pointerId, &pointerCount, nullptr);
-
-        if (!bResultPointerTouchInfo) {
+        if (!QWindowsContext::user32dll.getPointerFrameTouchInfo || !QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, nullptr)) {
             qWarning() << "GetPointerFrameTouchInfo() failed:" << qt_error_string();
             return false;
         }
         QVarLengthArray<POINTER_TOUCH_INFO, 10> touchInfo(pointerCount);
-
-        bResultPointerTouchInfo = QWindowsContext::user32dll.getPointerFrameTouchInfo ? 
-            QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data()) : 
-                vxkex::GetPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data());
-
-        if (!bResultPointerTouchInfo) {
+        if (!QWindowsContext::user32dll.getPointerFrameTouchInfo || !QWindowsContext::user32dll.getPointerFrameTouchInfo(pointerId, &pointerCount, touchInfo.data())) {
             qWarning() << "GetPointerFrameTouchInfo() failed:" << qt_error_string();
             return false;
         }
@@ -102,12 +87,10 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
         // dispatch any skipped frames if event compression is disabled by the app
         if (historyCount > 1 && !QCoreApplication::testAttribute(Qt::AA_CompressHighFrequencyEvents)) {
             touchInfo.resize(pointerCount * historyCount);
-
-            BOOL bResultTouchHistory = QWindowsContext::user32dll.getPointerFrameTouchInfoHistory ?
-                QWindowsContext::user32dll.getPointerFrameTouchInfoHistory(pointerId, &historyCount, &pointerCount, touchInfo.data()) :
-                    vxkex::GetPointerFrameTouchInfoHistory(pointerId, &historyCount, &pointerCount, touchInfo.data());
-
-            if (!bResultTouchHistory) {
+            if (!QWindowsContext::user32dll.getPointerFrameTouchInfoHistory || !QWindowsContext::user32dll.getPointerFrameTouchInfoHistory(pointerId,
+                                                 &historyCount,
+                                                 &pointerCount,
+                                                 touchInfo.data())) {
                 qWarning() << "GetPointerFrameTouchInfoHistory() failed:" << qt_error_string();
                 return false;
             }
@@ -125,11 +108,7 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
     }
     case QT_PT_PEN: {
         POINTER_PEN_INFO penInfo;
-
-        BOOL bResultPenInfo = QWindowsContext::user32dll.getPointerPenInfo ? 
-            QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo) : vxkex::GetPointerPenInfo(pointerId, &penInfo);
-
-        if (!bResultPenInfo) {
+        if (!QWindowsContext::user32dll.getPointerPenInfo || !QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo)) {
             qWarning() << "GetPointerPenInfo() failed:" << qt_error_string();
             return false;
         }
@@ -141,11 +120,7 @@ bool QWindowsPointerHandler::translatePointerEvent(QWindow *window, HWND hwnd, Q
                 || !QCoreApplication::testAttribute(Qt::AA_CompressTabletEvents))) {
             QVarLengthArray<POINTER_PEN_INFO, 10> penInfoHistory(historyCount);
 
-            BOOL bResultPenInfoHistory = QWindowsContext::user32dll.getPointerPenInfoHistory ?
-                QWindowsContext::user32dll.getPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data()) : 
-                    vxkex::GetPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data());
-
-            if (!bResultPenInfoHistory) {
+            if (!QWindowsContext::user32dll.getPointerPenInfoHistory || !QWindowsContext::user32dll.getPointerPenInfoHistory(pointerId, &historyCount, penInfoHistory.data())) {
                 qWarning() << "GetPointerPenInfoHistory() failed:" << qt_error_string();
                 return false;
             }
@@ -554,8 +529,6 @@ bool QWindowsPointerHandler::translateTouchEvent(QWindow *window, HWND hwnd,
         // Avoid getting repeated messages for this frame if there are multiple pointerIds
         if (QWindowsContext::user32dll.skipPointerFrameMessages)
             QWindowsContext::user32dll.skipPointerFrameMessages(touchInfo[i].pointerInfo.pointerId);
-        else
-            vxkex::SkipPointerFrameMessages(touchInfo[i].pointerInfo.pointerId);
     }
 
     // Some devices send touches for each finger in a different message/frame, instead of consolidating
@@ -602,12 +575,7 @@ bool QWindowsPointerHandler::translatePenEvent(QWindow *window, HWND hwnd, QtWin
     auto *penInfo = static_cast<POINTER_PEN_INFO *>(vPenInfo);
 
     RECT pRect, dRect;
-
-    BOOL bResultDeviceRects = QWindowsContext::user32dll.getPointerDeviceRects ? 
-        QWindowsContext::user32dll.getPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect) : 
-            vxkex::GetPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect);
-
-    if (!bResultDeviceRects)
+    if (!QWindowsContext::user32dll.getPointerDeviceRects || !QWindowsContext::user32dll.getPointerDeviceRects(penInfo->pointerInfo.sourceDevice, &pRect, &dRect))
         return false;
 
     const auto systemId = (qint64)penInfo->pointerInfo.sourceDevice;

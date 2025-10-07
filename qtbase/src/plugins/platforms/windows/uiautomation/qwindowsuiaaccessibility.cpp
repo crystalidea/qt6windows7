@@ -8,6 +8,7 @@
 #include "qwindowsuiautomation.h"
 #include "qwindowsuiamainprovider.h"
 #include "qwindowsuiautils.h"
+#include "qwindowsuiawrapper_p.h"
 
 #include <QtGui/qaccessible.h>
 #include <QtGui/qwindow.h>
@@ -15,8 +16,6 @@
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtCore/qt_windows.h>
 #include <qpa/qplatformintegration.h>
-#include "qwindowsuiawrapper_p.h"
-#include "qwindowsuiawrapper.cpp"
 
 #include <QtCore/private/qwinregistry_p.h>
 
@@ -123,7 +122,7 @@ void QWindowsUiaAccessibility::notifyAccessibilityUpdate(QAccessibleEvent *event
     QAccessibleInterface *accessible = event->accessibleInterface();
     if (!isActive() || !accessible || !accessible->isValid())
         return;
-
+        
     // Ensures QWindowsUiaWrapper is properly initialized.
     if (!QWindowsUiaWrapper::instance()->ready())
         return;

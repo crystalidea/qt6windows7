@@ -65,8 +65,8 @@ struct QWindowsUser32DLL
     typedef BOOL (WINAPI *SetProcessDpiAwarenessContext)(HANDLE);
     typedef BOOL (WINAPI *AddClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *RemoveClipboardFormatListener)(HWND);
-    typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
-    typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
+    typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(ORIENTATION_PREFERENCE *);
+    typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(ORIENTATION_PREFERENCE);
     typedef BOOL (WINAPI *AdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
     typedef BOOL (WINAPI *EnableNonClientDpiScaling)(HWND);
     typedef DPI_AWARENESS_CONTEXT (WINAPI *GetWindowDpiAwarenessContext)(HWND);
@@ -223,7 +223,7 @@ public:
     QWindowsMimeRegistry &mimeConverter() const;
     QWindowsScreenManager &screenManager();
     QWindowsTabletSupport *tabletSupport() const;
-
+    
     static QWindowsUser32DLL user32dll;
     static QWindowsShcoreDLL shcoredll;
 

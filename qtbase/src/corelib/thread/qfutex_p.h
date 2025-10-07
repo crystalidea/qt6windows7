@@ -1,5 +1,6 @@
 // Copyright (C) 2017 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QFUTEX_P_H
 #define QFUTEX_P_H
@@ -40,8 +41,6 @@ QT_END_NAMESPACE
 #elif defined(Q_OS_LINUX) && !defined(QT_LINUXBASE)
 // use Linux mutexes everywhere except for LSB builds
 #  include "qfutex_linux_p.h"
-//#elif defined(Q_OS_WIN)
-//#  include "qfutex_win_p.h"
 #else
 QT_BEGIN_NAMESPACE
 namespace QtFutex = QtDummyFutex;
