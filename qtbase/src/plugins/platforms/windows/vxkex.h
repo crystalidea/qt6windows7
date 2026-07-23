@@ -9,6 +9,17 @@
 
 namespace vxkex {
 
+// Defined further down; the metric helpers above it need the system DPI as the
+// baseline to convert from (see the comment in GetSystemMetricsForDpi).
+static UINT GetDpiForSystem(VOID);
+
+// Windows 7 backport: on a DPI-aware process GetSystemMetrics() already returns
+// values scaled to the system DPI, so the baseline to convert away from is the
+// system DPI, not the fixed 96 baseline. Qt asks these helpers for the 96-DPI
+// logical value and then applies its own device pixel ratio on top; dividing by
+// 96 here (Dpi == 96, so a no-op) left the metric at system scale, and Qt scaled
+// it a second time - scrollbars and window frames came out 1.5x too large at 150%.
+// The reference implementation (VxKex) divides by the system DPI throughout.
 static INT GetSystemMetricsForDpi(
     IN  INT     Index,
     IN  UINT    Dpi)
@@ -30,11 +41,8 @@ static INT GetSystemMetricsForDpi(
     case SM_CYMENU:
     case SM_CYVSCROLL:
     case SM_CXHSCROLL:
-    case SM_CXMIN:
-    case SM_CXMINTRACK:
-    case SM_CYMIN:
-    case SM_CYMINTRACK:
     case SM_CXSIZE:
+    case SM_CYSIZE:
     case SM_CXFRAME:
     case SM_CYFRAME:
     case SM_CXICONSPACING:
@@ -48,9 +56,18 @@ static INT GetSystemMetricsForDpi(
     case SM_CYMENUSIZE:
     case SM_CXMENUCHECK:
     case SM_CYMENUCHECK:
-        // These are pixel values that have to be scaled according to DPI.
-        Value *= Dpi;
-        Value /= USER_DEFAULT_SCREEN_DPI;
+    case SM_CXPADDEDBORDER:
+        // Pixel values that have to be rescaled. The exact set matches the one
+        // Windows 10's own GetSystemMetricsForDpi scales.
+        {
+            UINT SystemDpi = vxkex::GetDpiForSystem();
+
+            if (SystemDpi == 0)
+                SystemDpi = USER_DEFAULT_SCREEN_DPI;
+
+            Value *= Dpi;
+            Value /= SystemDpi;
+        }
         break;
     }
 
@@ -64,9 +81,39 @@ static BOOL SystemParametersInfoForDpi(
     IN      UINT    WinIni,
     IN      UINT    Dpi)
 {
+    // Windows 7 backport: same reasoning as GetSystemMetricsForDpi - the values
+    // SystemParametersInfo() returns on a DPI-aware process are already at system
+    // scale, so convert away from the system DPI, not from 96. The fonts have to
+    // be rescaled too (Qt reads lfMessageFont from here as its default font); the
+    // previous port left them untouched, so at 150% the UI font stayed 1.5x too big.
+    //
+    // SystemDpi MUST be signed: lfHeight is negative, and dividing a negative LONG
+    // by an unsigned int reinterprets it as a huge positive value, so the font
+    // height blew up to millions of pixels and every glyph rendered as a box.
+    INT SystemDpi = vxkex::GetDpiForSystem();
+
+    if (SystemDpi == 0)
+        SystemDpi = USER_DEFAULT_SCREEN_DPI;
+
     switch (Action) {
     case SPI_GETICONTITLELOGFONT:
-        return SystemParametersInfo(Action, Parameter, Data, 0);
+        {
+            BOOL Success;
+            PLOGFONT LogFont;
+
+            Success = SystemParametersInfo(Action, Parameter, Data, 0);
+
+            if (Success) {
+                LogFont = (PLOGFONT) Data;
+
+                LogFont->lfWidth  *= Dpi;
+                LogFont->lfHeight *= Dpi;
+                LogFont->lfWidth  /= SystemDpi;
+                LogFont->lfHeight /= SystemDpi;
+            }
+
+            return Success;
+        }
     case SPI_GETICONMETRICS:
         {
             BOOL Success;
@@ -79,8 +126,8 @@ static BOOL SystemParametersInfoForDpi(
 
                 IconMetrics->iHorzSpacing *= Dpi;
                 IconMetrics->iVertSpacing *= Dpi;
-                IconMetrics->iHorzSpacing /= USER_DEFAULT_SCREEN_DPI;
-                IconMetrics->iVertSpacing /= USER_DEFAULT_SCREEN_DPI;
+                IconMetrics->iHorzSpacing /= SystemDpi;
+                IconMetrics->iVertSpacing /= SystemDpi;
             }
 
             return Success;
@@ -106,16 +153,38 @@ static BOOL SystemParametersInfoForDpi(
                 NonClientMetrics->iMenuHeight           *= Dpi;
                 NonClientMetrics->iPaddedBorderWidth    *= Dpi;
 
-                NonClientMetrics->iBorderWidth          /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iScrollWidth          /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iScrollHeight         /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iCaptionWidth         /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iCaptionHeight        /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iSmCaptionWidth       /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iSmCaptionHeight      /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iMenuWidth            /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iMenuHeight           /= USER_DEFAULT_SCREEN_DPI;
-                NonClientMetrics->iPaddedBorderWidth    /= USER_DEFAULT_SCREEN_DPI;
+                NonClientMetrics->lfCaptionFont.lfWidth     *= Dpi;
+                NonClientMetrics->lfCaptionFont.lfHeight    *= Dpi;
+                NonClientMetrics->lfMenuFont.lfWidth        *= Dpi;
+                NonClientMetrics->lfMenuFont.lfHeight       *= Dpi;
+                NonClientMetrics->lfMessageFont.lfWidth     *= Dpi;
+                NonClientMetrics->lfMessageFont.lfHeight    *= Dpi;
+                NonClientMetrics->lfSmCaptionFont.lfWidth   *= Dpi;
+                NonClientMetrics->lfSmCaptionFont.lfHeight  *= Dpi;
+                NonClientMetrics->lfStatusFont.lfWidth      *= Dpi;
+                NonClientMetrics->lfStatusFont.lfHeight     *= Dpi;
+
+                NonClientMetrics->iBorderWidth          /= SystemDpi;
+                NonClientMetrics->iScrollWidth          /= SystemDpi;
+                NonClientMetrics->iScrollHeight         /= SystemDpi;
+                NonClientMetrics->iCaptionWidth         /= SystemDpi;
+                NonClientMetrics->iCaptionHeight        /= SystemDpi;
+                NonClientMetrics->iSmCaptionWidth       /= SystemDpi;
+                NonClientMetrics->iSmCaptionHeight      /= SystemDpi;
+                NonClientMetrics->iMenuWidth            /= SystemDpi;
+                NonClientMetrics->iMenuHeight           /= SystemDpi;
+                NonClientMetrics->iPaddedBorderWidth    /= SystemDpi;
+
+                NonClientMetrics->lfCaptionFont.lfWidth     /= SystemDpi;
+                NonClientMetrics->lfCaptionFont.lfHeight    /= SystemDpi;
+                NonClientMetrics->lfMenuFont.lfWidth        /= SystemDpi;
+                NonClientMetrics->lfMenuFont.lfHeight       /= SystemDpi;
+                NonClientMetrics->lfMessageFont.lfWidth     /= SystemDpi;
+                NonClientMetrics->lfMessageFont.lfHeight    /= SystemDpi;
+                NonClientMetrics->lfSmCaptionFont.lfWidth   /= SystemDpi;
+                NonClientMetrics->lfSmCaptionFont.lfHeight  /= SystemDpi;
+                NonClientMetrics->lfStatusFont.lfWidth      /= SystemDpi;
+                NonClientMetrics->lfStatusFont.lfHeight     /= SystemDpi;
             }
 
             return Success;
@@ -233,9 +302,27 @@ static BOOL AdjustWindowRectExForDpi(
     IN      ULONG   WindowExStyle,
     IN      ULONG   Dpi)
 {
-    // I'm not sure how to implement this function properly.
-    // If it turns out to be important, I'll have to do some testing
-    // on a Win10 VM.
+    // Windows 7 backport: rescale the rectangle from the system DPI to the
+    // requested one, then let the plain AdjustWindowRectEx add the (system-DPI)
+    // frame. Same baseline reasoning as the metric helpers above. Everything here
+    // is kept signed - the rectangle edges go negative once the frame is added,
+    // and unsigned division would corrupt them the same way it did the font.
+    INT SystemDpi;
+
+    if (!Rect) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    SystemDpi = vxkex::GetDpiForSystem();
+
+    if (SystemDpi == 0)
+        SystemDpi = USER_DEFAULT_SCREEN_DPI;
+
+    Rect->left   = Rect->left   * (INT) Dpi / SystemDpi;
+    Rect->top    = Rect->top    * (INT) Dpi / SystemDpi;
+    Rect->right  = Rect->right  * (INT) Dpi / SystemDpi;
+    Rect->bottom = Rect->bottom * (INT) Dpi / SystemDpi;
 
     return AdjustWindowRectEx(
         Rect,
