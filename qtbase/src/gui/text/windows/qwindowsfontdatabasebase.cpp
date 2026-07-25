@@ -8,6 +8,9 @@
 #include <QtCore/QThreadStorage>
 #include <QtCore/QtEndian>
 
+// Windows 7 backport: run-time stand-ins for the per-DPI user32 functions.
+#include "../../../plugins/platforms/windows/vxkex.h"
+
 #if QT_CONFIG(directwrite)
 #  if QT_CONFIG(directwrite3)
 #    include <dwrite_3.h>
@@ -770,10 +773,15 @@ QFont QWindowsFontDatabaseBase::systemDefaultFont()
     static SystemParametersInfoForDpiFunc mySystemParametersInfoForDpi = 
         (SystemParametersInfoForDpiFunc)::GetProcAddress(::GetModuleHandle(L"user32"), "SystemParametersInfoForDpi");
 
+    // Windows 7 backport: fall back to the vxkex helper rather than to the plain
+    // SystemParametersInfo. LOGFONT_to_QFont below converts lfHeight to a point size
+    // against defaultVerticalDPI() (96), so the LOGFONT has to come back expressed at
+    // 96 DPI. The plain call returns it at the system DPI, which made the default
+    // application font come out 1.5x too large on a 150% display.
     if (mySystemParametersInfoForDpi)
         mySystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &ncm, 0, defaultVerticalDPI());
     else
-        SystemParametersInfo(SPI_GETNONCLIENTMETRICS, ncm.cbSize , &ncm, 0);
+        vxkex::SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &ncm, 0, defaultVerticalDPI());
 
     const QFont systemFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfMessageFont);
     qCDebug(lcQpaFonts) << __FUNCTION__ << systemFont;
