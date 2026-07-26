@@ -1,13 +1,17 @@
 #!/usr/bin/env perl
 #
 # Packs the DLLs of a Qt installation built with this backport into the archive
-# published as a release asset (qt6_x64_to_run_on_windows7.7z).
+# published as a release asset (qt6_x64_to_run_on_windows7.7z and its x86 twin).
 #
 # Usage:
 #   perl make_win7_archive.pl <path to Qt installation> [output archive]
 #
-#   perl make_win7_archive.pl C:\qt6_x64
-#   perl make_win7_archive.pl C:\qt6_x64 qt6_x64_to_run_on_windows7.7z
+#   perl make_win7_archive.pl C:\qt6_x64      -> qt6_x64_to_run_on_windows7.7z
+#   perl make_win7_archive.pl C:\qt6          -> qt6_x86_to_run_on_windows7.7z
+#
+# The architecture is read from Qt6Core.dll rather than assumed, since it decides
+# both the default archive name and which Visual C++ runtime to pack - pairing a
+# 32-bit Qt with the 64-bit runtime would produce an archive that cannot run.
 #
 # In go the Qt libraries from bin\, the plugins listed below, Qt Designer - there
 # to try the build out right away - and the Visual C++ runtime it all links
@@ -42,11 +46,19 @@ my @programs = qw(designer.exe);
 my $include_msvc_runtime = 1;
 
 my $qt_dir  = shift @ARGV;
-my $archive = shift @ARGV || 'qt6_x64_to_run_on_windows7.7z';
+my $archive = shift @ARGV;
 
 usage("no Qt installation given") unless defined $qt_dir;
 usage("'$qt_dir' is not a directory") unless -d $qt_dir;
 usage("'$qt_dir' has no bin directory - is it a Qt installation?") unless -d "$qt_dir\\bin";
+
+my $architecture = qt_architecture($qt_dir);
+
+usage("could not tell whether '$qt_dir' is a 32- or 64-bit build") unless $architecture;
+
+$archive = "qt6_${architecture}_to_run_on_windows7.7z" unless defined $archive;
+
+printf "%-14s %s\n", "architecture", $architecture;
 
 my $seven_zip = find_7zip();
 
@@ -115,11 +127,11 @@ for my $dir (@plugin_dirs) {
 
 # 4. Visual C++ runtime, next to the programs that link it
 if ($include_msvc_runtime) {
-    my $crt = find_vc_redist();
+    my $crt = find_vc_redist($architecture);
 
     if (!$crt) {
-        print STDERR "\nWARNING: no Visual C++ redistributable found - the archive will only\n";
-        print STDERR "run where one at least as new as the compiler is already installed.\n\n";
+        print STDERR "\nWARNING: no $architecture Visual C++ redistributable found - the archive will\n";
+        print STDERR "only run where one at least as new as the compiler is already installed.\n\n";
     }
     else {
         my @runtime = glob("\"$crt\\*.dll\"");
@@ -129,7 +141,8 @@ if ($include_msvc_runtime) {
             $total++;
         }
 
-        printf "%-14s %d libraries (%s)\n", "msvc runtime", scalar @runtime, basename($crt);
+        printf "%-14s %d libraries (%s, %s)\n", "msvc runtime", scalar @runtime,
+               $architecture, basename($crt);
     }
 }
 
@@ -164,12 +177,45 @@ sub is_debug_build
     return -e $release ? 1 : 0;
 }
 
-# The CRT folder of the Visual C++ redistributable. Inside a Developer Command
-# Prompt the location is already in the environment; otherwise look through the
-# Visual Studio installations and take the newest, which is what the most
-# recently installed toolset compiles against.
+# Whether the Qt installation is a 32- or 64-bit build, read from the machine
+# field of Qt6Core.dll's PE header: 4 bytes at 0x3C point at the PE signature,
+# and the machine type follows it.
+sub qt_architecture
+{
+    my ($dir) = @_;
+
+    my $core = "$dir\\bin\\Qt6Core.dll";
+
+    open(my $dll, '<:raw', $core) or return undef;
+
+    my $buffer;
+
+    seek($dll, 0x3C, 0) and read($dll, $buffer, 4) == 4 or return undef;
+
+    my $pe_offset = unpack('V', $buffer);
+
+    seek($dll, $pe_offset, 0) and read($dll, $buffer, 6) == 6 or return undef;
+
+    my ($signature, $machine) = unpack('a4v', $buffer);
+
+    close($dll);
+
+    return undef unless $signature eq "PE\0\0";
+
+    return 'x64' if $machine == 0x8664;
+    return 'x86' if $machine == 0x014C;
+
+    return undef;
+}
+
+# The CRT folder of the Visual C++ redistributable, for the architecture Qt was
+# built for. Inside a Developer Command Prompt the location is already in the
+# environment; otherwise look through the Visual Studio installations and take
+# the newest, which is what the most recently installed toolset compiles against.
 sub find_vc_redist
 {
+    my ($arch) = @_;
+
     my @candidates;
 
     if (defined $ENV{'VCToolsRedistDir'}) {
@@ -177,14 +223,14 @@ sub find_vc_redist
 
         $dir =~ s/\\+$//;
 
-        push @candidates, glob("\"$dir\\x64\\Microsoft.VC*.CRT\"");
+        push @candidates, glob("\"$dir\\$arch\\Microsoft.VC*.CRT\"");
     }
 
     for my $program_files ($ENV{'ProgramFiles'}, $ENV{'ProgramFiles(x86)'}) {
         next unless defined $program_files;
 
         push @candidates,
-          glob("\"$program_files\\Microsoft Visual Studio\\*\\*\\VC\\Redist\\MSVC\\*\\x64\\Microsoft.VC*.CRT\"");
+          glob("\"$program_files\\Microsoft Visual Studio\\*\\*\\VC\\Redist\\MSVC\\*\\$arch\\Microsoft.VC*.CRT\"");
     }
 
     my @found = grep { -e "$_\\msvcp140.dll" } @candidates;
