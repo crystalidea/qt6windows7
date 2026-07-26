@@ -15,6 +15,7 @@
 #include <QtGui/private/qtgui-config_p.h>
 #if QT_CONFIG(directwrite3)
 #include <QtGui/private/qwindowsdirectwritefontdatabase_p.h>
+#include <dwrite_3.h> // IDWriteFactory6, to check for it before using that database
 #endif
 #ifndef QT_NO_FREETYPE
 #  include <QtGui/private/qwindowsfontdatabase_ft_p.h>
@@ -476,6 +477,47 @@ QWindowsStaticOpenGLContext *QWindowsIntegration::staticOpenGLContext()
 }
 #endif // !QT_NO_OPENGL
 
+#if QT_CONFIG(directwrite3)
+/* Whether the DirectWrite font database can actually be used, asked of the system rather than
+   inferred from its version. Windows 10 was the usual proxy for this, but that is not the same
+   question: LTSC 2016 is Windows 10 and has no IDWriteFactory6, so the database came up empty
+   and every glyph was drawn as a box. The version the interface first shipped in is not a
+   settled fact either - Microsoft documents Windows 10 1809, while the SDK headers place it in
+   the 1709 block - so ask for the interface instead of guessing which release provides it.
+
+   This costs nothing worth avoiding: the factory is the shared one the font database goes on to
+   use - it stays alive after the reference here is dropped, so it is created once either way -
+   and what the check adds on top is a single QueryInterface, once, cached below. The flags are
+   still tested first at the call site, so nothing is created at all when DirectWrite is off.
+   The query mirrors the one populateFontDatabase() makes, which is what has to succeed. */
+static bool directWriteFontDatabaseUsable()
+{
+    static const bool usable = []() {
+        IDWriteFactory *factory = nullptr;
+        QWindowsFontDatabaseBase::createDirectWriteFactory(&factory);
+
+        if (factory == nullptr)
+            return false;
+
+        IDWriteFactory6 *factory6 = nullptr;
+        const bool available = SUCCEEDED(factory->QueryInterface(__uuidof(IDWriteFactory6),
+                                                                 reinterpret_cast<void **>(&factory6)));
+
+        if (factory6 != nullptr)
+            factory6->Release();
+
+        factory->Release();
+
+        if (!available)
+            qCDebug(lcQpaFonts) << "IDWriteFactory6 is unavailable, using the GDI font database";
+
+        return available;
+    }();
+
+    return usable;
+}
+#endif // directwrite3
+
 QPlatformFontDatabase *QWindowsIntegration::fontDatabase() const
 {
     if (!d->m_fontDatabase) {
@@ -486,13 +528,18 @@ QPlatformFontDatabase *QWindowsIntegration::fontDatabase() const
 #endif // QT_NO_FREETYPE
 #if QT_CONFIG(directwrite3)
 
-        /* IDWriteFontFace3 is only reportedly available starting with Windows 10. This change is necessary starting
-        with Qt 6.8, where DirectWrite is used by default to populate the font database. 
+        /* The DirectWrite font database is only usable where IDWriteFactory6 exists. This check is
+        necessary starting with Qt 6.8, where DirectWrite is used by default to populate it.
         More info: https://github.com/videolan/vlc/blob/master/contrib/src/qt/0001-Use-DirectWrite-font-database-only-with-Windows-10-a.patch
+
+        QWindowsDirectWriteFontDatabase::populateFontDatabase() needs that interface, and where it is
+        missing the function returns without registering a single family - leaving an empty font
+        database, so every glyph is drawn as a box. Its warning ("Use GDI font engine instead") is
+        addressed to the user, not a fallback the code performs.
         */
 
-        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10 &&
-            !(d->m_options & (QWindowsIntegration::FontDatabaseGDI | QWindowsIntegration::DontUseDirectWriteFonts)))
+        if (!(d->m_options & (QWindowsIntegration::FontDatabaseGDI | QWindowsIntegration::DontUseDirectWriteFonts))
+            && directWriteFontDatabaseUsable())
             d->m_fontDatabase = new QWindowsDirectWriteFontDatabase;
         else
 #endif
