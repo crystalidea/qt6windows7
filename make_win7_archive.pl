@@ -4,10 +4,15 @@
 # published as a release asset (qt6_x64_to_run_on_windows7.7z and its x86 twin).
 #
 # Usage:
-#   perl make_win7_archive.pl <path to Qt installation> [output archive]
+#   perl make_win7_archive.pl [path to Qt installation] [output archive]
 #
+#   perl make_win7_archive.pl                 -> both, from the usual locations
 #   perl make_win7_archive.pl C:\qt6_x64      -> qt6_x64_to_run_on_windows7.7z
 #   perl make_win7_archive.pl C:\qt6          -> qt6_x86_to_run_on_windows7.7z
+#
+# Run without arguments it packs every installation it finds among the paths in
+# @default_qt_dirs below, which is how a release gets both of its assets built in
+# one go. Anything not there is skipped.
 #
 # The architecture is read from Qt6Core.dll rather than assumed, since it decides
 # both the default archive name and which Visual C++ runtime to pack - pairing a
@@ -25,10 +30,16 @@
 
 use strict;
 use warnings;
+use Cwd qw(getcwd);
 use File::Basename;
 use File::Copy;
 use File::Path qw(remove_tree make_path);
 use File::Spec;
+
+# Where to look for Qt installations when the script is run without arguments.
+# The 32- and 64-bit builds have to live in separate trees anyway, so a machine
+# that produces both releases has both of these.
+my @default_qt_dirs = ('C:\qt6', 'C:\qt6_x64');
 
 # Plugin folders to include, each copied to a folder of the same name in the
 # archive. Loaded by path convention at run time, so the names matter.
@@ -48,120 +59,149 @@ my $include_msvc_runtime = 1;
 my $qt_dir  = shift @ARGV;
 my $archive = shift @ARGV;
 
-usage("no Qt installation given") unless defined $qt_dir;
-usage("'$qt_dir' is not a directory") unless -d $qt_dir;
-usage("'$qt_dir' has no bin directory - is it a Qt installation?") unless -d "$qt_dir\\bin";
+my @installations;
 
-my $architecture = qt_architecture($qt_dir);
+if (defined $qt_dir) {
+    usage("'$qt_dir' is not a directory") unless -d $qt_dir;
+    usage("'$qt_dir' has no bin directory - is it a Qt installation?") unless -d "$qt_dir\\bin";
 
-usage("could not tell whether '$qt_dir' is a 32- or 64-bit build") unless $architecture;
+    @installations = ([$qt_dir, $archive]);
+}
+else {
+    # No arguments: pack whatever is installed in the usual places, letting the
+    # architecture of each decide its own archive name.
+    @installations = map { [$_, undef] } grep { -d "$_\\bin" } @default_qt_dirs;
 
-$archive = "qt6_${architecture}_to_run_on_windows7.7z" unless defined $archive;
+    usage("no Qt installation given, and none found in " . join(" or ", @default_qt_dirs))
+      unless @installations;
 
-printf "%-14s %s\n", "architecture", $architecture;
+    printf "found %s\n\n", join(", ", map { $_->[0] } @installations);
+}
 
 my $seven_zip = find_7zip();
 
-# Stage everything first, so the archive ends up with clean relative paths
-# regardless of where the Qt installation lives.
-my $staging = "_win7_archive_staging";
-
-remove_tree($staging) if -d $staging;
-make_path($staging) or die "Could not create '$staging': $!\n";
-
-my $total = 0;
-
-# 1. Qt libraries, into the root of the archive
-my @libs = grep { !is_debug_build($_) } glob("$qt_dir\\bin\\Qt6*.dll");
-
-die "No Qt6*.dll found in '$qt_dir\\bin'\n" unless @libs;
-
-for my $dll (@libs) {
-    copy($dll, $staging) or die "Failed to copy $dll: $!\n";
-    $total++;
+for my $installation (@installations) {
+    build_archive(@$installation);
 }
 
-printf "%-14s %d libraries\n", "bin", scalar @libs;
+# Collects one installation into an archive. The name is derived from the
+# architecture unless one was given on the command line.
+sub build_archive
+{
+    my ($qt_dir, $archive) = @_;
 
-# 2. Programs, next to the libraries in the root of the archive
-for my $program (@programs) {
-    my $src = "$qt_dir\\bin\\$program";
+    my $architecture = qt_architecture($qt_dir);
 
-    if (!-e $src) {
-        printf "%-14s skipped (not built)\n", $program;
-        next;
-    }
+    die "Could not tell whether '$qt_dir' is a 32- or 64-bit build\n" unless $architecture;
 
-    copy($src, $staging) or die "Failed to copy $src: $!\n";
-    $total++;
+    $archive = "qt6_${architecture}_to_run_on_windows7.7z" unless defined $archive;
 
-    printf "%-14s included\n", $program;
-}
+    printf "%-14s %s\n", "packing", "$qt_dir ($architecture)";
 
-# 3. Plugins, each into a folder of its own
-for my $dir (@plugin_dirs) {
-    my $src = "$qt_dir\\plugins\\$dir";
+    # Stage everything first, so the archive ends up with clean relative paths
+    # regardless of where the Qt installation lives.
+    my $staging = "_win7_archive_staging";
 
-    if (!-d $src) {
-        printf "%-14s skipped (not built)\n", $dir;
-        next;
-    }
+    remove_tree($staging) if -d $staging;
+    make_path($staging) or die "Could not create '$staging': $!\n";
 
-    my @plugins = grep { !is_debug_build($_) } glob("$src\\*.dll");
+    my $total = 0;
 
-    if (!@plugins) {
-        printf "%-14s skipped (empty)\n", $dir;
-        next;
-    }
+    # 1. Qt libraries, into the root of the archive
+    my @libs = grep { !is_debug_build($_) } glob("$qt_dir\\bin\\Qt6*.dll");
 
-    make_path("$staging\\$dir") or die "Could not create '$staging\\$dir': $!\n";
+    die "No Qt6*.dll found in '$qt_dir\\bin'\n" unless @libs;
 
-    for my $dll (@plugins) {
-        copy($dll, "$staging\\$dir") or die "Failed to copy $dll: $!\n";
+    for my $dll (@libs) {
+        copy($dll, $staging) or die "Failed to copy $dll: $!\n";
         $total++;
     }
 
-    printf "%-14s %d plugins (%s)\n", $dir, scalar @plugins,
-           join(", ", map { basename($_) } @plugins);
-}
+    printf "%-14s %d libraries\n", "bin", scalar @libs;
 
-# 4. Visual C++ runtime, next to the programs that link it
-if ($include_msvc_runtime) {
-    my $crt = find_vc_redist($architecture);
+    # 2. Programs, next to the libraries in the root of the archive
+    for my $program (@programs) {
+        my $src = "$qt_dir\\bin\\$program";
 
-    if (!$crt) {
-        print STDERR "\nWARNING: no $architecture Visual C++ redistributable found - the archive will\n";
-        print STDERR "only run where one at least as new as the compiler is already installed.\n\n";
+        if (!-e $src) {
+            printf "%-14s skipped (not built)\n", $program;
+            next;
+        }
+
+        copy($src, $staging) or die "Failed to copy $src: $!\n";
+        $total++;
+
+        printf "%-14s included\n", $program;
     }
-    else {
-        my @runtime = glob("\"$crt\\*.dll\"");
 
-        for my $dll (@runtime) {
-            copy($dll, $staging) or die "Failed to copy $dll: $!\n";
+    # 3. Plugins, each into a folder of its own
+    for my $dir (@plugin_dirs) {
+        my $src = "$qt_dir\\plugins\\$dir";
+
+        if (!-d $src) {
+            printf "%-14s skipped (not built)\n", $dir;
+            next;
+        }
+
+        my @plugins = grep { !is_debug_build($_) } glob("$src\\*.dll");
+
+        if (!@plugins) {
+            printf "%-14s skipped (empty)\n", $dir;
+            next;
+        }
+
+        make_path("$staging\\$dir") or die "Could not create '$staging\\$dir': $!\n";
+
+        for my $dll (@plugins) {
+            copy($dll, "$staging\\$dir") or die "Failed to copy $dll: $!\n";
             $total++;
         }
 
-        printf "%-14s %d libraries (%s, %s)\n", "msvc runtime", scalar @runtime,
-               $architecture, basename($crt);
+        printf "%-14s %d plugins (%s)\n", $dir, scalar @plugins,
+               join(", ", map { basename($_) } @plugins);
     }
+
+    # 4. Visual C++ runtime, next to the programs that link it
+    if ($include_msvc_runtime) {
+        my $crt = find_vc_redist($architecture);
+
+        if (!$crt) {
+            print STDERR "\nWARNING: no $architecture Visual C++ redistributable found - the archive will\n";
+            print STDERR "only run where one at least as new as the compiler is already installed.\n\n";
+        }
+        else {
+            my @runtime = glob("\"$crt\\*.dll\"");
+
+            for my $dll (@runtime) {
+                copy($dll, $staging) or die "Failed to copy $dll: $!\n";
+                $total++;
+            }
+
+            printf "%-14s %d libraries (%s, %s)\n", "msvc runtime", scalar @runtime,
+                   $architecture, basename($crt);
+        }
+    }
+
+    # 5. Archive the staged tree. The old archive is removed first: 7-Zip adds to
+    #    an existing one, which would keep files from a previous run.
+    unlink($archive) if -e $archive;
+
+    my $archive_path = File::Spec->rel2abs($archive);
+    my $working_dir  = getcwd();
+
+    chdir($staging) or die "Cannot chdir to '$staging': $!\n";
+
+    my $status = system($seven_zip, "a", "-t7z", "-mx=9", $archive_path, "*");
+
+    chdir($working_dir) or die "Cannot chdir back to '$working_dir': $!\n";
+
+    die "7-Zip failed: $status\n" unless $status == 0;
+
+    remove_tree($staging);
+
+    printf "\n%d files -> %s (%.1f MB)\n\n", $total, $archive,
+           (-s $archive_path) / 1024 / 1024;
 }
-
-# 5. Archive the staged tree. The old archive is removed first: 7-Zip adds to an
-#    existing one, which would keep files from a previous run.
-unlink($archive) if -e $archive;
-
-my $archive_path = File::Spec->rel2abs($archive);
-
-chdir($staging) or die "Cannot chdir to '$staging': $!\n";
-
-system($seven_zip, "a", "-t7z", "-mx=9", $archive_path, "*") == 0
-  or die "7-Zip failed: $?\n";
-
-chdir("..") or die "Cannot chdir back: $!\n";
-
-remove_tree($staging);
-
-printf "\n%d files -> %s (%.1f MB)\n", $total, $archive, (-s $archive_path) / 1024 / 1024;
 
 # A debug build is the "...d.dll" twin of a release library. Checking for that
 # twin matters: qdirect2d.dll, qopensslbackend.dll and a few others genuinely
@@ -272,8 +312,9 @@ sub usage
     my ($message) = @_;
 
     print STDERR "$message\n\n" if $message;
-    print STDERR "Usage: perl $0 <path to Qt installation> [output archive]\n";
+    print STDERR "Usage: perl $0 [path to Qt installation] [output archive]\n";
     print STDERR "   eg: perl $0 C:\\qt6_x64\n";
+    print STDERR "       perl $0            (packs " . join(" and ", @default_qt_dirs) . ")\n";
 
     exit 1;
 }

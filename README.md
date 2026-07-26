@@ -120,10 +120,12 @@ Many other Qt 6 modules need no patches at all: built against patched qtbase, th
 `make_win7_archive.pl` builds the archive published with each release — the one you get from the link at the top of this page — out of a Qt installation compiled with this backport:
 
 ```
-perl make_win7_archive.pl C:\qt6_x64
+perl make_win7_archive.pl
 ```
 
-The architecture is read from `Qt6Core.dll`, so a 32-bit installation produces `qt6_x86_to_run_on_windows7.7z` and a 64-bit one `qt6_x64_to_run_on_windows7.7z`, each with the matching runtime. Pass a name as the second argument to override it.
+Run without arguments it packs every installation it finds in `C:\qt6` and `C:\qt6_x64` — the two assets of a release in one go. Pass a path to pack just one, and a name after it to choose the file name.
+
+The architecture is read from `Qt6Core.dll`, so a 32-bit installation produces `qt6_x86_to_run_on_windows7.7z` and a 64-bit one `qt6_x64_to_run_on_windows7.7z`, each with the matching runtime.
 
 It collects the Qt libraries from `bin`, the plugins applications load by path (`platforms`, `styles`, `imageformats` and `multimedia`, each skipped when the module was not built), and Qt Designer, which is a quick way to tell whether a build really runs on Windows 7. Debug builds are left out; a plain name match would not do here, since `qdirect2d.dll` and a few others genuinely end in a 'd', so a library counts as a debug build only when its release twin sits next to it.
 
