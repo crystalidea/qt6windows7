@@ -167,9 +167,7 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 
 </details>
 
-Verified with Qt 6.8.4: viewing PDFs works on Windows 7 SP1.
-
-Qt WebEngine has been run on Windows 7 SP1 x64 **with the sandbox enabled** and renders pages: 19 of the 22 checks in the test harness pass, among them networking, ICU, DirectWrite text and font fallback, Canvas 2D, IndexedDB, localStorage, Web Workers, WebAssembly and `crypto`. The three failures — WebGL, WebGL2 and `requestAnimationFrame` — have one cause unrelated to this port: the guest had no usable GPU (VMware/llvmpipe, OpenGL 2.1), so Skia could not create a `GrContext` and the compositor never produced a frame. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else.
+Verified with Qt 6.8.4 on Windows 7 SP1: viewing PDFs works, and Qt WebEngine renders pages with the sandbox enabled — `QTWEBENGINE_DISABLE_SANDBOX` is not needed and should not be set.
 
 Getting Chromium to say anything at all is its own obstacle, and worth knowing before debugging this yourself. Qt forces the log destination in `content_main_delegate_qt.cpp`, so `--log-file` is ignored and everything goes to stderr — which a Windows GUI application does not have, so the CRT's file descriptor 2 has to be pointed at a real handle with `_dup2()` first. And even then a **sandboxed child** writes into a void: `sandbox_win.cc` passes the parent's stdout and stderr to the child only `#if !defined(OFFICIAL_BUILD)`, and Qt builds Chromium as an official build. Dropping that guard locally is what made the renderer's own output readable, and it is how the two sandbox bugs above were found — but it is a debugging change, not a Windows 7 fix, so it is not part of the patch set.
 
@@ -186,7 +184,6 @@ Many other Qt 6 modules need no patches at all: built against patched qtbase, th
 ### Known issues:
 
 - QRhi using DirectX 12 is not ported; the D3D12 backend reports itself unavailable on Windows 7 and Qt falls back to another one. D3D11 **is** ported now — `createDXGIFactory2()` falls back to `CreateDXGIFactory1()`, and `QD3D11SwapChain::createOrResizeWin7()` implements the BitBlt presentation model for everything below Windows 10 — but it has so far only been compiled, not run on Windows 7. Until that is confirmed, `QSG_RHI_BACKEND=opengl` (needs a driver with OpenGL 2.1 or newer, and then everything works including WebGL) and `QT_QUICK_BACKEND=software` (no driver needed at all, no WebGL) remain the reliable options for Qt Quick and anything embedding it, Qt WebEngine included.
-- Qt WebEngine runs on Windows 7 with the sandbox enabled and renders pages; the only harness checks that fail are the ones needing a GPU, on a test machine that has none. See the qtwebengine section.
 - The sandbox cannot put a target into a job object on Windows 7 if the browser process is itself already in one without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`, because nested jobs only arrived in Windows 8. Chromium checked for this in `ShouldSetJobLevel()` and ran the target without a job level; that check was deleted with Windows 7 support and is **not** restored here yet, so an application launched from inside a job may fail to start child processes.
 - On Windows 7, Qt WebEngine gives up the features the OS never had: WinRT-backed ones (Web Bluetooth, WinRT MIDI, WinRT geolocation), hardware video encoding and Media Foundation camera capture through DXGI, per-monitor DPI, and the Windows 8-and-later sandbox mitigations
 - `SetDefaultDllDirectories()` needs KB2533623 on Windows 7; without that update the sandbox skips its DLL search-order hardening (KB2670838, already required by patched qtbase, is needed for the GPU stack)
