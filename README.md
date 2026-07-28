@@ -73,9 +73,50 @@ Audio needs the WASAPI backend. `createAudioClient()` activates `IAudioClient3`,
 
 Verified with Qt 6.8.4: video plays with sound on Windows 7 SP1.
 
-### qtwebengine (Qt PDF)
+### qtwebengine (Qt WebEngine and Qt PDF)
 
-The Qt PDF module is built from the qtwebengine repository and does **not** work on Windows 7 out of the box, even with patched qtbase. Two patches are provided in the `qtwebengine` folder. Only Qt PDF is covered — Qt WebEngine itself is not part of this backport.
+Neither module works on Windows 7 out of the box, even with patched qtbase. Qt PDF needs the two patches described at the end of this section; Qt WebEngine needs those plus the rest of the `qtwebengine` folder.
+
+The reason there is so much to do here is that Chromium dropped Windows 7 and 8 in M110, and Qt 6.8 carries Chromium 122. Almost every patch below is therefore not an invention but a restoration: the same file in Chromium 109.0.5414.120 — the last release that supported Windows 7 — resolved the entry point at run time or skipped it behind a version check, and M110 deleted that code. Each patch is marked in place with a `Windows 7 backport:` comment, and the handful of cases where 109 has no equivalent are called out below. As everywhere else in this repository, the fallback only engages when `GetProcAddress()` comes back empty, so Windows 8 and later keep taking exactly the path they take today.
+
+**Loading the library at all**
+
+Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 does not have, so it cannot be loaded there — and neither can `QtWebEngineProcess.exe`, `webenginedriver.exe` or `qwebengine_convert_dict.exe`, which pull the same code in statically. Whole API-set DLLs are involved, not just individual exports, and an absent API set is as fatal as an absent function.
+
+- `base/win/core_winrt_util.cc`, `base/win/scoped_winrt_initializer.cc`, `base/win/scoped_hstring.cc`, `base/win/hstring_reference.cc` — the WinRT and HSTRING entry points (`RoInitialize()`, `RoGetActivationFactory()`, `WindowsCreateString()` and friends), imported through `api-ms-win-core-winrt-l1-1-0.dll` and `api-ms-win-core-winrt-string-l1-1-0.dll`. They are resolved out of `combase.dll` instead, which is the same code the API set forwards to on newer Windows. On Windows 7 they are simply missing, and the WinRT-backed features — Web Bluetooth, WinRT MIDI, WinRT geolocation, `UISettings` accent colours, the on-screen keyboard — return the failures their callers already handle. This mirrors what `qt_winrtbase_p.h` does for qtbase.
+- `base/win/win_util.cc` — the same WinRT wrapper for tablet-mode detection, plus `GetProcessMitigationPolicy()` (Windows 8) and `SetProcessDpiAwareness()` (shcore, Windows 8.1). Where win32k syscalls cannot be disabled at all, user32 and gdi32 are by definition available; where shcore is absent, the existing `SetProcessDPIAware()` fallback runs, which is all Windows 7 offers.
+- `base/time/time_win.cc` — `QueryUnbiasedInterruptTimePrecise()` (`api-ms-win-core-realtime-l1-1-1.dll`, Windows 10), falling back to `QueryUnbiasedInterruptTime()`, in kernel32 since Windows 7. Same clock, same 100 ns units, same unbiased semantics — only tick resolution instead of interpolated. This one has no 109 equivalent: `LiveTicks` did not exist yet.
+- `base/power_monitor/speed_limit_observer_win.cc`, `third_party/crashpad/crashpad/snapshot/win/system_snapshot_win.cc` — `CallNtPowerInformation()`, which current SDKs route through `api-ms-win-power-base-l1-1-0.dll`. It is loaded from `powrprof.dll`, where it has lived since Windows XP and where the API set forwards to anyway.
+- `base/power_monitor/power_monitor_device_source_win.cc` — `RegisterSuspendResumeNotification()` (Windows 8). On Windows 7 registration is not needed at all: `WM_POWERBROADCAST`/`PBT_APMSUSPEND` reaches every top-level window, and registering is only required for modern-standby machines, which is exactly what the comment above the call says.
+- `base/memory/discardable_shared_memory.cc`, `base/allocator/.../page_allocator_internals_win.h` — `DiscardVirtualMemory()` (Windows 8.1). The `VirtualAlloc(MEM_RESET)` fallback is already written directly below each call, because the function is buggy on Windows 10 SP0; v8 in the same source tree still resolves it this way.
+- `base/files/file_util_win.cc` — `PrefetchVirtualMemory()` (Windows 8), falling back to the existing `PreReadFileSlow()`, which warms the same pages with a sequential read.
+- `base/threading/platform_thread_win.cc`, `base/process/process_win.cc` — `SetThreadInformation()` and `SetProcessInformation()` (Windows 8). They configure thread memory priority and EcoQoS power throttling, neither of which exists on Windows 7; both call sites already treat failure as expected, one of them saying so in its own comment.
+- `base/trace_event/trace_logging_minimal_win.cc` — `EventSetInformation()` (Windows 8), which attaches provider traits to an ETW provider. The call is documented in place as best-effort; Microsoft's own message-compiler output offers this very `GetProcAddress()` mode for pre-Windows 8 targets. `EventRegister()`/`EventWrite()` are unaffected, so tracing keeps working.
+- `v8/src/libplatform/etw/etw-provider-win.h` — the same `EventSetInformation()`, reached from a completely different direction and easy to miss: v8 registers its ETW providers through the SDK's `TraceLoggingProvider.h`, whose `TraceLoggingRegister()` calls `TraceLoggingSetInformation()` to attach provider traits. Because Chromium targets Windows 10, the header compiles that into a direct call. Setting `TLG_HAVE_EVENT_SET_INFORMATION` to 2 before including it selects the SDK's own documented pre-Windows 8 behaviour — look the function up through `GetModuleHandleExW`/`GetProcAddress` and return an error when it is absent. TraceLogging is documented to work correctly without it, so providers keep registering and events keep being written. This header is the only place in the whole tree that includes `TraceLoggingProvider.h`, which is what makes the one-line fix sufficient.
+- `media/midi/midi_manager_winrt.cc` — `CM_Get_DevNode_PropertyW()` (Windows 8). The WinRT MIDI backend is behind a feature that is disabled by default, and Windows 7 uses the winmm-based manager regardless.
+- `services/proxy_resolver_win/winhttp_api_wrapper_impl.cc` — the asynchronous proxy resolution APIs (`WinHttpCreateProxyResolver()` and friends, Windows 8). `WindowsSystemProxyResolutionService::IsSupported()` already requires Windows 10 1607, so nothing reaches them; proxy resolution goes through `WinHttpGetIEProxyConfigForCurrentUser()` and PAC evaluation, both fine on Windows 7.
+- `ui/display/win/screen_win.cc`, `third_party/webrtc/.../win/screen_capture_utils.cc` — `GetDpiForMonitor()` (shcore, Windows 8.1). Both callers already fall back to the system DPI, which on Windows 7 is not an approximation but the correct answer: per-monitor DPI does not exist there.
+- `ui/gfx/win/d3d_shared_fence.cc`, `gpu/command_buffer/service/dxgi_shared_handle_manager.cc` — `CompareObjectHandles()`. This is the one function with no Windows 7 equivalent at all, since it wraps `NtCompareObjects()` and that kernel has no such call. Both uses need NT handles for D3D11 shared resources, i.e. Windows 8 and later, so they are unreachable on Windows 7; the fallbacks are conservative anyway — compare the handle values in one case, skip a consistency assertion in the other.
+- `sandbox/win/src/process_mitigations.cc` — `GetProcessMitigationPolicy()`, `SetProcessMitigationPolicy()`, `SetDefaultDllDirectories()` and `SetThreadInformation()`, restored to the 109 arrangement together with its version gates. With the supported-mitigations mask reading back as zero, no mitigation attribute is attached when a child process is created, so the sandbox falls back to the restricted token, job object, alternate desktop and integrity level — precisely the profile Chromium used on Windows 7. The 32-bit `DWORD`-sized mitigation mask that Windows 7 expects comes back too; without it `UpdateProcThreadAttribute()` fails and no child process starts at all on x86. One genuine loss: `SetDefaultDllDirectories()` needs KB2533623 on Windows 7, and where that update is missing the DLL search-order hardening is skipped rather than the process refusing to start.
+- `sandbox/win/src/app_container_base.cc` — `CreateAppContainerProfile()` and `DeriveAppContainerSidFromAppContainerName()` (Windows 8), loaded from `userenv.dll` at run time. Qt already disables AppContainer entirely (`sandbox/features.cc` returns false under `TOOLKIT_QT`), so this is purely about the import.
+
+**Crashes that remain once it loads**
+
+- `base/rand_util_win.cc`, `sandbox/policy/win/sandbox_warmup.cc`, `third_party/ipcz/src/reference_drivers/random.cc`
+
+  Three more copies of the `bcryptprimitives!ProcessPrng` pattern already patched for Qt PDF, and each one is fatal on its own. The DLL exists on Windows 7 so `LoadLibraryW()` succeeds and only the export lookup fails, which the surrounding `CHECK` turns into a deliberate abort — in `base::RandBytes()` that is the first random number anything asks for, and in the sandbox warmup it is every sandboxed process at startup, since the `WinSboxWarmupProcessPrng` feature is enabled by default. All three fall back to `RtlGenRandom()` (`advapi32!SystemFunction036`), which is what Chromium used before the switch and which is the same system DRBG. The switch away from it was made to avoid opening a handle to `\Device\KsecDD` in the renderer; on Windows 7 the warmup opens that handle before the token is lowered anyway, which is exactly what the untaken branch of that feature already did. The ipcz copy is the nastiest of the three — it asserts with `ABSL_ASSERT`, which compiles to nothing in release builds and would leave a null function pointer to be called. That file is not part of the current build, and is patched defensively.
+
+- `sandbox/win/src/startup_information_helper.h`, `startup_information_helper.cc`, `target_process.cc`
+
+  The job object is handed to the child through `PROC_THREAD_ATTRIBUTE_JOB_LIST`, an attribute that only exists from Windows 10 on. On Windows 7 `UpdateProcThreadAttribute()` rejects it, `BuildStartupInformation()` fails and **no renderer, GPU or utility process can be started at all**. Below Windows 10 the attribute is now left out and the still-suspended target is assigned with `AssignProcessToJobObject()` before it is resumed, which is how Chromium did it up to 109; `CREATE_BREAKAWAY_FROM_JOB` comes back for pre-Windows 8, where nested jobs do not exist. The only difference is that the process exists outside the job for the moment between creation and assignment, while suspended.
+
+**Delay-loaded Media Foundation entry points**
+
+- `media/base/win/dxgi_device_manager.cc`, `media/renderers/win/media_foundation_renderer.cc`, `media/gpu/windows/media_foundation_video_encode_accelerator_win.cc`
+
+  `MFCreateDXGIDeviceManager()`, `MFCreateDXGISurfaceBuffer()` and `MFLockDXGIDeviceManager()`/`MFUnlockDXGIDeviceManager()` were added in Windows 8. These are delay-loaded, so they do not stop the library from loading — instead `mfplat.dll` is found, the export is not, and the delay-load helper faults the first time a camera is opened or hardware encoding is attempted. Each is resolved by hand and reported as a plain `HRESULT` failure, which the callers already handle: capture falls back to CPU frames, encoding to software, and the Media Foundation renderer to the ordinary pipeline.
+
+**Qt PDF**
 
 - `src/pdf/configure/BUILD.root.gn.in`
 
@@ -86,6 +127,8 @@ The Qt PDF module is built from the qtwebengine repository and does **not** work
   PartitionAlloc obtains random bytes through `bcryptprimitives!ProcessPrng`, which exists only on Windows 10 and later. The DLL itself is present on Windows 7, so `LoadLibraryW()` succeeds and only the export lookup fails — which the surrounding `CHECK` turns into a deliberate abort (`STATUS_BREAKPOINT`), crashing the application the first time a PDF is opened. The patch falls back to `RtlGenRandom` (`advapi32!SystemFunction036`), which is what Chromium used before it switched to `ProcessPrng`. `ProcessPrng` is still preferred whenever it is available, so behaviour on Windows 10 and later is unchanged.
 
 Verified with Qt 6.8.4: viewing PDFs works on Windows 7 SP1.
+
+The Qt WebEngine part of this section is **not verified on Windows 7 yet** — it is derived from the import table of a real 6.8.4 build and from the Chromium 109 sources, but the patched build has still to be run there. Treat it as a starting point rather than a finished port, and please report what you find. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else; the first run is best done with `QTWEBENGINE_DISABLE_SANDBOX=1` so that a sandbox problem can be told apart from everything else.
 
 ### Other modules
 
@@ -100,6 +143,9 @@ Many other Qt 6 modules need no patches at all: built against patched qtbase, th
 ### Known issues:
 
 - QRhi using DirectX 11/12 is not ported
+- Qt WebEngine is patched but not yet verified on Windows 7 (see the qtwebengine section)
+- On Windows 7, Qt WebEngine gives up the features the OS never had: WinRT-backed ones (Web Bluetooth, WinRT MIDI, WinRT geolocation), hardware video encoding and Media Foundation camera capture through DXGI, per-monitor DPI, and the Windows 8-and-later sandbox mitigations
+- `SetDefaultDllDirectories()` needs KB2533623 on Windows 7; without that update the sandbox skips its DLL search-order hardening (KB2670838, already required by patched qtbase, is needed for the GPU stack)
 
 ### Older versions:
 
