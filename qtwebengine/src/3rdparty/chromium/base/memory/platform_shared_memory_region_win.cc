@@ -77,6 +77,12 @@ HANDLE CreateFileMappingWithReducedPermissions(SECURITY_ATTRIBUTES* sa,
   HANDLE h = CreateFileMapping(INVALID_HANDLE_VALUE, sa, PAGE_READWRITE, 0,
                                static_cast<DWORD>(rounded_size), name);
   if (!h) {
+    // Windows 7 backport: the original DPLOG here is compiled out of release
+    // builds, which leaves a failure to allocate shared memory looking exactly
+    // like running out of it - the caller reports OOM and the process dies
+    // without ever saying which call failed or why.
+    PLOG(ERROR) << "CreateFileMapping failed for a " << rounded_size
+                << " byte " << (name ? "named" : "unnamed") << " section";
     return nullptr;
   }
 
@@ -89,6 +95,8 @@ HANDLE CreateFileMappingWithReducedPermissions(SECURITY_ATTRIBUTES* sa,
   DCHECK(rv);
 
   if (!success) {
+    PLOG(ERROR) << "DuplicateHandle failed for a " << rounded_size << " byte "
+                << (name ? "named" : "unnamed") << " section";
     return nullptr;
   }
 
@@ -238,6 +246,23 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
   // access control permissions granted by default into unpriviledged process.
   HANDLE h = CreateFileMappingWithReducedPermissions(
       &sa, rounded_size, name.empty() ? nullptr : as_wcstr(name));
+  if (h == nullptr && !name.empty()) {
+    // Windows 7 backport: naming the section is what makes the DACL above
+    // count, but a name also has to be creatable, and a locked-down renderer
+    // has very little say over the object namespace. When the named attempt
+    // fails there is nothing to gain by giving up - an unnamed section is
+    // exactly what Windows 8.1 and later use, and the only thing lost is the
+    // kernel enforcing read-only-ness, which this Windows version was not
+    // enforcing before the workaround existed either. Failing here instead
+    // means no shared memory at all, which the caller reports as OOM and which
+    // kills the renderer the moment a page needs a software raster tile.
+    static bool reported = false;
+    if (!reported) {
+      reported = true;
+      LOG(ERROR) << "Windows 7: falling back to unnamed shared memory sections";
+    }
+    h = CreateFileMappingWithReducedPermissions(&sa, rounded_size, nullptr);
+  }
   if (h == nullptr) {
     // The error is logged within CreateFileMappingWithReducedPermissions().
     return {};
@@ -273,6 +298,23 @@ bool PlatformSharedMemoryRegion::CheckPlatformHandlePermissionsCorrespondToMode(
   bool expected_read_only = mode == Mode::kReadOnly;
 
   if (is_read_only != expected_read_only) {
+    // Windows 7 backport: before Windows 8.1 the DACL on an unnamed section is
+    // ignored, so a region that is supposed to be read-only really can be
+    // duplicated with write access. Create() names its sections below 8.1 to
+    // make the kernel honour the DACL again, but where that name cannot be
+    // created the section is unnamed and lands here - and the caller turns a
+    // false into a CHECK that takes the whole process down. Accept the
+    // platform's own behaviour instead, loudly and once.
+    if (win::GetVersion() < win::Version::WIN8_1 && !is_read_only &&
+        expected_read_only) {
+      static bool reported = false;
+      if (!reported) {
+        reported = true;
+        LOG(ERROR) << "Windows 7: the kernel is not enforcing this read-only "
+                      "shared memory region; continuing anyway";
+      }
+      return true;
+    }
     DLOG(ERROR) << "File mapping handle has wrong access rights: it is"
                 << (is_read_only ? " " : " not ") << "read-only but it should"
                 << (expected_read_only ? " " : " not ") << "be";

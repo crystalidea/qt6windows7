@@ -2,9 +2,9 @@ This repository provides a backport of Qt 6, tailored for compatibility with Win
 
 Each top-level folder here mirrors one Qt repository: apply a patch set by copying the contents of that folder over your checkout of the same name, replacing the existing files. `qtbase` is the backport proper and is always needed; `qtmultimedia` and `qtwebengine` are only needed if you build those modules. Every module is covered in its own section below.
 
-The most recent supported version is **6.8.4** however many older versions are supported as well (see **Older versions** section).
+The most recent supported version is **6.8.4** however many older versions are supported as well.
 
-This approach builds upon the methodology discussed in this forum [thread](https://forum.qt.io/topic/133002/qt-creator-6-0-1-and-qt-6-2-2-running-on-windows-7/60) but offers significant enhancements, including important fallbacks to the default Qt 6 behavior when running on newer versions of Windows.
+The backport approach includes important fallbacks to the default Qt 6 behavior when running on newer versions of Windows.
 
 You can compile it yourself using your preferred compiler and build options or can use our [compile_win.pl](https://github.com/crystalidea/qt-build-tools/tree/master/6.8.1) build script, which utilizes Visual C++ 2022 and includes OpenSSL 3.0.13 statically linked. Alternatively, you can download our [prebuild Qt dlls](https://github.com/crystalidea/qt6windows7/releases), which also include the Qt Designer binary for demonstration purposes.
 
@@ -14,41 +14,24 @@ You can compile it yourself using your preferred compiler and build options or c
 
 ### qtbase
 
-The backport proper, and the part everything else on this page assumes is in place. Stock Qt 6 imports a good number of Windows 8/8.1/10 entry points statically, so it cannot even be loaded on Windows 7. Nearly every patch here follows the same recipe: look the function up with `GetProcAddress()` at run time and fall back to the older API when it is missing, so that newer Windows keeps taking exactly the path it took before.
-
-**corelib**
-
-- `io/qstandardpaths_win.cpp` — low-integrity process detection is a Windows 8 concept; report false on Windows 7 instead. Also fixes the buffer-size probe of `GetTokenInformation()`.
-- `kernel/qeventdispatcher_win.cpp` — `SetCoalescableTimer()`, falling back to plain `SetTimer()`.
-- `kernel/qfunctions_win.cpp` — `GetCurrentPackageFullName()`; without it the process is simply not a packaged app.
-- `thread/qfutex_p.h`, `thread/qmutex.cpp`, `thread/qmutex_p.h`, `thread/qmutex_win.cpp` (new) — the futex path uses `WaitOnAddress()` (Windows 8), so it is disabled and `QMutex` gets an event-based Windows implementation instead.
-- `thread/qthread_win.cpp` — `SetThreadDescription()` (Windows 10) for thread names, falling back to the classic debugger exception.
-
-**gui**
-
-- `rhi/qrhid3d11.cpp`, `rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8), plus a separate swapchain path for Windows 7. Which of the two swapchain paths is taken is decided with `QOperatingSystemVersion` rather than `IsWindows10OrGreater()`, deliberately: see **The version an application is told** below.
-- `rhi/qrhid3d12.cpp` — `CreateDXGIFactory2()`, `D3D12CreateDevice()` and `D3D12GetDebugInterface()`; when they are absent the D3D12 backend just reports itself unavailable.
-- `text/windows/qwindowsfontdatabasebase.cpp` — `SystemParametersInfoForDpi()` (Windows 10), falling back to `SystemParametersInfo()`.
-- `text/windows/qwindowsfontenginedirectwrite.cpp` — not an import but a per-glyph cost. `imageForGlyph()` asks for `IDWriteFactory2` (Windows 8.1) and already falls back to the DirectWrite 1 glyph run analysis when it is absent, so text renders correctly on Windows 7 either way — but it also called `qErrnoWarning()` on **every glyph**, which buries every other message in the log and pays for a `FormatMessage()` per character drawn. Said once now, as debug output. The identical query in `alphaMapBoundingBox()` never warned and is left alone.
-
-**network**
-
-- `kernel/qdnslookup_win.cpp` — `DnsQueryEx()` (Windows 8); the older `DnsQuery()` path is restored for Windows 7.
-
-**platform plugin (windows)**
-
-- `vxkex.h` (new) — Windows 7 stand-ins for the per-monitor DPI helpers (`GetSystemMetricsForDpi()`, `AdjustWindowRectExForDpi()` and friends), which simply scale the DPI-unaware originals.
-- `qwindowscontext.h`, `qwindowscontext.cpp` — the central place where the optional user32/shcore entry points are resolved: the pointer input API (Windows 8), the per-DPI metrics and the shcore DPI awareness calls (Windows 8.1/10). The rest of the plugin asks this struct instead of calling the imports directly.
-- `qwindowsdrag.cpp`, `qwindowskeymapper.cpp`, `qwindowspointerhandler.cpp`, `qwindowsscreen.cpp`, `qwindowswindow.cpp`, `qwindowsintegration.cpp` — use those resolved pointers, with the `vxkex.h` fallbacks where a DPI-aware metric is needed.
-- `qwindowstheme.cpp` — accent colours come from WinRT `UISettings` on Windows 10; on Windows 7 the palette falls back to the system colours.
-- `qwin10helpers.cpp` — loads `combase.dll` dynamically instead of importing it, so the WinRT helpers degrade gracefully when it is not there.
-- `uiautomation/qwindowsuiawrapper_p.h`, `qwindowsuiawrapper.cpp` (new), `qwindowsuiamainprovider.cpp`, `qwindowsuiaaccessibility.cpp` — accessibility goes through a wrapper that resolves the UI Automation entry points at run time, since Windows 7 ships an older `uiautomationcore.dll`.
-
-**widgets**
-
-- `styles/qwindowsstyle.cpp` — the same per-DPI metric helpers as above, via `vxkex.h`.
-
-One more file completes the set: `corelib/platform/windows/qt_winrtbase_p.h` resolves the C++/WinRT entry points (`RoGetActivationFactory()` and friends) through `combase.dll` at run time. Without it the WinRT imports alone keep the process from starting on Windows 7 — and because other modules compile against this header too, it is what lets qtmultimedia use WinRT without extra patches of its own.
+- `src/corelib/io/qstandardpaths_win.cpp` — low-integrity process detection is a Windows 8 concept; report false on Windows 7 instead. Also fixes the buffer-size probe of `GetTokenInformation()`.
+- `src/corelib/kernel/qeventdispatcher_win.cpp` — `SetCoalescableTimer()`, falling back to plain `SetTimer()`.
+- `src/corelib/kernel/qfunctions_win.cpp` — `GetCurrentPackageFullName()`; without it the process is simply not a packaged app.
+- `src/corelib/platform/windows/qt_winrtbase_p.h` — resolves the C++/WinRT entry points (`RoGetActivationFactory()` and friends) through `combase.dll` at run time. Without it the WinRT imports alone keep the process from starting on Windows 7 — and because other modules compile against this header too, it is what lets qtmultimedia use WinRT without extra patches of its own.
+- `src/corelib/thread/qfutex_p.h`, `src/corelib/thread/qmutex.cpp`, `src/corelib/thread/qmutex_p.h`, `src/corelib/thread/qmutex_win.cpp` (new) — the futex path uses `WaitOnAddress()` (Windows 8), so it is disabled and `QMutex` gets an event-based Windows implementation instead.
+- `src/corelib/thread/qthread_win.cpp` — `SetThreadDescription()` (Windows 10) for thread names, falling back to the classic debugger exception.
+- `src/gui/rhi/qrhid3d11.cpp`, `src/gui/rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8), plus a separate swapchain path for Windows 7. Which of the two swapchain paths is taken is decided with `QOperatingSystemVersion` rather than `IsWindows10OrGreater()`, deliberately: see **The version an application is told** below.
+- `src/gui/rhi/qrhid3d12.cpp` — `CreateDXGIFactory2()`, `D3D12CreateDevice()` and `D3D12GetDebugInterface()`; when they are absent the D3D12 backend just reports itself unavailable.
+- `src/gui/text/windows/qwindowsfontdatabasebase.cpp` — `SystemParametersInfoForDpi()` (Windows 10), falling back to `SystemParametersInfo()`.
+- `src/gui/text/windows/qwindowsfontenginedirectwrite.cpp` — not an import but a per-glyph cost. `imageForGlyph()` asks for `IDWriteFactory2` (Windows 8.1) and already falls back to the DirectWrite 1 glyph run analysis when it is absent, so text renders correctly on Windows 7 either way — but it also called `qErrnoWarning()` on **every glyph**, which buries every other message in the log and pays for a `FormatMessage()` per character drawn. Said once now, as debug output. The identical query in `alphaMapBoundingBox()` never warned and is left alone.
+- `src/network/kernel/qdnslookup_win.cpp` — `DnsQueryEx()` (Windows 8); the older `DnsQuery()` path is restored for Windows 7.
+- `src/plugins/platforms/windows/vxkex.h` (new) — Windows 7 stand-ins for the per-monitor DPI helpers (`GetSystemMetricsForDpi()`, `AdjustWindowRectExForDpi()` and friends), which simply scale the DPI-unaware originals.
+- `src/plugins/platforms/windows/qwindowscontext.h`, `src/plugins/platforms/windows/qwindowscontext.cpp` — the central place where the optional user32/shcore entry points are resolved: the pointer input API (Windows 8), the per-DPI metrics and the shcore DPI awareness calls (Windows 8.1/10). The rest of the plugin asks this struct instead of calling the imports directly.
+- `src/plugins/platforms/windows/qwindowsdrag.cpp`, `src/plugins/platforms/windows/qwindowskeymapper.cpp`, `src/plugins/platforms/windows/qwindowspointerhandler.cpp`, `src/plugins/platforms/windows/qwindowsscreen.cpp`, `src/plugins/platforms/windows/qwindowswindow.cpp`, `src/plugins/platforms/windows/qwindowsintegration.cpp` — use those resolved pointers, with the `vxkex.h` fallbacks where a DPI-aware metric is needed.
+- `src/plugins/platforms/windows/qwindowstheme.cpp` — accent colours come from WinRT `UISettings` on Windows 10; on Windows 7 the palette falls back to the system colours.
+- `src/plugins/platforms/windows/qwin10helpers.cpp` — loads `combase.dll` dynamically instead of importing it, so the WinRT helpers degrade gracefully when it is not there.
+- `src/plugins/platforms/windows/uiautomation/qwindowsuiawrapper_p.h`, `src/plugins/platforms/windows/uiautomation/qwindowsuiawrapper.cpp` (new), `src/plugins/platforms/windows/uiautomation/qwindowsuiamainprovider.cpp`, `src/plugins/platforms/windows/uiautomation/qwindowsuiaaccessibility.cpp` — accessibility goes through a wrapper that resolves the UI Automation entry points at run time, since Windows 7 ships an older `uiautomationcore.dll`.
+- `src/widgets/styles/qwindowsstyle.cpp` — the same per-DPI metric helpers as above, via `vxkex.h`.
 
 ### qtmultimedia
 
@@ -113,6 +96,10 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 
   Chromium puts an empty DACL on its shared memory sections so that a read-only region cannot be duplicated back into a writable one, and `Take()` verifies that with a `CHECK`: it tries `DuplicateHandle()` with `FILE_MAP_WRITE` and requires the outcome to match the region's declared mode. Windows before 8.1 **ignores the DACL on unnamed objects**, sections included, so on Windows 7 the read-only handle duplicates just fine, the verification disagrees with the mode and the `CHECK` takes the browser process down with a breakpoint (`0x80000003`) the first time a region changes hands — which is moments after the first page starts loading. Chromium handled this until 109.0.5414.120 by giving the section a random name below Windows 8.1, since a named object does get its DACL honoured; M110 deleted the block but left `std::u16string name;` and the `name.empty() ? nullptr : as_wcstr(name)` argument in place, so restoring it is a matter of filling that variable in again. Sections stay unnamed on Windows 8.1 and later, exactly as now.
 
+  Restoring the name is necessary but not sufficient, and the second half of this only shows up in a sandboxed renderer. `CreateFileMapping` with a name has to place that name in the object namespace, and a renderer running on a lockdown token is not allowed to: the call comes back with `ERROR_ACCESS_DENIED`. Chromium's own logging for it is `DPLOG`, compiled out of release builds, so the failure to *allocate* shared memory is indistinguishable from having *run out* of it — the caller reports OOM and the process dies with `0xE0000008` having explained nothing. On a machine with a working GPU this stays hidden, because the renderer rasterises on the GPU; without one `cc::BitmapRasterBufferProvider` takes over and asks for a shared memory bitmap for every tile, so the first paint kills the renderer.
+
+  The patch therefore does three things: it logs the real failure with `PLOG(ERROR)` instead of `DPLOG`, it falls back to an unnamed section when the named one is refused, and it downgrades the read-only verification below Windows 8.1 from a fatal `CHECK` to a one-time warning, since the unnamed fallback would otherwise trade an OOM for a breakpoint. The cost is stated plainly: on Windows 7, when the fallback engages, a read-only shared memory region is not enforced as read-only by the kernel — which is what this Windows version did before the workaround was invented. The alternative is not a stricter DACL, it is a renderer that cannot draw.
+
 - `base/task/thread_pool/thread_group.cc`
 
   A thread pool worker that asks for `WorkerEnvironment::COM_MTA` gets its apartment from `ScopedWinrtInitializer`, which calls `RoInitialize()` — and that lives in combase.dll, so with the WinRT patch above doing the honest thing and reporting failure, those workers ended up with **no apartment initialised at all**. Everything on them that needs COM then fails; the browser process survived it, since the check there is `DUMP_WILL_BE_CHECK` rather than a real `CHECK`, but the renderer did not, and the only visible symptom was the renderer dying at startup. Chromium chose between WinRT and plain COM by version until 109.0.5414.120 — `CoInitializeEx(COINIT_MULTITHREADED)` gives those workers exactly the MTA they asked for — and that choice is restored here. This one is worth remembering as a lesson in its own right: making an unavailable API fail gracefully is necessary but not sufficient, because somewhere else code may depend on it succeeding.
@@ -120,6 +107,12 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 - `content/browser/renderer_host/dwrite_font_proxy_impl_win.cc`
 
   `DWriteFontProxyImpl::InitializeDirectWrite()` queried the factory for `IDWriteFactory2` and `IDWriteFactory3` and asserted both succeed, the comment reading "This should succeed since we only support >= Win10". On Windows 7 neither does — `IDWriteFactory2` arrived with Windows 8.1 and `IDWriteFactory3` with Windows 10 — and since `DCHECK` compiles out in release builds the empty `factory3_` travelled straight into `GetLocalFontCollection()` and faulted on its first virtual call, taking the browser process down as soon as a page needed fonts. Chromium up to 109.0.5414.120 took the collection from the base factory and said plainly that the two queries may fail on older DirectWrite; the patch restores that, keeping the newer path (and with it the side-loaded font support, which exists for tests) wherever `IDWriteFactory3` really is available. The other two uses of these members in the file were already safe: one checks `factory2_` for null, the other bails out when `IDWriteFontCollection1` cannot be obtained.
+
+- `third_party/skia/src/ports/SkFontMgr_win_dw.cpp`
+
+  The same missing interface, one layer down, and this one takes the renderer with it. `IDWriteFontFallback` arrived in Windows 8.1, so on Windows 7 Skia's `fFontFallback` is always null and every character needing a substitute font fell through to `layoutFallback()` — which, as the comment inside it says, cannot be stopped from using the system font collection. A sandboxed renderer is precisely what cannot reach that collection, and DirectWrite answers not with a failing `HRESULT` but by **throwing a C++ exception**. Nothing in Chromium catches it, so the process dies the moment a page lays out text. Chromium avoided this until 109.0.5414.120 by telling Blink not to use Skia's font fallback below Windows 8.1; that API went away with Windows 7 support, so `onMatchFamilyStyleCharacter()` now reports "no match" instead, which sends Blink to its own fallback logic — the same outcome the old flag arranged for.
+
+  Two details made this expensive to find, and both are worth knowing before debugging anything else here. The exit code is a plain **3**, which is what the CRT exits with after `abort()` — and also, unhelpfully, the value of `RESULT_CODE_KILLED_BAD_MESSAGE`, so it reads like the browser killing the renderer over a bad IPC message. And a handler installed with `signal(SIGABRT, ...)` never sees it: `DWrite.dll` is linked against the old `msvcrt.dll` while everything else uses `ucrtbase.dll`, and the two CRTs keep separate handler state. What does catch it is intercepting `ExitProcess` in the import tables of every loaded module.
 
 - `sandbox/win/src/win_utils.cc`
 
@@ -161,7 +154,7 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 
 Verified with Qt 6.8.4: viewing PDFs works on Windows 7 SP1.
 
-The Qt WebEngine part of this section has been run on Windows 7 SP1 x64. With `QTWEBENGINE_DISABLE_SANDBOX=1` the engine starts, loads a page over HTTP and passes 19 of the 22 checks in the test harness: networking, ICU, DirectWrite text, IndexedDB, localStorage, Web Workers, WebAssembly and `crypto` all work. The three failures — WebGL, WebGL2 and `requestAnimationFrame` — share one cause that has nothing to do with this port: the guest had no usable GPU (VMware/llvmpipe, OpenGL 2.1), so Skia could not create a `GrContext` at all. With the sandbox left enabled the renderer additionally needs the `sandbox_win.cc` patch above, which is the newest of the lot and still awaiting confirmation on hardware. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else.
+The Qt WebEngine part of this section has been run on Windows 7 SP1 x64, **with the sandbox enabled**, and renders a page: 19 of the 22 checks in the test harness pass — networking, ICU, DirectWrite text and font fallback, Canvas 2D, IndexedDB, localStorage, Web Workers, WebAssembly, SubtleCrypto and `crypto` among them. The three failures — WebGL, WebGL2 and `requestAnimationFrame` — share one cause that has nothing to do with this port: the guest had no usable GPU (VMware/llvmpipe, OpenGL 2.1), so Skia could not create a `GrContext` at all and the compositor never produced a frame. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else.
 
 Two things are worth knowing before debugging this yourself, because both cost a day here. Qt forces Chromium's log destination in `content_main_delegate_qt.cpp`, so `--log-file` is silently ignored and everything goes to stderr — which a Windows GUI application does not have; the CRT's file descriptor 2 has to be opened onto a real handle with `_dup2()` before any of it is visible. And even then a **sandboxed child process** writes into a void, because `sandbox_win.cc` only passes the parent's stdout and stderr handles to the child `#if !defined(OFFICIAL_BUILD)` — and Qt builds Chromium as an official build. Dropping that guard locally is what finally made the renderer's own output readable; it is a debugging change rather than a Windows 7 fix, so it is deliberately not part of the patch set.
 
@@ -209,40 +202,10 @@ Two practical consequences:
 ### Known issues:
 
 - QRhi using DirectX 11/12 is not ported. For Qt Quick and anything embedding it — including **Qt WebEngine**, whose `QWebEngineView` renders through a `QQuickWidget` — this means the default configuration cannot draw anything on Windows 7: `QD3D11SwapChain::createOrResizeWin7()` is still a stub returning false. Until it is implemented, run such applications with `QSG_RHI_BACKEND=opengl` (needs a driver with OpenGL 2.1 or newer, and then everything works including WebGL) or with `QT_QUICK_BACKEND=software` (no driver needed at all, no WebGL).
-- Qt WebEngine runs on Windows 7 with the sandbox disabled (19 of 22 harness checks, the rest being a GPU-less test machine); with the sandbox enabled the newest patch of the set is still awaiting confirmation on hardware. See the qtwebengine section.
+- Qt WebEngine runs on Windows 7 with the sandbox enabled and renders pages; the only harness checks that fail are the ones needing a GPU, on a test machine that has none. See the qtwebengine section.
 - The sandbox cannot put a target into a job object on Windows 7 if the browser process is itself already in one without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`, because nested jobs only arrived in Windows 8. Chromium checked for this in `ShouldSetJobLevel()` and ran the target without a job level; that check was deleted with Windows 7 support and is **not** restored here yet, so an application launched from inside a job may fail to start child processes.
 - On Windows 7, Qt WebEngine gives up the features the OS never had: WinRT-backed ones (Web Bluetooth, WinRT MIDI, WinRT geolocation), hardware video encoding and Media Foundation camera capture through DXGI, per-monitor DPI, and the Windows 8-and-later sandbox mitigations
 - `SetDefaultDllDirectories()` needs KB2533623 on Windows 7; without that update the sandbox skips its DLL search-order hardening (KB2670838, already required by patched qtbase, is needed for the GPU stack)
-
-### Older versions:
-
-- [Qt 6.8.3](https://github.com/crystalidea/qt6windows7/releases/tag/v6.8.3)
-- [Qt 6.8.2](https://github.com/crystalidea/qt6windows7/releases/tag/v6.8.2)
-- [Qt 6.8.1](https://github.com/crystalidea/qt6windows7/releases/tag/v6.8.1)
-- [Qt 6.8.0](https://github.com/crystalidea/qt6windows7/releases/tag/v6.8.0)
-- [Qt 6.7.2](https://github.com/crystalidea/qt6windows7/releases/tag/v6.7.2)
-- [Qt 6.6.3](https://github.com/crystalidea/qt6windows7/releases/tag/v6.6.3)
-- [Qt 6.6.2](https://github.com/crystalidea/qt6windows7/releases/tag/v6.6.2)
-- [Qt 6.6.1](https://github.com/crystalidea/qt6windows7/releases/tag/v6.6.1)
-- [Qt 6.6.0](https://github.com/crystalidea/qt6windows7/releases/tag/v6.6.0)
-- [Qt 6.5.3](https://github.com/crystalidea/qt6windows7/releases/tag/6.5.3-win7)
-- [Qt 6.5.1](https://github.com/crystalidea/qt6windows7/releases/tag/6.5.1-win7)
-
-### Packaging the result
-
-`make_win7_archive.pl` builds the archive published with each release — the one you get from the link at the top of this page — out of a Qt installation compiled with this backport:
-
-```
-perl make_win7_archive.pl
-```
-
-Run without arguments it packs every installation it finds in `C:\qt6` and `C:\qt6_x64` — the two assets of a release in one go. Pass a path to pack just one, and a name after it to choose the file name.
-
-The architecture is read from `Qt6Core.dll`, so a 32-bit installation produces `qt6_x86_to_run_on_windows7.7z` and a 64-bit one `qt6_x64_to_run_on_windows7.7z`, each with the matching runtime.
-
-It collects the Qt libraries from `bin`, the plugins applications load by path (`platforms`, `styles`, `imageformats` and `multimedia`, each skipped when the module was not built), and Qt Designer, which is a quick way to tell whether a build really runs on Windows 7. Debug builds are left out; a plain name match would not do here, since `qdirect2d.dll` and a few others genuinely end in a 'd', so a library counts as a debug build only when its release twin sits next to it.
-
-The Visual C++ runtime is packed as well, taken from the newest redistributable installed alongside the compiler, for the architecture Qt was built for. That is not just convenience: a redistributable **older** than the toolset that compiled Qt is unsupported, and it fails by crashing rather than by refusing to load — a Windows 7 machine carrying 14.36 will start a Designer built with 14.44 and then fault inside `MSVCP140.dll`. Shipping the matching runtime keeps the archive self-contained. Set `$include_msvc_runtime` to 0 in the script to leave it out.
 
 ### License
 
