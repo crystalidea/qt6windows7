@@ -13,7 +13,7 @@
 
 #include <qt_windows.h>
 #include <shlobj.h>
-#include <versionhelpers.h>
+#include <qoperatingsystemversion.h>
 #include <intshcut.h>
 #include <qvarlengtharray.h>
 
@@ -62,7 +62,17 @@ static inline void appendTestMode(QString &path)
 
 static bool isProcessLowIntegrity()
 {
-    if (!IsWindows8OrGreater())
+    // Windows 7 backport: the pseudo handle below is what GetCurrentProcessToken()
+    // returns, and token pseudo handles only work from Windows 8 on - on Windows 7
+    // GetTokenInformation() simply fails with it, so report a "normal" process.
+    //
+    // Asked through QOperatingSystemVersion rather than IsWindows8OrGreater() on
+    // purpose: the latter goes through VerifyVersionInfo(), which reports 6.2 to
+    // any process whose manifest does not list the newer supportedOS GUIDs, so the
+    // answer would depend on the application's manifest rather than on the running
+    // Windows. QOperatingSystemVersion reads the real version through ntdll's
+    // RtlGetVersion(), which no manifest can influence.
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8)
         return false;
 
     // same as GetCurrentProcessToken()

@@ -1,4 +1,4 @@
-This repository provides a backport of Qt 6, tailored for compatibility with Windows 7, 8 and 8.1. It contains patched source files, along with some additional required files.
+﻿This repository provides a backport of Qt 6, tailored for compatibility with Windows 7, 8 and 8.1. It contains patched source files, along with some additional required files.
 
 Each top-level folder here mirrors one Qt repository: apply a patch set by copying the contents of that folder over your checkout of the same name, replacing the existing files. `qtbase` is the backport proper and is always needed; `qtmultimedia` and `qtwebengine` are only needed if you build those modules. Every module is covered in its own section below.
 
@@ -14,13 +14,13 @@ You can compile it yourself using your preferred compiler and build options or c
 
 ### qtbase
 
-- `src/corelib/io/qstandardpaths_win.cpp` — low-integrity process detection is a Windows 8 concept; report false on Windows 7 instead. Also fixes the buffer-size probe of `GetTokenInformation()`.
+- `src/corelib/io/qstandardpaths_win.cpp` — low-integrity process detection asks `GetTokenInformation()` for the current process token through the `-4` pseudo handle, and token pseudo handles only work from Windows 8 on, so it reports a "normal" process below that. Decided with `QOperatingSystemVersion`, not `IsWindows8OrGreater()`, for the manifest reason described below. Also fixes the buffer-size probe of `GetTokenInformation()`.
 - `src/corelib/kernel/qeventdispatcher_win.cpp` — `SetCoalescableTimer()`, falling back to plain `SetTimer()`.
 - `src/corelib/kernel/qfunctions_win.cpp` — `GetCurrentPackageFullName()`; without it the process is simply not a packaged app.
 - `src/corelib/platform/windows/qt_winrtbase_p.h` — resolves the C++/WinRT entry points (`RoGetActivationFactory()` and friends) through `combase.dll` at run time. Without it the WinRT imports alone keep the process from starting on Windows 7 — and because other modules compile against this header too, it is what lets qtmultimedia use WinRT without extra patches of its own.
 - `src/corelib/thread/qfutex_p.h`, `src/corelib/thread/qmutex.cpp`, `src/corelib/thread/qmutex_p.h`, `src/corelib/thread/qmutex_win.cpp` (new) — the futex path uses `WaitOnAddress()` (Windows 8), so it is disabled and `QMutex` gets an event-based Windows implementation instead.
 - `src/corelib/thread/qthread_win.cpp` — `SetThreadDescription()` (Windows 10) for thread names, falling back to the classic debugger exception.
-- `src/gui/rhi/qrhid3d11.cpp`, `src/gui/rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8.1), falling back to `CreateDXGIFactory1()`; without it the backend gives up before it reaches a swapchain and cannot draw at all. Plus a second swapchain path, the BitBlt model through `IDXGIFactory::CreateSwapChain()`, for everything below Windows 10 — the first one asks for `DXGI_SWAP_EFFECT_FLIP_DISCARD`, which is Windows 10 and later. Which of the two is taken is decided with `QOperatingSystemVersion` rather than `IsWindows10OrGreater()`, deliberately: see **The version an application is told** below.
+- `src/gui/rhi/qrhid3d11.cpp`, `src/gui/rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8.1), falling back to `CreateDXGIFactory1()`; without it the backend gives up before it reaches a swapchain and cannot draw at all. Plus a second swapchain path, the BitBlt model through `IDXGIFactory::CreateSwapChain()`, for everything below Windows 10 — the first one asks for `DXGI_SWAP_EFFECT_FLIP_DISCARD`, which is Windows 10 and later. Which of the two is taken is decided with `QOperatingSystemVersion` and not `IsWindows10OrGreater()`, deliberately: that helper goes through `VerifyVersionInfo()`, which reports 6.2 to any process whose manifest does not list the Windows 10 `supportedOS` GUID — so an application without such a manifest would be sent down the Windows 7 path while actually running on Windows 10. `QOperatingSystemVersion` reads the real version through ntdll's `RtlGetVersion()`, which no manifest can influence.
 - `src/gui/rhi/qrhid3d12.cpp` — `CreateDXGIFactory2()`, `D3D12CreateDevice()` and `D3D12GetDebugInterface()`; when they are absent the D3D12 backend just reports itself unavailable.
 - `src/gui/text/windows/qwindowsfontdatabasebase.cpp` — `SystemParametersInfoForDpi()` (Windows 10), falling back to `SystemParametersInfo()`.
 - `src/gui/text/windows/qwindowsfontenginedirectwrite.cpp` — not an import but a per-glyph cost. `imageForGlyph()` asks for `IDWriteFactory2` (Windows 8.1) and already falls back to the DirectWrite 1 glyph run analysis when it is absent, so text renders correctly on Windows 7 either way — but it also called `qErrnoWarning()` on **every glyph**, which buries every other message in the log and pays for a `FormatMessage()` per character drawn. Said once now, as debug output. The identical query in `alphaMapBoundingBox()` never warned and is left alone.
@@ -167,37 +167,6 @@ Many other Qt 6 modules need no patches at all: built against patched qtbase, th
 - qtsvg
 - qttools
 - ... please let me know which work and which don't !
-
-### The version an application is told
-
-Windows does not necessarily tell a program which Windows it is running on. Since Windows 8.1, `GetVersionEx()` and `VerifyVersionInfo()` report **6.2** — Windows 8 — to any process whose manifest does not list the newer operating systems in a `<compatibility>` section. It was done to stop applications from breaking on every new release through careless version checks, and it is opt-in: declare support for Windows 10 in the manifest and you are told the truth, declare nothing and you are told 6.2 forever.
-
-`<versionhelpers.h>` sits on top of `VerifyVersionInfo()`, so it inherits the lie. Compiled twice from the same source and run on the same Windows 11 machine, differing only in the manifest:
-
-| | without manifest | with manifest |
-|---|---|---|
-| `IsWindows7OrGreater()` | 1 | 1 |
-| `IsWindows8OrGreater()` | 1 | 1 |
-| `IsWindows8Point1OrGreater()` | **0** | 1 |
-| `IsWindows10OrGreater()` | **0** | 1 |
-| real kernel32 version | 10.0.26100 | 10.0.26100 |
-
-Note where the cap sits: a check for Windows 8 is unaffected, checks for 8.1 and later are not. That is why `io/qstandardpaths_win.cpp` can keep using `IsWindows8OrGreater()`, while the D3D11 swapchain, which has to distinguish Windows 7 from Windows 10, cannot.
-
-This matters here more than it does in stock Qt, because a backport asks "am I on the old system?" in places stock Qt never needed to. Get it wrong and the failure is inverted and silent: a *modern* Windows takes the *Windows 7* path. That is precisely what happened with `QD3D11SwapChain::createOrResize()` — an application without a manifest was sent into the Windows 7 branch on Windows 10 and 11, got no swapchain, and could not display a `QQuickWidget`, `QOpenGLWidget` or `QWebEngineView` at all. Plain widget applications never noticed, because they never create a swapchain; Qt Designer runs fine either way.
-
-The fix is to ask something the manifest cannot influence. `QOperatingSystemVersion` reads the real version through ntdll's `RtlGetVersion()` — Qt loads it dynamically in `corelib/global/qoperatingsystemversion_win.cpp` for exactly this reason — so
-
-```cpp
-QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10
-```
-
-is correct regardless of how the application was built, and is what `qrhid3d11.cpp` now uses. Verified: from a binary with no manifest, where `IsWindows10OrGreater()` returns 0, this returns 1 and reports 10.0.26200.
-
-Two practical consequences:
-
-- **If you write patches for this backport**, prefer `QOperatingSystemVersion` over `<versionhelpers.h>`. Better still, resolve the entry point you actually need and branch on whether it exists, which is what nearly every patch here does; then the version never comes up.
-- **If you ship an application built with this Qt**, give it a manifest declaring support up to Windows 10/11 anyway. It is good hygiene in its own right, and it keeps you clear of every other place — inside Qt or not — that still asks Windows for its version.
 
 ### Known issues:
 
