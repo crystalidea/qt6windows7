@@ -13,7 +13,6 @@
 
 #include <qt_windows.h>
 #include <shlobj.h>
-#include <qoperatingsystemversion.h>
 #include <intshcut.h>
 #include <qvarlengtharray.h>
 
@@ -66,14 +65,25 @@ static bool isProcessLowIntegrity()
     // returns, and token pseudo handles only work from Windows 8 on - on Windows 7
     // GetTokenInformation() simply fails with it, so report a "normal" process.
     //
-    // Asked through QOperatingSystemVersion rather than IsWindows8OrGreater() on
-    // purpose: the latter goes through VerifyVersionInfo(), which reports 6.2 to
-    // any process whose manifest does not list the newer supportedOS GUIDs, so the
-    // answer would depend on the application's manifest rather than on the running
-    // Windows. QOperatingSystemVersion reads the real version through ntdll's
-    // RtlGetVersion(), which no manifest can influence.
-    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8)
+    // Asked through RtlGetVersion() and not IsWindows8OrGreater() on purpose: the
+    // latter goes through VerifyVersionInfo(), which reports 6.2 to any process
+    // whose manifest does not list the newer supportedOS GUIDs, so the answer
+    // would depend on the application's manifest rather than on the running
+    // Windows. QOperatingSystemVersion does exactly what is done by hand here,
+    // but it is not part of the bootstrap library on Windows - only on Apple -
+    // and this file is built into that library, so it cannot be used.
+    using RtlGetVersionType = LONG (WINAPI *)(OSVERSIONINFOEXW *);
+    const auto rtlGetVersion = reinterpret_cast<RtlGetVersionType>(
+        reinterpret_cast<void *>(
+            GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")));
+    if (!rtlGetVersion)
         return false;
+    OSVERSIONINFOEXW osv = {};
+    osv.dwOSVersionInfoSize = sizeof(osv);
+    if (rtlGetVersion(&osv) != 0)
+        return false;
+    if (osv.dwMajorVersion < 6 || (osv.dwMajorVersion == 6 && osv.dwMinorVersion < 2))
+        return false; // Windows 7 or older
 
     // same as GetCurrentProcessToken()
     const auto process_token = HANDLE(quintptr(-4));
