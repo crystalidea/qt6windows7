@@ -1002,17 +1002,12 @@ ResultCode SandboxWin::GeneratePolicyForSandboxedProcess(
       return result;
   }
 
-  // Windows 7 backport, diagnostics: upstream this is wrapped in
-  // #if !defined(OFFICIAL_BUILD), and Qt builds Chromium as an official build -
-  // so a sandboxed child never inherits the parent's stdout/stderr and its log
-  // output is unreachable, which is precisely the output needed when a renderer
-  // fails to start on Windows 7. Passing the handles through costs nothing when
-  // the parent has no console or redirection in place (the calls simply have no
-  // effect), and it is what every non-official Chromium build already does.
+#if !defined(OFFICIAL_BUILD)
   // If stdout/stderr point to a Windows console, these calls will
   // have no effect. These calls can fail with SBOX_ERROR_BAD_PARAMS.
   policy->SetStdoutHandle(GetStdHandle(STD_OUTPUT_HANDLE));
   policy->SetStderrHandle(GetStdHandle(STD_ERROR_HANDLE));
+#endif
 
   if (!delegate->PreSpawnTarget(policy))
     return SBOX_ERROR_DELEGATE_PRE_SPAWN;

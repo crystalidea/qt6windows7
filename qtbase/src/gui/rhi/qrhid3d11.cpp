@@ -200,7 +200,33 @@ static IDXGIFactory1 *createDXGIFactory2()
             result = nullptr;
         }
     }
-    
+    else
+    {
+        // Windows 7 backport: CreateDXGIFactory2() arrived with Windows 8.1, and
+        // returning null here means QRhiD3D11::create() gives up before it ever
+        // reaches a swapchain - so the D3D11 backend is unavailable and anything
+        // built on Qt Quick, Qt WebEngine included, has nothing to draw into.
+        // CreateDXGIFactory1() has been in dxgi.dll since Windows 7 and hands
+        // out the IDXGIFactory1 this backend actually stores; only the parts
+        // that need IDXGIFactory2 and later - the flip presentation model,
+        // DirectComposition, HDR output - are out of reach, and those are what
+        // QD3D11SwapChain::createOrResizeWin7() replaces with the older model.
+        typedef HRESULT(WINAPI* CreateDXGIFactory1Func) (REFIID riid, void** factory);
+        static CreateDXGIFactory1Func myCreateDXGIFactory1 =
+            (CreateDXGIFactory1Func)::GetProcAddress(::GetModuleHandle(L"dxgi"), "CreateDXGIFactory1");
+
+        if (myCreateDXGIFactory1) {
+            const HRESULT hr = myCreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&result));
+            if (FAILED(hr)) {
+                qWarning("CreateDXGIFactory1() failed to create DXGI factory: %s",
+                    qPrintable(QSystemError::windowsComString(hr)));
+                result = nullptr;
+            }
+        } else {
+            qWarning("Neither CreateDXGIFactory2() nor CreateDXGIFactory1() could be resolved from dxgi.dll");
+        }
+    }
+
     return result;
 }
 
@@ -5464,9 +5490,162 @@ bool QD3D11SwapChain::createOrResize()
     return true;
 }
 
+// Windows 7 backport: this is the swapchain path taken below Windows 10, since
+// the one above asks for DXGI_SWAP_EFFECT_FLIP_DISCARD, which is Windows 10 and
+// later. On Windows 7 the gap is wider than one enum value: IDXGIFactory2 does
+// not exist at all, so CreateSwapChainForHwnd(), DirectComposition, waitable
+// frame latency objects and HDR colour spaces are all out of reach. What is
+// available, and has been since Windows Vista, is the BitBlt model through
+// IDXGIFactory::CreateSwapChain(), which is what this uses.
+//
+// Everything after the swapchain itself is deliberately identical to
+// createOrResize(), including keeping BUFFER_COUNT slots for the multisample
+// textures: the swapchain is created with SampleDesc.Count == 1 and MSAA is
+// resolved explicitly, exactly as in the flip path, so the rest of the backend
+// - beginFrame(), endFrame(), the render target bookkeeping - needs no special
+// case for Windows 7.
 bool QD3D11SwapChain::createOrResizeWin7()
 {
-    return false; // not implemented yet ;(
+    const bool needsRegistration = !window || window != m_window;
+
+    // except if the window actually changes
+    if (window && window != m_window)
+        destroy();
+
+    window = m_window;
+    m_currentPixelSize = surfacePixelSize();
+    pixelSize = m_currentPixelSize;
+
+    if (pixelSize.isEmpty())
+        return false;
+
+    if (m_window->format().stereo())
+        qWarning("Stereo swapchains are not supported on Windows 7, ignoring the request");
+
+    if (m_flags.testFlag(SurfaceHasPreMulAlpha) || m_flags.testFlag(SurfaceHasNonPreMulAlpha))
+        qWarning("Semi-transparent windows need DirectComposition, which is not available on Windows 7");
+
+    HWND hwnd = reinterpret_cast<HWND>(window->winId());
+    HRESULT hr;
+
+    QRHI_RES_RHI(QRhiD3D11);
+
+    swapInterval = m_flags.testFlag(QRhiSwapChain::NoVSync) ? 0 : 1;
+    swapChainFlags = 0;
+
+    if (!swapChain) {
+        sampleDesc = rhiD->effectiveSampleDesc(m_sampleCount);
+        colorFormat = DEFAULT_FORMAT;
+        srgbAdjustedColorFormat = m_flags.testFlag(sRGB) ? DEFAULT_SRGB_FORMAT : DEFAULT_FORMAT;
+
+        if (m_format != SDR)
+            qWarning("HDR swapchain formats need DXGI 1.4, which is not available on Windows 7; using the default format");
+
+        // The BitBlt model: a single back buffer, DISCARD on present.
+        DXGI_SWAP_CHAIN_DESC desc = {};
+        desc.BufferDesc.Width = UINT(pixelSize.width());
+        desc.BufferDesc.Height = UINT(pixelSize.height());
+        desc.BufferDesc.Format = colorFormat;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 1;
+        desc.OutputWindow = hwnd;
+        desc.Windowed = TRUE;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        desc.Flags = swapChainFlags;
+
+        hr = rhiD->dxgiFactory->CreateSwapChain(rhiD->dev, &desc, &swapChain);
+        if (FAILED(hr)) {
+            qWarning("Failed to create D3D11 swapchain: %s"
+                     " (Width=%u Height=%u Format=%u SampleCount=%u BufferCount=%u SwapEffect=%u)",
+                     qPrintable(QSystemError::windowsComString(hr)),
+                     desc.BufferDesc.Width, desc.BufferDesc.Height, UINT(desc.BufferDesc.Format),
+                     desc.SampleDesc.Count, desc.BufferCount, UINT(desc.SwapEffect));
+            return false;
+        }
+
+        // disable Alt+Enter
+        rhiD->dxgiFactory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_WINDOW_CHANGES);
+    } else {
+        releaseBuffers();
+        // the legacy model really does have one back buffer
+        hr = swapChain->ResizeBuffers(1, UINT(pixelSize.width()), UINT(pixelSize.height()),
+                                      colorFormat, swapChainFlags);
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+            qWarning("Device loss detected in ResizeBuffers()");
+            rhiD->deviceLost = true;
+            return false;
+        } else if (FAILED(hr)) {
+            qWarning("Failed to resize D3D11 swapchain: %s",
+                     qPrintable(QSystemError::windowsComString(hr)));
+            return false;
+        }
+    }
+
+    hr = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&backBufferTex));
+    if (FAILED(hr)) {
+        qWarning("Failed to query swapchain backbuffer: %s",
+                 qPrintable(QSystemError::windowsComString(hr)));
+        return false;
+    }
+    D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+    rtvDesc.Format = srgbAdjustedColorFormat;
+    rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    hr = rhiD->dev->CreateRenderTargetView(backBufferTex, &rtvDesc, &backBufferRtv);
+    if (FAILED(hr)) {
+        qWarning("Failed to create rtv for swapchain backbuffer: %s",
+                 qPrintable(QSystemError::windowsComString(hr)));
+        return false;
+    }
+
+    // Try to reduce stalls by having a dedicated MSAA texture per swapchain buffer.
+    for (int i = 0; i < BUFFER_COUNT; ++i) {
+        if (sampleDesc.Count > 1) {
+            if (!newColorBuffer(pixelSize, srgbAdjustedColorFormat, sampleDesc, &msaaTex[i], &msaaRtv[i]))
+                return false;
+        }
+    }
+
+    if (m_depthStencil && m_depthStencil->sampleCount() != m_sampleCount) {
+        qWarning("Depth-stencil buffer's sampleCount (%d) does not match color buffers' sample count (%d). Expect problems.",
+                 m_depthStencil->sampleCount(), m_sampleCount);
+    }
+    if (m_depthStencil && m_depthStencil->pixelSize() != pixelSize) {
+        if (m_depthStencil->flags().testFlag(QRhiRenderBuffer::UsedWithSwapChainOnly)) {
+            m_depthStencil->setPixelSize(pixelSize);
+            if (!m_depthStencil->create())
+                qWarning("Failed to rebuild swapchain's associated depth-stencil buffer for size %dx%d",
+                         pixelSize.width(), pixelSize.height());
+        } else {
+            qWarning("Depth-stencil buffer's size (%dx%d) does not match the surface size (%dx%d). Expect problems.",
+                     m_depthStencil->pixelSize().width(), m_depthStencil->pixelSize().height(),
+                     pixelSize.width(), pixelSize.height());
+        }
+    }
+
+    currentFrameSlot = 0;
+    lastFrameLatencyWaitSlot = -1;
+    frameCount = 0;
+    ds = m_depthStencil ? QRHI_RES(QD3D11RenderBuffer, m_depthStencil) : nullptr;
+
+    rt.setRenderPassDescriptor(m_renderPassDesc); // for the public getter in QRhiRenderTarget
+    QD3D11SwapChainRenderTarget *rtD = QRHI_RES(QD3D11SwapChainRenderTarget, &rt);
+    rtD->d.rp = QRHI_RES(QD3D11RenderPassDescriptor, m_renderPassDesc);
+    rtD->d.pixelSize = pixelSize;
+    rtD->d.dpr = float(window->devicePixelRatio());
+    rtD->d.sampleCount = int(sampleDesc.Count);
+    rtD->d.colorAttCount = 1;
+    rtD->d.dsAttCount = m_depthStencil ? 1 : 0;
+
+    if (rhiD->rhiFlags.testFlag(QRhi::EnableTimestamps)) {
+        timestamps.prepare(rhiD);
+        // timestamp queries are optional so we can go on even if they failed
+    }
+
+    if (needsRegistration)
+        rhiD->registerResource(this);
+
+    return true;
 }
 
 QT_END_NAMESPACE
