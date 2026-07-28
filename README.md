@@ -14,6 +14,9 @@ You can compile it yourself using your preferred compiler and build options or c
 
 ### qtbase
 
+<details>
+<summary>The patched files, one by one</summary>
+
 - `src/corelib/io/qstandardpaths_win.cpp` — low-integrity process detection asks `GetTokenInformation()` for the current process token through the `-4` pseudo handle, and token pseudo handles only work from Windows 8 on, so it reports a "normal" process below that. Decided with `QOperatingSystemVersion`, not `IsWindows8OrGreater()`, for the manifest reason described below. Also fixes the buffer-size probe of `GetTokenInformation()`.
 - `src/corelib/kernel/qeventdispatcher_win.cpp` — `SetCoalescableTimer()`, falling back to plain `SetTimer()`.
 - `src/corelib/kernel/qfunctions_win.cpp` — `GetCurrentPackageFullName()`; without it the process is simply not a packaged app.
@@ -33,11 +36,16 @@ You can compile it yourself using your preferred compiler and build options or c
 - `src/plugins/platforms/windows/uiautomation/qwindowsuiawrapper_p.h`, `src/plugins/platforms/windows/uiautomation/qwindowsuiawrapper.cpp` (new), `src/plugins/platforms/windows/uiautomation/qwindowsuiamainprovider.cpp`, `src/plugins/platforms/windows/uiautomation/qwindowsuiaaccessibility.cpp` — accessibility goes through a wrapper that resolves the UI Automation entry points at run time, since Windows 7 ships an older `uiautomationcore.dll`.
 - `src/widgets/styles/qwindowsstyle.cpp` — the same per-DPI metric helpers as above, via `vxkex.h`.
 
+</details>
+
 ### qtmultimedia
 
 Playing media needs both the FFmpeg plugin, which would not load at all, and the WASAPI audio backend, which could not open a device and then crashed on shutdown. Four patches are provided in the `qtmultimedia` folder.
 
 The first two concern the WinRT window capture support, compiled in whenever the `cpp_winrt` feature is enabled. Without them the plugin cannot be loaded on Windows 7, which leaves Qt Multimedia without a backend — `QMediaPlayer` reports itself unavailable and nothing plays.
+
+<details>
+<summary>The four patches, one by one</summary>
 
 - `src/plugins/multimedia/ffmpeg/CMakeLists.txt`
 
@@ -55,6 +63,8 @@ Audio needs the WASAPI backend. `createAudioClient()` activates `IAudioClient3`,
 
   The audio client is now held as the base `IAudioClient`, which has been around since Vista and carries every method the playback and capture paths actually use. `createAudioClient()` still asks for `IAudioClient3` first, so on Windows 10 and later the very same object is obtained as before and nothing changes there; only when that fails does it fall back to `IAudioClient`. Setting the endpoint role goes through `IAudioClient2::SetClientProperties` and is therefore skipped when only the base interface is available — on Windows 7 the role stays at its default. The `audioClientStart/Stop/Reset()` helpers additionally return false on an empty client instead of dereferencing it, which is what their callers already expect from a failed call and which fixes the crash on close. Both playback and capture go through these helpers, so both are covered.
 
+</details>
+
 Verified with Qt 6.8.4: video plays with sound on Windows 7 SP1.
 
 ### qtwebengine (Qt WebEngine and Qt PDF)
@@ -62,6 +72,9 @@ Verified with Qt 6.8.4: video plays with sound on Windows 7 SP1.
 Neither module works on Windows 7 out of the box, even with patched qtbase. Qt PDF needs the two patches described at the end of this section; Qt WebEngine needs those plus the rest of the `qtwebengine` folder.
 
 The reason there is so much to do here is that Chromium dropped Windows 7 and 8 in M110, and Qt 6.8 carries Chromium 122. Almost every patch below is therefore not an invention but a restoration: the same file in Chromium 109.0.5414.120 — the last release that supported Windows 7 — resolved the entry point at run time or skipped it behind a version check, and M110 deleted that code. Each patch is marked in place with a `Windows 7 backport:` comment, and the handful of cases where 109 has no equivalent are called out below. As everywhere else in this repository, the fallback only engages when `GetProcAddress()` comes back empty, so Windows 8 and later keep taking exactly the path they take today.
+
+<details>
+<summary>Every patch, one by one</summary>
 
 **Loading the library at all**
 
@@ -151,6 +164,8 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 - `src/3rdparty/chromium/base/allocator/partition_allocator/src/partition_alloc/partition_alloc_base/rand_util_win.cc`
 
   PartitionAlloc obtains random bytes through `bcryptprimitives!ProcessPrng`, which exists only on Windows 10 and later. The DLL itself is present on Windows 7, so `LoadLibraryW()` succeeds and only the export lookup fails — which the surrounding `CHECK` turns into a deliberate abort (`STATUS_BREAKPOINT`), crashing the application the first time a PDF is opened. The patch falls back to `RtlGenRandom` (`advapi32!SystemFunction036`), which is what Chromium used before it switched to `ProcessPrng`. `ProcessPrng` is still preferred whenever it is available, so behaviour on Windows 10 and later is unchanged.
+
+</details>
 
 Verified with Qt 6.8.4: viewing PDFs works on Windows 7 SP1.
 
