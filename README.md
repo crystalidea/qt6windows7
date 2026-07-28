@@ -26,9 +26,10 @@ The backport proper, and the part everything else on this page assumes is in pla
 
 **gui**
 
-- `rhi/qrhid3d11.cpp`, `rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8), plus a separate swapchain path for Windows 7.
+- `rhi/qrhid3d11.cpp`, `rhi/qrhid3d11_p.h` — `CreateDXGIFactory2()` (Windows 8), plus a separate swapchain path for Windows 7. Which of the two swapchain paths is taken is decided with `QOperatingSystemVersion` rather than `IsWindows10OrGreater()`, deliberately: see **The version an application is told** below.
 - `rhi/qrhid3d12.cpp` — `CreateDXGIFactory2()`, `D3D12CreateDevice()` and `D3D12GetDebugInterface()`; when they are absent the D3D12 backend just reports itself unavailable.
 - `text/windows/qwindowsfontdatabasebase.cpp` — `SystemParametersInfoForDpi()` (Windows 10), falling back to `SystemParametersInfo()`.
+- `text/windows/qwindowsfontenginedirectwrite.cpp` — not an import but a per-glyph cost. `imageForGlyph()` asks for `IDWriteFactory2` (Windows 8.1) and already falls back to the DirectWrite 1 glyph run analysis when it is absent, so text renders correctly on Windows 7 either way — but it also called `qErrnoWarning()` on **every glyph**, which buries every other message in the log and pays for a `FormatMessage()` per character drawn. Said once now, as debug output. The identical query in `alphaMapBoundingBox()` never warned and is left alone.
 
 **network**
 
@@ -102,13 +103,45 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 
 **Crashes that remain once it loads**
 
-- `base/rand_util_win.cc`, `sandbox/policy/win/sandbox_warmup.cc`, `third_party/ipcz/src/reference_drivers/random.cc`
+- `third_party/boringssl/src/crypto/rand_extra/windows.c`, `base/rand_util_win.cc`, `sandbox/policy/win/sandbox_warmup.cc`, `third_party/ipcz/src/reference_drivers/random.cc`
 
-  Three more copies of the `bcryptprimitives!ProcessPrng` pattern already patched for Qt PDF, and each one is fatal on its own. The DLL exists on Windows 7 so `LoadLibraryW()` succeeds and only the export lookup fails, which the surrounding `CHECK` turns into a deliberate abort — in `base::RandBytes()` that is the first random number anything asks for, and in the sandbox warmup it is every sandboxed process at startup, since the `WinSboxWarmupProcessPrng` feature is enabled by default. All three fall back to `RtlGenRandom()` (`advapi32!SystemFunction036`), which is what Chromium used before the switch and which is the same system DRBG. The switch away from it was made to avoid opening a handle to `\Device\KsecDD` in the renderer; on Windows 7 the warmup opens that handle before the token is lowered anyway, which is exactly what the untaken branch of that feature already did. The ipcz copy is the nastiest of the three — it asserts with `ABSL_ASSERT`, which compiles to nothing in release builds and would leave a null function pointer to be called. That file is not part of the current build, and is patched defensively.
+  Four more copies of the `bcryptprimitives!ProcessPrng` pattern already patched for Qt PDF, and each one is fatal on its own. The DLL exists on Windows 7 so `LoadLibraryW()` succeeds and only the export lookup fails, which the surrounding check turns into a deliberate abort. All four fall back to `RtlGenRandom()` (`advapi32!SystemFunction036`), which is what Chromium used before the switch and which is the same system DRBG. The switch away from it was made to avoid opening a handle to `\Device\KsecDD` in the renderer; on Windows 7 the sandbox warmup opens that handle before the token is lowered anyway, which is exactly what the untaken branch of that feature already did.
+
+  The BoringSSL one is the copy that actually brings the browser down, and it is the easiest to overlook because it is the only one written in C rather than C++: `CRYPTO_sysrand()` is reached as soon as the network stack wants randomness, which is moments after the first page starts loading, and it calls plain `abort()` — not a `CHECK`, so it does not even leave the usual Chromium breakpoint behind, just `STATUS_FATAL_APP_EXIT` (`0x40000015`) raised from inside `ucrtbase`. In `base::RandBytes()` the same failure is the first random number anything asks for, and in the sandbox warmup it is every sandboxed process at startup, since the `WinSboxWarmupProcessPrng` feature is enabled by default. The ipcz copy is the nastiest in principle — it asserts with `ABSL_ASSERT`, which compiles to nothing in release builds and would leave a null function pointer to be called — but that file is not part of the current build and is patched defensively.
+
+- `base/memory/platform_shared_memory_region_win.cc`
+
+  Chromium puts an empty DACL on its shared memory sections so that a read-only region cannot be duplicated back into a writable one, and `Take()` verifies that with a `CHECK`: it tries `DuplicateHandle()` with `FILE_MAP_WRITE` and requires the outcome to match the region's declared mode. Windows before 8.1 **ignores the DACL on unnamed objects**, sections included, so on Windows 7 the read-only handle duplicates just fine, the verification disagrees with the mode and the `CHECK` takes the browser process down with a breakpoint (`0x80000003`) the first time a region changes hands — which is moments after the first page starts loading. Chromium handled this until 109.0.5414.120 by giving the section a random name below Windows 8.1, since a named object does get its DACL honoured; M110 deleted the block but left `std::u16string name;` and the `name.empty() ? nullptr : as_wcstr(name)` argument in place, so restoring it is a matter of filling that variable in again. Sections stay unnamed on Windows 8.1 and later, exactly as now.
+
+- `base/task/thread_pool/thread_group.cc`
+
+  A thread pool worker that asks for `WorkerEnvironment::COM_MTA` gets its apartment from `ScopedWinrtInitializer`, which calls `RoInitialize()` — and that lives in combase.dll, so with the WinRT patch above doing the honest thing and reporting failure, those workers ended up with **no apartment initialised at all**. Everything on them that needs COM then fails; the browser process survived it, since the check there is `DUMP_WILL_BE_CHECK` rather than a real `CHECK`, but the renderer did not, and the only visible symptom was the renderer dying at startup. Chromium chose between WinRT and plain COM by version until 109.0.5414.120 — `CoInitializeEx(COINIT_MULTITHREADED)` gives those workers exactly the MTA they asked for — and that choice is restored here. This one is worth remembering as a lesson in its own right: making an unavailable API fail gracefully is necessary but not sufficient, because somewhere else code may depend on it succeeding.
+
+- `content/browser/renderer_host/dwrite_font_proxy_impl_win.cc`
+
+  `DWriteFontProxyImpl::InitializeDirectWrite()` queried the factory for `IDWriteFactory2` and `IDWriteFactory3` and asserted both succeed, the comment reading "This should succeed since we only support >= Win10". On Windows 7 neither does — `IDWriteFactory2` arrived with Windows 8.1 and `IDWriteFactory3` with Windows 10 — and since `DCHECK` compiles out in release builds the empty `factory3_` travelled straight into `GetLocalFontCollection()` and faulted on its first virtual call, taking the browser process down as soon as a page needed fonts. Chromium up to 109.0.5414.120 took the collection from the base factory and said plainly that the two queries may fail on older DirectWrite; the patch restores that, keeping the newer path (and with it the side-loaded font support, which exists for tests) wherever `IDWriteFactory3` really is available. The other two uses of these members in the file were already safe: one checks `factory2_` for null, the other bails out when `IDWriteFontCollection1` cannot be obtained.
+
+- `sandbox/win/src/win_utils.cc`
+
+  Before a target lowers its token it closes the handles the policy tells it to, and to do that it first has to enumerate its own handle table. `GetCurrentProcessHandles()` asks `NtQueryInformationProcess()` for `ProcessHandleTable`, an information class that only exists from Windows 8.1 on — the file even says as much, declaring it as a value "not in PROCESS_INFO_CLASS". On Windows 7 the call returns `STATUS_INVALID_INFO_CLASS`, the function returns nothing, `CloseHandles()` fails and the target kills itself with `SBOX_FATAL_CLOSEHANDLES` — the same 7010 as above, reached by a completely different route, so both have to be fixed before a renderer will start. Chromium walked the table by hand on these systems until 109.0.5414.120, in a function called `GetCurrentProcessHandlesWin7()`: handle values are always a multiple of four, so it tries them in order until it has found as many live handles as the process reports, giving up after a hundred consecutive invalid ones. That function is restored here and used whenever the information class call fails, rather than behind a version check, so any other reason for failing also lands on a working path. One adjustment was needed against the original: `GetTypeNameFromHandle()` returned a bool and an out-parameter in 109 and returns `std::optional<std::wstring>` in 122.
+
+- `sandbox/win/src/sandbox_policy_base.cc`
+
+  The sandbox disconnects its targets from csrss.exe by closing the ALPC port handle to it. To leave the process usable afterwards it first destroys the heap it shares with csrss, and it finds that heap by walking the undocumented `_HEAP` structure at the hardcoded offsets in `sandbox/win/src/heap_helper.cc` — offsets that only describe the Windows 8 and later layout. On Windows 7 the search comes up empty, `CloseOpenHandles()` fails and the target executes `TerminateProcess(GetCurrentProcess(), SBOX_FATAL_CLOSEHANDLES)`, so **every renderer dies at startup with exit code 7010** and no page can ever be displayed. Chromium gated the whole thing on `GetVersion() >= WIN10` until 109.0.5414.120; restoring that check leaves csrss connected below Windows 10, which is how the sandbox always behaved there. Everything else — the restricted token, the job object, the alternate desktop and the integrity level — is unaffected. Rewriting the heap walk for the Windows 7 layout would be the wrong trade: those offsets are undocumented and vary between builds, and getting them wrong corrupts the heap of the process doing the walking.
 
 - `sandbox/win/src/startup_information_helper.h`, `startup_information_helper.cc`, `target_process.cc`
 
   The job object is handed to the child through `PROC_THREAD_ATTRIBUTE_JOB_LIST`, an attribute that only exists from Windows 10 on. On Windows 7 `UpdateProcThreadAttribute()` rejects it, `BuildStartupInformation()` fails and **no renderer, GPU or utility process can be started at all**. Below Windows 10 the attribute is now left out and the still-suspended target is assigned with `AssignProcessToJobObject()` before it is resumed, which is how Chromium did it up to 109; `CREATE_BREAKAWAY_FROM_JOB` comes back for pre-Windows 8, where nested jobs do not exist. The only difference is that the process exists outside the job for the moment between creation and assignment, while suspended.
+
+- `sandbox/policy/win/sandbox_win.cc`
+
+  Three assumptions about Windows 8 or later live in this file, and one of them costs the renderer its life.
+
+  `\Device\KsecDD` is the expensive one. Chromium closes the renderer's handle to that device immediately before lockdown, behind a feature that is enabled by default and that `sandbox/policy/features.cc` introduces as an "emergency off switch". On Windows 10 the close is free: randomness comes from `bcryptprimitives!ProcessPrng` and nothing goes near KsecDD again. On Windows 7 that export does not exist, so every one of the `ProcessPrng` sites above falls back to `advapi32!RtlGenRandom`, which is forwarded to `cryptbase.dll` — and cryptbase opens `\Device\KsecDD` exactly once, during the sandbox warmup, then holds that handle for the life of the process. Closing it makes every later call fail, and BoringSSL answers a failing `CRYPTO_sysrand()` with `abort()`. What you see is a renderer that exits with code 3, emits **not one line of log**, and does so about a second into the first page load — whenever something first asks for random bytes. The very same build with `QTWEBENGINE_DISABLE_SANDBOX=1` renders the page perfectly, which is what makes this one hard to place. Chromium 109 closed no such handle: it warmed the RNG with `rand_s()` under the comment "Cause advapi32 to load before the sandbox is turned on" and left the handle alone. The close is now gated on Windows 10, where the assumption behind it actually holds. It can also be switched off from outside, without rebuilding, which is the cheapest way to confirm the diagnosis on a machine that shows it: `--disable-features=WinSboxRendererCloseKsecDD`.
+
+  `AddWin32kLockdownPolicy()` lost its `GetVersion() < WIN8` early return. Win32k lockdown is a Windows 8 process mitigation; without the gate a Windows 7 renderer asks for a mitigation the kernel cannot apply and, more to the point, switches on the sandbox's fake GDI initialisation — a path that only ever ran in processes where win32k really was locked down. The gate is restored.
+
+  `\Device\DeviceApi` is closed unconditionally, where 109 only did so from Windows 8 on, the version that introduced the device. Harmless either way; it just hands the handle closer — which on Windows 7 is now walking the table by hand — one more name to look for.
 
 **Delay-loaded Media Foundation entry points**
 
@@ -128,7 +161,9 @@ Stock `Qt6WebEngineCore.dll` imports about thirty entry points that Windows 7 do
 
 Verified with Qt 6.8.4: viewing PDFs works on Windows 7 SP1.
 
-The Qt WebEngine part of this section is **not verified on Windows 7 yet** — it is derived from the import table of a real 6.8.4 build and from the Chromium 109 sources, but the patched build has still to be run there. Treat it as a starting point rather than a finished port, and please report what you find. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else; the first run is best done with `QTWEBENGINE_DISABLE_SANDBOX=1` so that a sandbox problem can be told apart from everything else.
+The Qt WebEngine part of this section has been run on Windows 7 SP1 x64. With `QTWEBENGINE_DISABLE_SANDBOX=1` the engine starts, loads a page over HTTP and passes 19 of the 22 checks in the test harness: networking, ICU, DirectWrite text, IndexedDB, localStorage, Web Workers, WebAssembly and `crypto` all work. The three failures — WebGL, WebGL2 and `requestAnimationFrame` — share one cause that has nothing to do with this port: the guest had no usable GPU (VMware/llvmpipe, OpenGL 2.1), so Skia could not create a `GrContext` at all. With the sandbox left enabled the renderer additionally needs the `sandbox_win.cc` patch above, which is the newest of the lot and still awaiting confirmation on hardware. A rebuild should end with no Windows 8-or-later imports left in `Qt6WebEngineCore.dll`, which is worth checking before anything else.
+
+Two things are worth knowing before debugging this yourself, because both cost a day here. Qt forces Chromium's log destination in `content_main_delegate_qt.cpp`, so `--log-file` is silently ignored and everything goes to stderr — which a Windows GUI application does not have; the CRT's file descriptor 2 has to be opened onto a real handle with `_dup2()` before any of it is visible. And even then a **sandboxed child process** writes into a void, because `sandbox_win.cc` only passes the parent's stdout and stderr handles to the child `#if !defined(OFFICIAL_BUILD)` — and Qt builds Chromium as an official build. Dropping that guard locally is what finally made the renderer's own output readable; it is a debugging change rather than a Windows 7 fix, so it is deliberately not part of the patch set.
 
 ### Other modules
 
@@ -140,10 +175,42 @@ Many other Qt 6 modules need no patches at all: built against patched qtbase, th
 - qttools
 - ... please let me know which work and which don't !
 
+### The version an application is told
+
+Windows does not necessarily tell a program which Windows it is running on. Since Windows 8.1, `GetVersionEx()` and `VerifyVersionInfo()` report **6.2** — Windows 8 — to any process whose manifest does not list the newer operating systems in a `<compatibility>` section. It was done to stop applications from breaking on every new release through careless version checks, and it is opt-in: declare support for Windows 10 in the manifest and you are told the truth, declare nothing and you are told 6.2 forever.
+
+`<versionhelpers.h>` sits on top of `VerifyVersionInfo()`, so it inherits the lie. Compiled twice from the same source and run on the same Windows 11 machine, differing only in the manifest:
+
+| | without manifest | with manifest |
+|---|---|---|
+| `IsWindows7OrGreater()` | 1 | 1 |
+| `IsWindows8OrGreater()` | 1 | 1 |
+| `IsWindows8Point1OrGreater()` | **0** | 1 |
+| `IsWindows10OrGreater()` | **0** | 1 |
+| real kernel32 version | 10.0.26100 | 10.0.26100 |
+
+Note where the cap sits: a check for Windows 8 is unaffected, checks for 8.1 and later are not. That is why `io/qstandardpaths_win.cpp` can keep using `IsWindows8OrGreater()`, while the D3D11 swapchain, which has to distinguish Windows 7 from Windows 10, cannot.
+
+This matters here more than it does in stock Qt, because a backport asks "am I on the old system?" in places stock Qt never needed to. Get it wrong and the failure is inverted and silent: a *modern* Windows takes the *Windows 7* path. That is precisely what happened with `QD3D11SwapChain::createOrResize()` — an application without a manifest was sent into the Windows 7 branch on Windows 10 and 11, got no swapchain, and could not display a `QQuickWidget`, `QOpenGLWidget` or `QWebEngineView` at all. Plain widget applications never noticed, because they never create a swapchain; Qt Designer runs fine either way.
+
+The fix is to ask something the manifest cannot influence. `QOperatingSystemVersion` reads the real version through ntdll's `RtlGetVersion()` — Qt loads it dynamically in `corelib/global/qoperatingsystemversion_win.cpp` for exactly this reason — so
+
+```cpp
+QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10
+```
+
+is correct regardless of how the application was built, and is what `qrhid3d11.cpp` now uses. Verified: from a binary with no manifest, where `IsWindows10OrGreater()` returns 0, this returns 1 and reports 10.0.26200.
+
+Two practical consequences:
+
+- **If you write patches for this backport**, prefer `QOperatingSystemVersion` over `<versionhelpers.h>`. Better still, resolve the entry point you actually need and branch on whether it exists, which is what nearly every patch here does; then the version never comes up.
+- **If you ship an application built with this Qt**, give it a manifest declaring support up to Windows 10/11 anyway. It is good hygiene in its own right, and it keeps you clear of every other place — inside Qt or not — that still asks Windows for its version.
+
 ### Known issues:
 
-- QRhi using DirectX 11/12 is not ported
-- Qt WebEngine is patched but not yet verified on Windows 7 (see the qtwebengine section)
+- QRhi using DirectX 11/12 is not ported. For Qt Quick and anything embedding it — including **Qt WebEngine**, whose `QWebEngineView` renders through a `QQuickWidget` — this means the default configuration cannot draw anything on Windows 7: `QD3D11SwapChain::createOrResizeWin7()` is still a stub returning false. Until it is implemented, run such applications with `QSG_RHI_BACKEND=opengl` (needs a driver with OpenGL 2.1 or newer, and then everything works including WebGL) or with `QT_QUICK_BACKEND=software` (no driver needed at all, no WebGL).
+- Qt WebEngine runs on Windows 7 with the sandbox disabled (19 of 22 harness checks, the rest being a GPU-less test machine); with the sandbox enabled the newest patch of the set is still awaiting confirmation on hardware. See the qtwebengine section.
+- The sandbox cannot put a target into a job object on Windows 7 if the browser process is itself already in one without `JOB_OBJECT_LIMIT_BREAKAWAY_OK`, because nested jobs only arrived in Windows 8. Chromium checked for this in `ShouldSetJobLevel()` and ran the target without a job level; that check was deleted with Windows 7 support and is **not** restored here yet, so an application launched from inside a job may fail to start child processes.
 - On Windows 7, Qt WebEngine gives up the features the OS never had: WinRT-backed ones (Web Bluetooth, WinRT MIDI, WinRT geolocation), hardware video encoding and Media Foundation camera capture through DXGI, per-monitor DPI, and the Windows 8-and-later sandbox mitigations
 - `SetDefaultDllDirectories()` needs KB2533623 on Windows 7; without that update the sandbox skips its DLL search-order hardening (KB2670838, already required by patched qtbase, is needed for the GPU stack)
 

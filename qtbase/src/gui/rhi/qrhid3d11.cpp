@@ -7,12 +7,11 @@
 #include <QWindow>
 #include <qmath.h>
 #include <QtCore/qcryptographichash.h>
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/private/qsystemerror_p.h>
 #include "qrhid3dhelpers_p.h"
 
 #include <cstdio>
-
-#include <versionhelpers.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -5124,7 +5123,14 @@ static const DXGI_FORMAT DEFAULT_SRGB_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 bool QD3D11SwapChain::createOrResize()
 {
-    if (IsWindows10OrGreater())
+    // Windows 7 backport: deliberately NOT IsWindows10OrGreater(). That helper
+    // goes through VerifyVersionInfo(), which reports 6.2 to any process whose
+    // manifest does not list the Windows 10 supportedOS GUID - so an
+    // application without such a manifest would be sent down the Windows 7 path
+    // below while actually running on Windows 10 or 11, and would fail to get a
+    // swapchain at all. QOperatingSystemVersion reads the real version through
+    // ntdll's RtlGetVersion(), which no manifest can influence.
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10)
     {
         // continue
     }
