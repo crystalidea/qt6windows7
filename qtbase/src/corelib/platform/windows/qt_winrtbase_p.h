@@ -38,17 +38,32 @@
 // static imports disappear. On Windows 8 and later the real functions are found
 // through combase.dll and behaviour is unchanged; on Windows 7 the lookup fails
 // and the callers fall back to the plain Win32 API paths they already have.
+//
+// combase.dll is loaded through the Win32 API rather than through C++/WinRT's own
+// WINRT_IMPL_* loader helpers. Those are internal to the SDK's copy of C++/WinRT
+// and are renamed along with it: 2.0.220110, in Windows SDK 10.0.22621, declares
+// WINRT_IMPL_LoadLibraryW, while 2.0.250303, in 10.0.26100, replaced it with
+// WINRT_IMPL_LoadLibraryExW - so a header written against either one fails to
+// compile against the other.
+//
+// The older C++/WinRT needs none of this in the first place: it resolved
+// RoGetActivationFactory() through combase.dll at run time itself, with a fallback
+// of its own, and declared no WINRT_IMPL_Ro* symbol for the linker to import. Where
+// that is the case nothing refers to the definitions below and they cost nothing.
+
+#    include <QtCore/qt_windows.h>
 
 namespace QtWinRTBackport {
 
 // LOAD_LIBRARY_SEARCH_SYSTEM32 keeps a rogue combase.dll sitting next to the
 // executable from being loaded in place of the system one.
-inline void *resolveCombaseSymbol(const char *symbol) noexcept
+inline FARPROC resolveCombaseSymbol(const char *symbol) noexcept
 {
-    static void *const library = WINRT_IMPL_LoadLibraryExW(L"combase.dll", nullptr, 0x00000800);
+    static const HMODULE library = LoadLibraryExW(L"combase.dll", nullptr,
+                                                  LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library)
         return nullptr;
-    return WINRT_IMPL_GetProcAddress(library, symbol);
+    return GetProcAddress(library, symbol);
 }
 
 } // namespace QtWinRTBackport
