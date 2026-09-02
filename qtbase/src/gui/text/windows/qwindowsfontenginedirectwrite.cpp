@@ -744,6 +744,105 @@ QFontEngine::Properties QWindowsFontEngineDirectWrite::properties() const
     }
 }
 
+/* Windows 7/8.1 backport: create a glyph run analysis, the object every glyph image and every
+   glyph bounding box in this file is built from.
+
+   Qt asks the shared factory for IDWriteFactory2 and uses the DirectWrite 2 entry point when it
+   is there, keeping the DirectWrite 1 one for when that QueryInterface fails. That covers
+   Windows 7, which has no IDWriteFactory2 at all, but not Windows 8 and 8.1, where the interface
+   is present and the call itself can still fail - and nothing catches that. What follows is worse
+   than one missing glyph: alphaMapBoundingBox() hands back a default-constructed glyph_metrics_t,
+   whose width and height are zero, and QTextureGlyphCache::populate() files a glyph of that size
+   away as unprintable. Every string in the application comes out blank, and stays blank, because
+   the empty result is what gets cached. https://github.com/crystalidea/qt6windows7/issues/60
+
+   The grid fit mode is one candidate for the failure: IDWriteFactory2::CreateGlyphRunAnalysis()
+   documents gridFitMode as "This must be non-default", and Qt passes DWRITE_GRID_FIT_MODE_DEFAULT
+   for every hinting preference except PreferNoHinting. Windows 10 accepts it; the DirectWrite
+   that shipped with Windows 8.1 need not.
+
+   So ask for exactly what Qt asks for first - on Windows 10 and later that call succeeds and is
+   the only one made, so rendering there is untouched - then retry with an explicit grid fit mode,
+   and only then drop to the DirectWrite 1 entry point Windows 7 has been using all along. Both
+   callers go through here, so the bounding box and the image that has to fit it are always
+   measured with the same call. */
+/* A failed CreateGlyphRunAnalysis() is not supposed to hand an object back, but the pointer is
+   about to be overwritten by the next attempt, so do not take that on trust. */
+static void discardGlyphRunAnalysis(IDWriteGlyphRunAnalysis **glyphAnalysis)
+{
+    if (*glyphAnalysis != NULL) {
+        (*glyphAnalysis)->Release();
+        *glyphAnalysis = NULL;
+    }
+}
+
+static HRESULT createGlyphRunAnalysis(IDWriteFactory *factory,
+                                      IDWriteFactory2 *factory2,
+                                      const DWRITE_GLYPH_RUN *glyphRun,
+                                      const DWRITE_MATRIX *transform,
+                                      DWRITE_RENDERING_MODE renderMode,
+                                      DWRITE_MEASURING_MODE measureMode,
+                                      DWRITE_GRID_FIT_MODE gridFitMode,
+                                      IDWriteGlyphRunAnalysis **glyphAnalysis)
+{
+    *glyphAnalysis = NULL;
+
+    if (factory2 != nullptr) {
+        HRESULT hr = factory2->CreateGlyphRunAnalysis(glyphRun,
+                                                      transform,
+                                                      renderMode,
+                                                      measureMode,
+                                                      gridFitMode,
+                                                      DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
+                                                      0.0, 0.0,
+                                                      glyphAnalysis);
+
+        if (FAILED(hr) && gridFitMode == DWRITE_GRID_FIT_MODE_DEFAULT) {
+            discardGlyphRunAnalysis(glyphAnalysis);
+            hr = factory2->CreateGlyphRunAnalysis(glyphRun,
+                                                  transform,
+                                                  renderMode,
+                                                  measureMode,
+                                                  DWRITE_GRID_FIT_MODE_ENABLED,
+                                                  DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
+                                                  0.0, 0.0,
+                                                  glyphAnalysis);
+        }
+
+        if (SUCCEEDED(hr))
+            return hr;
+
+        discardGlyphRunAnalysis(glyphAnalysis);
+
+        /* Said once, for the same reason as below: one line per glyph buries every other message
+           in the log and pays for a FormatMessage() per character drawn. */
+        static bool reportedFailedFactory2 = false;
+        if (!reportedFailedFactory2) {
+            reportedFailedFactory2 = true;
+            qCDebug(lcQpaFonts, "%s: the DirectWrite 2 glyph run analysis failed (%#lx); using the "
+                                "DirectWrite 1 one instead.", __FUNCTION__, (unsigned long)hr);
+        }
+    } else {
+        /* IDWriteFactory2 arrived with Windows 8.1, so on Windows 7 this is the state for every
+           single glyph that is rendered. */
+        static bool reportedMissingFactory2 = false;
+        if (!reportedMissingFactory2) {
+            reportedMissingFactory2 = true;
+            qCDebug(lcQpaFonts, "%s: IDWriteFactory2 is not available (it requires Windows 8.1 "
+                                "or later); using the DirectWrite 1 glyph run analysis instead.",
+                    __FUNCTION__);
+        }
+    }
+
+    return factory->CreateGlyphRunAnalysis(glyphRun,
+                                           1.0f,
+                                           transform,
+                                           renderMode,
+                                           measureMode,
+                                           0.0, 0.0,
+                                           glyphAnalysis);
+}
+
 QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
                                                     const QFixedPoint &subPixelPosition,
                                                     int margin,
@@ -788,45 +887,20 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
             : DWRITE_GRID_FIT_MODE_DEFAULT;
 
     IDWriteFactory2 *factory2 = nullptr;
-    HRESULT hr = m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
-                                                                      reinterpret_cast<void **>(&factory2));
-    IDWriteGlyphRunAnalysis *glyphAnalysis = NULL;
-    if (!SUCCEEDED(hr)) {
-        // Windows 7 backport: IDWriteFactory2 arrived with Windows 8.1, so on
-        // Windows 7 this query fails for every single glyph that is rendered.
-        // The DirectWrite 1 path below already handles that correctly - it is
-        // the same fallback Qt uses when the query fails for any other reason -
-        // but the warning cannot stay: at one line per glyph it buries every
-        // other message in the log and costs a FormatMessage() call each time.
-        // Say it once, as debug output, and let the fallback do its work.
-        static bool reportedMissingFactory2 = false;
-        if (!reportedMissingFactory2) {
-            reportedMissingFactory2 = true;
-            qCDebug(lcQpaFonts, "%s: IDWriteFactory2 is not available (it requires Windows 8.1 "
-                                "or later); using the DirectWrite 1 glyph run analysis instead.",
-                    __FUNCTION__);
-        }
-        hr = m_fontEngineData->directWriteFactory->CreateGlyphRunAnalysis(
-                    &glyphRun,
-                    1.0f,
-                    &transform,
-                    renderMode,
-                    measureMode,
-                    0.0, 0.0,
-                    &glyphAnalysis
-                    );
-    } else {
-        hr = factory2->CreateGlyphRunAnalysis(
-                    &glyphRun,
-                    &transform,
-                    renderMode,
-                    measureMode,
-                    gridFitMode,
-                    DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
-                    0.0, 0.0,
-                    &glyphAnalysis
-                    );
+    if (FAILED(m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
+                                                                    reinterpret_cast<void **>(&factory2)))) {
+        factory2 = nullptr;
     }
+
+    IDWriteGlyphRunAnalysis *glyphAnalysis = NULL;
+    HRESULT hr = createGlyphRunAnalysis(m_fontEngineData->directWriteFactory,
+                                        factory2,
+                                        &glyphRun,
+                                        &transform,
+                                        renderMode,
+                                        measureMode,
+                                        gridFitMode,
+                                        &glyphAnalysis);
 
     if (SUCCEEDED(hr)) {
         RECT rect;
@@ -837,6 +911,9 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
 
         if (rect.top == rect.bottom || rect.left == rect.right) {
             qCDebug(lcQpaFonts) << __FUNCTION__ << "Cannot get alpha texture bounds. Falling back to slower rendering path.";
+            glyphAnalysis->Release();
+            if (factory2 != nullptr)
+                factory2->Release();
             return QImage();
         }
 
@@ -886,16 +963,14 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
                     }
 
                     IDWriteGlyphRunAnalysis *colorGlyphsAnalysis = NULL;
-                    hr = factory2->CreateGlyphRunAnalysis(
-                                &colorGlyphRun->glyphRun,
-                                &transform,
-                                renderMode,
-                                measureMode,
-                                gridFitMode,
-                                DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
-                                0.0, 0.0,
-                                &colorGlyphsAnalysis
-                                );
+                    hr = createGlyphRunAnalysis(m_fontEngineData->directWriteFactory,
+                                                factory2,
+                                                &colorGlyphRun->glyphRun,
+                                                &transform,
+                                                renderMode,
+                                                measureMode,
+                                                gridFitMode,
+                                                &colorGlyphsAnalysis);
 
                     if (FAILED(hr)) {
                         qErrnoWarning(hr, "%s: CreateGlyphRunAnalysis failed for color run", __FUNCTION__);
@@ -950,9 +1025,13 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
         }
 
         glyphAnalysis->Release();
+        if (factory2 != nullptr)
+            factory2->Release();
         return image;
     } else {
         qErrnoWarning(hr, "%s: CreateGlyphRunAnalysis failed", __FUNCTION__);
+        if (factory2 != nullptr)
+            factory2->Release();
         return QImage();
     }
 }
@@ -1179,32 +1258,23 @@ glyph_metrics_t QWindowsFontEngineDirectWrite::alphaMapBoundingBox(glyph_t glyph
             : DWRITE_GRID_FIT_MODE_DEFAULT;
 
     IDWriteFactory2 *factory2 = nullptr;
-    HRESULT hr = m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
-                                                                      reinterpret_cast<void **>(&factory2));
+    if (FAILED(m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
+                                                                    reinterpret_cast<void **>(&factory2)))) {
+        factory2 = nullptr;
+    }
 
     IDWriteGlyphRunAnalysis *glyphAnalysis = NULL;
-    if (SUCCEEDED(hr)) {
-        hr = factory2->CreateGlyphRunAnalysis(
-                    &glyphRun,
-                    &transform,
-                    renderMode,
-                    measureMode,
-                    gridFitMode,
-                    DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
-                    0.0, 0.0,
-                    &glyphAnalysis
-                    );
-    } else {
-        hr = m_fontEngineData->directWriteFactory->CreateGlyphRunAnalysis(
-                    &glyphRun,
-                    1.0f,
-                    &transform,
-                    renderMode,
-                    measureMode,
-                    0.0, 0.0,
-                    &glyphAnalysis
-                    );
-    }
+    HRESULT hr = createGlyphRunAnalysis(m_fontEngineData->directWriteFactory,
+                                        factory2,
+                                        &glyphRun,
+                                        &transform,
+                                        renderMode,
+                                        measureMode,
+                                        gridFitMode,
+                                        &glyphAnalysis);
+
+    if (factory2 != nullptr)
+        factory2->Release();
 
     if (SUCCEEDED(hr)) {
         RECT rect;
