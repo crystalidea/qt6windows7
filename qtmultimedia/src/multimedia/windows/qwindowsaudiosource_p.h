@@ -22,9 +22,11 @@
 #include <QtMultimedia/private/qaudiosystem_platform_stream_support_p.h>
 #include <QtMultimedia/private/qaudio_platform_implementation_support_p.h>
 #include <QtMultimedia/private/qwindowsaudioutils_p.h>
+#include <QtMultimedia/private/qwindowsresampler_p.h>
 
 #include <atomic>
 #include <memory>
+#include <memory_resource>
 
 struct IMMDevice;
 struct IAudioCaptureClient;
@@ -57,6 +59,7 @@ struct QWASAPIAudioSourceStream final : std::enable_shared_from_this<QWASAPIAudi
     bool open() { return true; }
     bool start(QIODevice *);
     QIODevice *start();
+    bool start(AudioCallback &&);
 
     void suspend();
     void resume();
@@ -68,8 +71,12 @@ private:
     bool openAudioClient(ComPtr<IMMDevice> device);
     bool startAudioClient();
 
+    template <typename Functor>
+    bool visitAudioClientBuffer(Functor &&);
+
     void runProcessLoop();
-    bool process() noexcept QT_MM_NONBLOCKING;
+    bool processRingbuffer() noexcept QT_MM_NONBLOCKING;
+    bool processCallback() noexcept QT_MM_NONBLOCKING;
     void handleAudioClientError();
 
     // Windows 7 backport: base IAudioClient, see createAudioClient() in qwindowsaudioutils.cpp.
@@ -86,16 +93,24 @@ private:
     const QUniqueWin32NullHandle m_wasapiHandle;
     std::unique_ptr<QThread> m_workerThread;
 
+    std::optional<AudioCallback> m_audioCallback;
     QWindowsAudioSource *m_parent;
+
+    QAudioFormat m_hostFormat;
+    std::unique_ptr<char[]> m_preallocatedBuffer;
+    std::unique_ptr<std::pmr::memory_resource> m_pmrBufferResource;
+    std::unique_ptr<std::pmr::memory_resource> m_pmrPoolResource;
+    std::unique_ptr<QWindowsResampler> m_resampler;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 class QWindowsAudioSource final
-    : public QPlatformAudioSourceImplementation<QWASAPIAudioSourceStream, QWindowsAudioSource>
+    : public QPlatformAudioSourceImplementationWithCallback<QWASAPIAudioSourceStream,
+                                                            QWindowsAudioSource>
 {
-    using BaseClass =
-            QPlatformAudioSourceImplementation<QWASAPIAudioSourceStream, QWindowsAudioSource>;
+    using BaseClass = QPlatformAudioSourceImplementationWithCallback<QWASAPIAudioSourceStream,
+                                                                     QWindowsAudioSource>;
 
 public:
     QWindowsAudioSource(QAudioDevice, const QAudioFormat &, QObject *parent);

@@ -25,10 +25,13 @@
 
 #include <atomic>
 #include <memory>
+#include <memory_resource>
 
 struct IAudioRenderClient;
 
 QT_BEGIN_NAMESPACE
+
+class QWindowsResampler;
 
 namespace QtWASAPI {
 
@@ -76,6 +79,9 @@ private:
     bool openAudioClient(ComPtr<IMMDevice>, AudioEndpointRole);
     bool startAudioClient(StreamType);
 
+    template <typename Functor>
+    bool visitAudioClientBuffer(Functor &&f);
+
     void fillInitialHostBuffer();
     void runProcessRingbufferLoop();
     void runProcessCallbackLoop();
@@ -103,6 +109,12 @@ private:
     AudioCallback m_audioCallback;
 
     QWindowsAudioSink *m_parent;
+
+    QAudioFormat m_hostFormat;
+    std::unique_ptr<char[]> m_preallocatedBuffer;
+    std::unique_ptr<std::pmr::memory_resource> m_pmrBufferResource;
+    std::unique_ptr<std::pmr::memory_resource> m_pmrPoolResource;
+    std::unique_ptr<QWindowsResampler> m_resampler;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

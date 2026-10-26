@@ -75,10 +75,8 @@ qt_internal_add_module(FFmpegMediaPluginImplPrivate
         recordingengine/qffmpegvideoframeencoder.cpp
     NO_GENERATE_CPP_EXPORTS
     DEFINES
-        QT_COMPILING_FFMPEG
         QT_NO_CAST_FROM_ASCII
         QT_NO_CAST_TO_ASCII
-        QT_NO_CONTEXTLESS_CONNECT
     PUBLIC_LIBRARIES
         Qt::MultimediaPrivate
         Qt::CorePrivate
@@ -119,24 +117,18 @@ endif()
 
 qt_internal_extend_target(FFmpegMediaPluginImplPrivate CONDITION APPLE
     SOURCES
-        ../darwin/camera/qavfcamerabase_p.h ../darwin/camera/qavfcamerabase.mm
         qffmpeghwaccel_videotoolbox.mm qffmpeghwaccel_videotoolbox_p.h
         qavfcamera.mm qavfcamera_p.h
         qavfsamplebufferdelegate.mm qavfsamplebufferdelegate_p.h
 
     NO_UNITY_BUILD_SOURCES
         qffmpeghwaccel_videotoolbox.mm # AVMediaType clash between libavformat and AVFoundation
-        qavfcamera.mm # warning: 'AVCaptureDeviceRotationCoordinator' is only available on macOS 14.0
 
-    INCLUDE_DIRECTORIES
-        ../darwin
-        ../darwin/camera
     LIBRARIES
         ${FWAudioToolbox}
         ${FWAVFoundation}
         ${FWCoreMedia}
         ${FWCoreVideo}
-        ${FWVideoToolbox}
         ${FWSecurity}
 )
 
@@ -156,12 +148,12 @@ qt_internal_extend_target(FFmpegMediaPluginImplPrivate CONDITION WIN32
         qgdiwindowcapture.cpp qgdiwindowcapture_p.h
         qffmpegscreencapture_dxgi.cpp qffmpegscreencapture_dxgi_p.h
         qwincapturablewindows.cpp qwincapturablewindows_p.h
-    INCLUDE_DIRECTORIES
-        ../windows
     LIBRARIES
         Qt::MultimediaPrivate
-        WMF::WMF
+        mf
+        mfplat
         mfreadwrite
+        mfuuid
 )
 
 # Windows 7 backport: windowsapp (WindowsApp.lib) removed from LIBRARIES.
@@ -182,12 +174,14 @@ qt_internal_extend_target(FFmpegMediaPluginImplPrivate CONDITION WIN32
 qt_internal_extend_target(FFmpegMediaPluginImplPrivate CONDITION QT_FEATURE_cpp_winrt
     SOURCES
         qffmpegwindowcapture_uwp.cpp qffmpegwindowcapture_uwp_p.h
-    INCLUDE_DIRECTORIES
-        ../windows
     LIBRARIES
         Dwmapi
         Dxva2
 )
+
+if(QT_FEATURE_cpp_winrt)
+    qt_internal_set_exceptions_flags(FFmpegMediaPluginImplPrivate ON)
+endif()
 
 qt_internal_extend_target(FFmpegMediaPluginImplPrivate CONDITION QT_FEATURE_xlib
     SOURCES

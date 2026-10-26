@@ -3,12 +3,22 @@
 
 #include "qffmpegwindowcapture_uwp_p.h"
 #include "qffmpegsurfacecapturegrabber_p.h"
-#include "qabstractvideobuffer.h"
-#include <private/qvideoframe_p.h>
+
+#include <QtCore/qloggingcategory.h>
+#include <QtCore/qthread.h>
+#include <QtCore/private/qfactorycacheregistration_p.h>
+#include <QtCore/private/qsystemerror_p.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qwindow.h>
+#include <QtGui/qpa/qplatformscreen_p.h>
+#include <QtMultimedia/qabstractvideobuffer.h>
+#include <QtMultimedia/qvideoframe.h>
+#include <QtMultimedia/private/qcapturablewindow_p.h>
+#include <QtMultimedia/private/qmultimediautils_p.h>
+#include <QtMultimedia/private/qvideoframe_p.h>
 
 #include <unknwn.h>
 #include <winrt/base.h>
-#include <QtCore/private/qfactorycacheregistration_p.h>
 // Workaround for Windows SDK bug.
 // See https://github.com/microsoft/Windows.UI.Composition-Win32-Samples/issues/47
 namespace winrt::impl
@@ -28,16 +38,6 @@ auto wait_for(Async const& async, Windows::Foundation::TimeSpan const& timeout);
 #include <dwmapi.h>
 #include <lowlevelmonitorconfigurationapi.h>
 #include <physicalmonitorenumerationapi.h>
-
-#include "qvideoframe.h"
-#include <qwindow.h>
-#include <qthread.h>
-#include <qloggingcategory.h>
-#include <qguiapplication.h>
-#include <private/qmultimediautils_p.h>
-#include <private/qcapturablewindow_p.h>
-#include <qpa/qplatformscreen_p.h>
-#include <QtCore/private/qsystemerror_p.h>
 
 #include <memory>
 #include <system_error>
@@ -174,7 +174,7 @@ struct WindowGrabber
     WindowGrabber() = default;
 
     WindowGrabber(IDXGIAdapter1 *adapter, HWND hwnd)
-        : m_frameSize{ getWindowSize(hwnd) }, m_captureWindow{ hwnd }
+        : m_captureWindow{ hwnd }, m_frameSize{ getWindowSize(hwnd) }
     {
         check_hresult(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0,
                                         D3D11_SDK_VERSION, m_device.put(), nullptr, nullptr));
